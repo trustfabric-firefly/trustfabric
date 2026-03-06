@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        FIREBASE_CREDENTIALS_FILE: firebase_credentials.json
+    ports:
+      - "8000:8000"   # host:container
+    env_file:
+      - .env
+    volumes:
+      - ./firebase_credentials.json:/app/firebase_credentials.json

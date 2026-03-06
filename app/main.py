@@ -16,10 +16,12 @@ from firebase_admin import credentials
 
 from dotenv import load_dotenv
 load_dotenv()
+
+#cred = "/app/firebase_credentials.json"
 cred = os.getenv("FIREBASE_CREDENTIALS_FILE")
 
 firebase_cred = credentials.Certificate(cred)
-firebase_admin.initialize_app(cred)
+firebase_admin.initialize_app(firebase_cred)
 
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, version=settings.app_version)
