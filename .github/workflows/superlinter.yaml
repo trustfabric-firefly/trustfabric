@@ -12,7 +12,7 @@ jobs:
 
     env:
       FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-      SERVICE_FIREBASE_JSON: ${{ secrets.SERVICE_FIREBASE_JSON }}
+      SERVICE_FIREBASE: ${{ secrets.SERVICE_FIREBASE_JSON }}
 
     steps:
       - name: Checkout code
