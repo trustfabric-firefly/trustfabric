@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 #cred = "/app/firebase_credentials.json"
-cred = os.getenv("FIREBASE_CREDENTIALS_FILE")
+cred = os.getenv("SERVICE_FIREBASE")
 
 firebase_cred = credentials.Certificate(cred)
 firebase_admin.initialize_app(firebase_cred)
