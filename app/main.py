@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 from fastapi import HTTPException, status
 
@@ -11,7 +13,11 @@ from app.core.config import settings
 import firebase_admin
 from firebase_admin import credentials
 
-cred = credentials.Certificate("firefly-7bd68-firebase-adminsdk-fbsvc-233179879c.json")
+
+from dotenv import load_dotenv
+cred = os.getenv("FIREBASE_CREDENTIALS_FILE")
+
+firebase_cred = credentials.Certificate(cred)
 firebase_admin.initialize_app(cred)
 
 def create_app() -> FastAPI:
