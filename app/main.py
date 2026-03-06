@@ -16,7 +16,7 @@ from firebase_admin import credentials
 
 from dotenv import load_dotenv
 load_dotenv()
-cred = os.getenv("FIREBASE_SERVICE")
+cred = os.getenv("SERVICE_FIREBASE")
 
 firebase_cred = credentials.Certificate(cred)
 firebase_admin.initialize_app(cred)
