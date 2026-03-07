@@ -12,14 +12,25 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# In .env, set at least:
-# - ADMIN_TOKEN / VIEWER_TOKEN (for local auth)
-# - CLAUDE_API_KEY (for copilot)
-# -  FIREBASE_PROJECT_ID / FIREBASE_CREDENTIALS_FILE
-# - (optional) POLICIES_FILE (e.g., policies.yaml)
-
+# In .env edit and fill in the required values.
+# All required environment variables are listed in .env.example.
 uvicorn app.main:app --reload
 ```
+## Firebase Credentials
+
+1. Download your **Firebase service account JSON** from the Firebase Console.
+2. Rename the file: service-firebase.json
+3. Place the file in the project root directory.
+
+````bash
+4. Ensure .env contains (gitignore):
+SERVICE_FIREBASE=./service-firebase.json
+````
+
+## Diagnostics for HTTP API
+```bash
+
+
 
 Open `http://localhost:8000/docs` for interactive API docs.
 
