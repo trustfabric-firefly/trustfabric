@@ -1,0 +1,47 @@
+<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Circular container -->
+  <circle cx="50" cy="50" r="50" fill="white" />
+  
+  <!-- Woven Fabric Grid (Black) -->
+  <g fill="black">
+    <!-- Vertical Bars -->
+    <rect x="30" y="25" width="6" height="50" rx="3" />
+    <rect x="47" y="25" width="6" height="50" rx="3" />
+    <rect x="64" y="25" width="6" height="50" rx="3" />
+    
+    <!-- Horizontal Bars -->
+    <rect x="25" y="30" width="50" height="6" rx="3" />
+    <rect x="25" y="47" width="50" height="6" rx="3" />
+    <rect x="25" y="64" width="50" height="6" rx="3" />
+    
+    <!-- Overlays to create "weave" over/under illusion -->
+    <!-- Vertical cuts (making horizontal look like they go under) -->
+    <rect x="30" y="45" width="6" height="10" fill="white" /> <!-- col 1 over row 2 -->
+    <rect x="30" y="47" width="6" height="6" rx="3" /> 
+
+    <rect x="47" y="28" width="6" height="10" fill="white" /> <!-- col 2 over row 1 -->
+    <rect x="47" y="30" width="6" height="6" rx="3" />
+
+    <rect x="47" y="62" width="6" height="10" fill="white" /> <!-- col 2 over row 3 -->
+    <rect x="47" y="64" width="6" height="6" rx="3" />
+
+    <rect x="64" y="45" width="6" height="10" fill="white" /> <!-- col 3 over row 2 -->
+    <rect x="64" y="47" width="6" height="6" rx="3" />
+
+    <!-- Horizontal cuts (making vertical look like they go under) -->
+    <rect x="28" y="30" width="10" height="6" fill="white" /> <!-- row 1 over col 1 -->
+    <rect x="30" y="30" width="6" height="6" rx="3" />
+
+    <rect x="62" y="30" width="10" height="6" fill="white" /> <!-- row 1 over col 3 -->
+    <rect x="64" y="30" width="6" height="6" rx="3" />
+
+    <rect x="45" y="47" width="10" height="6" fill="white" /> <!-- row 2 over col 2 -->
+    <rect x="47" y="47" width="6" height="6" rx="3" />
+
+    <rect x="28" y="64" width="10" height="6" fill="white" /> <!-- row 3 over col 1 -->
+    <rect x="30" y="64" width="6" height="6" rx="3" />
+
+    <rect x="62" y="64" width="10" height="6" fill="white" /> <!-- row 3 over col 3 -->
+    <rect x="64" y="64" width="6" height="6" rx="3" />
+  </g>
+</svg>
