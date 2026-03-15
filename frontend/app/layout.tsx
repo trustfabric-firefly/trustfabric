@@ -1,0 +1,35 @@
+import type { Metadata } from "next";
+import "./globals.css";
+import { QueryProvider } from "@/providers/QueryProvider";
+import { AuthProvider } from "@/providers/AuthProvider";
+
+export const metadata: Metadata = {
+  title: {
+    default: "TrustFabric",
+    template: "%s | TrustFabric",
+  },
+  description:
+    "AI Governance platform — continuously monitor your organizational AI tool configurations and ensure compliance with defined governance policies.",
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Figtree:ital,wght@0,300..900;1,300..900&family=Host+Grotesk:ital,wght@0,300..800;1,300..800&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=LINE+Seed+JP&family=Manrope:wght@200..800&family=Plus+Jakarta+Sans:ital,wght@0,600;1,600&display=swap" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/icon?family=Material+Icons|Material+Icons+Outlined|Material+Icons+Round" rel="stylesheet" />
+      </head>
+      <body>
+        <AuthProvider>
+          <QueryProvider>{children}</QueryProvider>
+        </AuthProvider>
+      </body>
+    </html>
+  );
+}
