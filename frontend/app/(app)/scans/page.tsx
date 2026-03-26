@@ -133,9 +133,6 @@ const MOCK_SCAN_HISTORY: ScanResult[] = [
     },
 ];
 
-/* ═══════════════════════════════════════════════════════════════════════════════
-   MAIN PAGE COMPONENT
-   ═══════════════════════════════════════════════════════════════════════════════ */
 
 type PageView = "main" | "config" | "scanning" | "results" | "trends";
 
@@ -326,9 +323,6 @@ export default function ScansPage() {
     );
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════════
-   MAIN VIEW — Empty State or History
-   ═══════════════════════════════════════════════════════════════════════════════ */
 
 function MainView({
     hasScans,
@@ -448,9 +442,6 @@ function MainView({
     );
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════════
-   CONFIG VIEW — Pre-Scan Configuration
-   ═══════════════════════════════════════════════════════════════════════════════ */
 
 function ConfigView({
     configOrg,
@@ -568,9 +559,6 @@ function ConfigView({
     );
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════════
-   SCANNING VIEW — Progress Indicator
-   ═══════════════════════════════════════════════════════════════════════════════ */
 
 function ScanningView({ progress, org }: { progress: ScanProgress; org: string }) {
     return (
@@ -625,9 +613,6 @@ function ScanningView({ progress, org }: { progress: ScanProgress; org: string }
     );
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════════
-   RESULTS VIEW — Scan Complete
-   ═══════════════════════════════════════════════════════════════════════════════ */
 
 function ResultsView({
     scan,
@@ -770,9 +755,6 @@ function ResultsView({
     );
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════════
-   TRENDS VIEW — Compliance Over Time
-   ═══════════════════════════════════════════════════════════════════════════════ */
 
 function TrendsView({
     scanHistory,
@@ -896,10 +878,6 @@ function TrendsView({
         </div>
     );
 }
-
-/* ═══════════════════════════════════════════════════════════════════════════════
-   SUB-COMPONENTS
-   ═══════════════════════════════════════════════════════════════════════════════ */
 
 function LatestScanCard({ scan, onViewDetails }: { scan: ScanResult; onViewDetails: () => void }) {
     const hasViolations = scan.results.violations.length > 0;
@@ -1074,10 +1052,6 @@ function ComplianceGauge({ score }: { score: number }) {
         </div>
     );
 }
-
-/* ═══════════════════════════════════════════════════════════════════════════════
-   HELPERS
-   ═══════════════════════════════════════════════════════════════════════════════ */
 
 function formatDateTime(iso: string): string {
     return new Intl.DateTimeFormat("en-US", {
