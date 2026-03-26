@@ -32,7 +32,7 @@ import type { SvgIconComponent } from "@mui/icons-material";
 
 const TIER_ORDER: RiskTier[] = ["Tier 3", "Tier 2", "Tier 1"];
 
-/* ─── NIST AI RMF Control categories for heatmap ──────────────────────────── */
+/* nist heatmap */
 const NIST_CATEGORIES = [
     { id: "GV", name: "Govern", controls: 6 },
     { id: "MP", name: "Map", controls: 5 },
@@ -40,7 +40,6 @@ const NIST_CATEGORIES = [
     { id: "MG", name: "Manage", controls: 4 },
 ] as const;
 
-/* ─── Static integration list (what TrustFabric connects to) ──────────────── */
 const INTEGRATIONS = [
     { name: "GitHub", desc: "Code scanning & PR reviews", icon: GitHubIcon, status: "connected" as const },
     { name: "Slack", desc: "Alerts & notifications", icon: ForumOutlinedIcon, status: "connected" as const },
@@ -102,7 +101,7 @@ export default function DashboardPage() {
             <TopBar title="Dashboard" subtitle={total > 0 ? `Last updated ${formatRelativeTime(new Date().toISOString())}` : undefined} />
             <main className="page">
 
-                {/* ── Row 1: KPI Stats ───────────────────────────────────────── */}
+                {/* Row 1: KPI Stats */}
                 <div className="stats-grid" style={{ marginBottom: "var(--s-4)" }}>
                     <StatTile label="Model Compliance Score" value={loadingSummary ? "--" : `${complianceRate}%`} sub="Across all registered systems"
                         trend={complianceRate > 0 ? "up" : undefined} trendVal={complianceRate > 0 ? `${complianceRate}%` : undefined}
@@ -117,7 +116,7 @@ export default function DashboardPage() {
                         icon={<TimelineOutlinedIcon sx={{ fontSize: 18 }} />} variant="info" />
                 </div>
 
-                                                {/* ── Main Dashboard Content Grid ───────────────────── */}
+                                                {/* Main Dashboard Content Grid       */}
                 <div className="grid grid--2-1" style={{ marginBottom: "var(--s-4)" }}>
 
                     {/* LEFT COLUMN: Heatmap + Gauge + Risk */}
@@ -309,7 +308,7 @@ export default function DashboardPage() {
                 </div>
 
 
-                {/* ── Row 4: Compliance Audits (timeline) ────────────────────── */}
+                {/*  Row 4: Compliance Audits (timeline)  */}
                 <div className="panel" style={{ marginBottom: "var(--s-4)" }}>
                     <div className="panel__header">
                         <span className="panel__title">Compliance Audits</span>
@@ -334,7 +333,7 @@ export default function DashboardPage() {
                     </div>
                 </div>
 
-                {/* ── Row 5: Integrations + Live Audit Stream ────────────────── */}
+                {/*  Row 5: Integrations + Live Audit Stream  */}
                 <div className="grid grid--2">
                     {/* Integrations */}
                     <div className="panel">
@@ -454,10 +453,6 @@ export default function DashboardPage() {
         </>
     );
 }
-
-/* ═══════════════════════════════════════════════════════════════════════════════
-   LOCAL COMPONENTS
-   ═══════════════════════════════════════════════════════════════════════════════ */
 
 function StatTile({
     label, value, sub, trend, trendVal, icon, variant = "success",
@@ -606,9 +601,7 @@ function IntegrationSummaryPill({ count, label }: { count: number; label: string
     );
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════════
-   DATA GENERATORS — deterministic from live state
-   ═══════════════════════════════════════════════════════════════════════════════ */
+// data generators
 
 function generateHeatmap(systemCount: number, missingCount: number): number[][] {
     // Each category gets rows of "control cells".
