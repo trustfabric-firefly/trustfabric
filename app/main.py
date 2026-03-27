@@ -19,7 +19,7 @@ load_dotenv()
 cred = os.getenv("SERVICE_FIREBASE")
 
 firebase_cred = credentials.Certificate(cred)
-firebase_admin.initialize_app(cred)
+firebase_admin.initialize_app(firebase_cred)
 
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, version=settings.app_version)
