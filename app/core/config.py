@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,7 +20,11 @@ class Settings(BaseSettings):
 
     # Firebase
     firebase_project_id: str = ""
-    firebase_credentials_file: str | None = None
+    firebase_credentials_file: str | None = Field(
+        default=None,
+        # allow both environment variables to be used. if one is not set, the other will be used.
+        validation_alias=AliasChoices("FIREBASE_CREDENTIALS_FILE", "SERVICE_FIREBASE"),
+    )
 
     claude_api_key: str = ""
     anthropic_model: str = "claude-3-5-sonnet-20241022"

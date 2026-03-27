@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import os
 from collections import Counter
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import List, Optional
 
+import firebase_admin
+from firebase_admin import credentials, firestore
+
+from app.core.config import settings
 from app.domain.models import (
     AISystem,
     AISystemCreate,
@@ -20,22 +25,47 @@ from app.domain.models import (
 from app.services.policies import required_policies_for_risk
 
 
-class InMemoryStore:
+class FirestoreStore:
     def __init__(self) -> None:
-        self._systems: Dict[int, AISystem] = {}
-        self._events: Dict[int, ActivityEvent] = {}
-        self._audits: Dict[int, AuditEvent] = {}
-        self._llm_logs: Dict[int, LLMInteractionLog] = {}
+        self._systems_collection = "systems"
+        self._events_collection = "events"
+        self._audits_collection = "audits"
+        self._llm_logs_collection = "llm_logs"
+        self._counter_collection = "_counters"
+        self._counter_document = "ids"
+        self._db = self._init_firestore_client()
 
-        self._system_id_seq = 1
-        self._event_id_seq = 1
-        self._audit_id_seq = 1
-        self._llm_log_id_seq = 1
+    def _init_firestore_client(self):
+        """
+        Initialize Firestore and fail fast when credentials are missing/invalid.
+        """
+        creds_path = settings.firebase_credentials_file or os.getenv("SERVICE_FIREBASE")
+        if not creds_path:
+            raise RuntimeError("Firebase credentials path is not configured. Set SERVICE_FIREBASE in .env.")
+        if not os.path.exists(creds_path):
+            raise RuntimeError(f"Firebase credentials file not found: {creds_path}")
+
+        try:
+            firebase_admin.get_app()
+        except ValueError:
+            firebase_admin.initialize_app(credentials.Certificate(creds_path))
+
+        return firestore.client()
+
+    def _next_id(self, key: str) -> int:
+        counter_ref = self._db.collection(self._counter_collection).document(self._counter_document)
+        field = f"{key}_id_seq"
+        counter_ref.set({field: firestore.Increment(1)}, merge=True)
+        data = counter_ref.get().to_dict() or {}
+        return int(data[field])
+
+    @staticmethod
+    def _serialize(model_obj) -> dict:
+        return model_obj.model_dump(mode="json")
 
     # --- Systems ---
     def create_system(self, data: AISystemCreate, user_id: str) -> AISystem:
-        system_id = self._system_id_seq
-        self._system_id_seq += 1
+        system_id = self._next_id("system")
         now = datetime.utcnow()
 
         required_policies = self._derive_policies(data.risk_tier)
@@ -48,7 +78,7 @@ class InMemoryStore:
             missing_required_controls=self._missing_controls(required_policies, data),
             **data.model_dump(),
         )
-        self._systems[system_id] = system
+        self._db.collection(self._systems_collection).document(str(system_id)).set(self._serialize(system))
 
         self._record_audit(
             event_type=AuditEventType.system_created,
@@ -59,13 +89,23 @@ class InMemoryStore:
         return system
 
     def list_systems(self) -> List[AISystem]:
-        return list(self._systems.values())
+        systems: List[AISystem] = []
+        for doc in self._db.collection(self._systems_collection).stream():
+            payload = doc.to_dict() or {}
+            payload["id"] = int(doc.id)
+            systems.append(AISystem.model_validate(payload))
+        return sorted(systems, key=lambda system: system.id)
 
     def get_system(self, system_id: int) -> Optional[AISystem]:
-        return self._systems.get(system_id)
+        doc = self._db.collection(self._systems_collection).document(str(system_id)).get()
+        if not doc.exists:
+            return None
+        payload = doc.to_dict() or {}
+        payload["id"] = system_id
+        return AISystem.model_validate(payload)
 
     def update_system(self, system_id: int, data: AISystemUpdate, user_id: str) -> Optional[AISystem]:
-        system = self._systems.get(system_id)
+        system = self.get_system(system_id)
         if system is None:
             return None
 
@@ -98,12 +138,14 @@ class InMemoryStore:
                     f"to {system.risk_tier} (justification: {system.risk_justification})"
                 ),
             )
+        self._db.collection(self._systems_collection).document(str(system_id)).set(self._serialize(system))
         return system
 
     def delete_system(self, system_id: int, user_id: str) -> bool:
-        system = self._systems.pop(system_id, None)
+        system = self.get_system(system_id)
         if system is None:
             return False
+        self._db.collection(self._systems_collection).document(str(system_id)).delete()
         self._record_audit(
             event_type=AuditEventType.system_deleted,
             target_id=system_id,
@@ -114,10 +156,9 @@ class InMemoryStore:
 
     # --- Events ---
     def create_event(self, data: ActivityEventCreate) -> ActivityEvent:
-        event_id = self._event_id_seq
-        self._event_id_seq += 1
+        event_id = self._next_id("event")
         event = ActivityEvent(id=event_id, **data.model_dump())
-        self._events[event_id] = event
+        self._db.collection(self._events_collection).document(str(event_id)).set(self._serialize(event))
         return event
 
     def list_events(
@@ -127,7 +168,11 @@ class InMemoryStore:
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
     ) -> List[ActivityEvent]:
-        events = list(self._events.values())
+        events: List[ActivityEvent] = []
+        for doc in self._db.collection(self._events_collection).stream():
+            payload = doc.to_dict() or {}
+            payload["id"] = int(doc.id)
+            events.append(ActivityEvent.model_validate(payload))
         if system_id is not None:
             events = [e for e in events if e.system_id == system_id]
         if event_type is not None:
@@ -136,7 +181,7 @@ class InMemoryStore:
             events = [e for e in events if e.timestamp >= start]
         if end is not None:
             events = [e for e in events if e.timestamp <= end]
-        return events
+        return sorted(events, key=lambda event: event.id)
 
     # --- Audit ---
     def _record_audit(
@@ -146,9 +191,8 @@ class InMemoryStore:
         user_id: str,
         summary: str,
     ) -> None:
-        audit_id = self._audit_id_seq
-        self._audit_id_seq += 1
-        self._audits[audit_id] = AuditEvent(
+        audit_id = self._next_id("audit")
+        audit = AuditEvent(
             id=audit_id,
             event_type=event_type,
             target_id=target_id,
@@ -156,24 +200,34 @@ class InMemoryStore:
             timestamp=datetime.utcnow(),
             summary=summary,
         )
+        self._db.collection(self._audits_collection).document(str(audit_id)).set(self._serialize(audit))
 
     def list_audits(self) -> List[AuditEvent]:
-        return list(self._audits.values())
+        audits: List[AuditEvent] = []
+        for doc in self._db.collection(self._audits_collection).stream():
+            payload = doc.to_dict() or {}
+            payload["id"] = int(doc.id)
+            audits.append(AuditEvent.model_validate(payload))
+        return sorted(audits, key=lambda audit: audit.id)
 
     # --- LLM Logs ---
     def log_llm_interaction(self, log: LLMInteractionLog) -> LLMInteractionLog:
-        log_id = self._llm_log_id_seq
-        self._llm_log_id_seq += 1
+        log_id = self._next_id("llm_log")
         stored = log.model_copy(update={"id": log_id})
-        self._llm_logs[log_id] = stored
+        self._db.collection(self._llm_logs_collection).document(str(log_id)).set(self._serialize(stored))
         return stored
 
     def list_llm_logs(self) -> List[LLMInteractionLog]:
-        return list(self._llm_logs.values())
+        logs: List[LLMInteractionLog] = []
+        for doc in self._db.collection(self._llm_logs_collection).stream():
+            payload = doc.to_dict() or {}
+            payload["id"] = int(doc.id)
+            logs.append(LLMInteractionLog.model_validate(payload))
+        return sorted(logs, key=lambda log: log.id or 0)
 
     # --- Dashboard ---
     def dashboard_summary(self) -> DashboardSummary:
-        systems = list(self._systems.values())
+        systems = self.list_systems()
         total_systems = len(systems)
 
         risk_counter: Counter[RiskTier] = Counter()
@@ -184,7 +238,7 @@ class InMemoryStore:
             if s.missing_required_controls:
                 missing_controls += 1
 
-        events = list(self._events.values())
+        events = self.list_events()
         total_events = len(events)
         events_per_system_counter: Counter[int] = Counter(e.system_id for e in events)
 
@@ -222,5 +276,5 @@ class InMemoryStore:
         return False
 
 
-store = InMemoryStore()
+store = FirestoreStore()
 
