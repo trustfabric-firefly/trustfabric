@@ -7,6 +7,7 @@ import type {
     AuditEvent,
     CopilotRecommendation,
     DashboardSummary,
+    PolicyCreate,
 } from "@/types";
 
 const RAW_BASE_URL =
@@ -112,4 +113,18 @@ export const copilotApi = {
             `/api/v1/copilot/systems/${systemId}/recommendations`,
             { method: "POST" }
         ),
+};
+
+export type PolicyRecommendationResponse = {
+    content: string;
+    policy: PolicyCreate;
+    rules?: Record<string, unknown>;
+};
+
+export const policyApi = {
+    generate: (prompt: string, history: string[] = []) =>
+        request<PolicyRecommendationResponse>("/api/v1/copilot/policies/recommendations", {
+            method: "POST",
+            body: JSON.stringify({ prompt, history }),
+        }),
 };

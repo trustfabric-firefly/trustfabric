@@ -26,6 +26,7 @@ import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import type { SvgIconComponent } from "@mui/icons-material";
 import { TopBar } from "@/components/layout/TopBar";
+import { policyApi } from "@/lib/api";
 import type { Policy, PolicySeverity, PolicyCategory, PolicyTemplate as TPolicyTemplate, PolicyCreate } from "@/types";
 
 
@@ -450,14 +451,29 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
         // Auto-resize textarea back
         if (textareaRef.current) textareaRef.current.style.height = "24px";
 
-        // Simulate AI response (backend will replace with streaming API)
-        const delay = messages.length === 0 ? 2500 : 1800;
-        setTimeout(() => {
-            const aiResponse = generateAIResponse(msg, messages);
-            setMessages((prev) => [...prev, aiResponse]);
-            setIsTyping(false);
-            scrollToBottom();
-        }, delay);
+        (async () => {
+            try {
+                const response = await policyApi.generate(
+                    msg,
+                    messages.slice(-6).map((m) => `${m.role}: ${m.content}`)
+                );
+                const aiResponse: ChatMessage = {
+                    id: `msg_${Date.now()}`,
+                    role: "ai",
+                    content: response.content,
+                    policy: response.policy,
+                    rules: response.rules,
+                };
+                setMessages((prev) => [...prev, aiResponse]);
+            } catch {
+                // Keep a local fallback so UX still works if Claude is unavailable.
+                const fallback = generateAIResponse(msg, messages);
+                setMessages((prev) => [...prev, fallback]);
+            } finally {
+                setIsTyping(false);
+                scrollToBottom();
+            }
+        })();
     }, [input, isTyping, messages, scrollToBottom]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {

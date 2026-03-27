@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import re
 from datetime import datetime, timezone #timestamps LLM interactions (NIST Measure)
+from typing import Any
 
 from anthropic import Anthropic, APIStatusError
 from fastapi import HTTPException, status
@@ -138,4 +141,100 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
             "data_sensitivity": system.data_sensitivity,
         },
     }
+
+
+def _extract_json_object(raw: str) -> dict[str, Any]:
+    # Handle plain JSON and markdown-fenced JSON responses.
+    cleaned = raw.strip()
+    fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", cleaned, re.DOTALL)
+    candidate = fenced.group(1).strip() if fenced else cleaned
+    try:
+        parsed = json.loads(candidate)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail="Claude policy response was not valid JSON",
+    )
+
+
+def generate_policy_recommendation(prompt: str, user_id: str, history: list[str] | None = None) -> dict:
+    if not settings.claude_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Claude API key not configured on server",
+        )
+
+    compact_history = (history or [])[-6:]
+    history_block = "\n".join(f"- {item}" for item in compact_history if item.strip()) or "- (none)"
+    user_prompt = prompt.strip()[:MAX_INPUT_CHARS]
+    llm_prompt = f"""
+You are an enterprise AI governance policy assistant.
+Generate one policy in strict JSON format.
+
+Conversation context:
+{history_block}
+
+User request:
+{user_prompt}
+
+Return strict JSON with keys:
+- content: string (short explanation for user)
+- policy: object with:
+  - name: string
+  - description: string
+  - category: one of [model_restrictions, feature_control, security, quality_control, data_privacy, access_control, cost_management, compliance]
+  - severity: one of [low, medium, high]
+  - applies_to: array of strings
+  - creation_method: "ai_generated"
+- rules: object (machine-friendly enforcement fields)
+""".strip()
+
+    client = Anthropic(api_key=settings.claude_api_key)
+    now = datetime.now(timezone.utc)
+    try:
+        message = client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=1000,
+            temperature=0.2,
+            messages=[{"role": "user", "content": llm_prompt}],
+        )
+    except APIStatusError as exc:
+        error_detail = f"{type(exc).__name__}: {exc}"
+        store.log_llm_interaction(
+            LLMInteractionLog(
+                timestamp=now,
+                user_id=user_id,
+                system_id=None,
+                prompt_template_version="v1-policy-generator",
+                input_summary="Policy generation call failed",
+                model_name=settings.anthropic_model,
+                response_summary=error_detail[:1000],
+                success=False,
+            )
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Claude API call failed ({error_detail})",
+        ) from exc
+
+    text_parts = [c.text for c in message.content if getattr(c, "type", "") == "text"]
+    raw = "".join(text_parts).strip()
+    payload = _extract_json_object(raw)
+
+    store.log_llm_interaction(
+        LLMInteractionLog(
+            timestamp=now,
+            user_id=user_id,
+            system_id=None,
+            prompt_template_version="v1-policy-generator",
+            input_summary=user_prompt[:200],
+            model_name=settings.anthropic_model,
+            response_summary=raw[:1000] + ("..." if len(raw) > 1000 else ""),
+            success=True,
+        )
+    )
+    return payload
 
