@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import DocumentScannerOutlinedIcon from "@mui/icons-material/DocumentScannerOutlined";
 import PolicyOutlinedIcon from "@mui/icons-material/PolicyOutlined";
 import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
@@ -25,7 +26,8 @@ import KeyOutlinedIcon from "@mui/icons-material/KeyOutlined";
 import RefreshOutlinedIcon from "@mui/icons-material/RefreshOutlined";
 import type { SvgIconComponent } from "@mui/icons-material";
 import { TopBar } from "@/components/layout/TopBar";
-import type { AuditLogEntry, AuditActionCategory, AuditSeverity } from "@/types";
+import { auditApi } from "@/lib/api";
+import type { AuditEvent as BackendAuditEvent, AuditLogEntry, AuditActionCategory, AuditSeverity } from "@/types";
 
 
 const CATEGORY_ICONS: Record<AuditActionCategory, SvgIconComponent> = {
@@ -249,6 +251,11 @@ export default function AuditPage() {
     const [view, setView] = useState<PageView>("list");
     const [selectedEvent, setSelectedEvent] = useState<AuditLogEntry | null>(null);
     const [showExportMenu, setShowExportMenu] = useState(false);
+    const { data: auditEvents = [] } = useQuery({
+        queryKey: ["audit"],
+        queryFn: auditApi.list,
+    });
+    const events = useMemo(() => mapBackendAuditToLog(auditEvents), [auditEvents]);
 
     const handleViewDetails = useCallback((event: AuditLogEntry) => {
         setSelectedEvent(event);
@@ -261,9 +268,9 @@ export default function AuditPage() {
     }, []);
 
     // Stats
-    const totalEvents = MOCK_AUDIT_LOG.length;
-    const uniqueUsers = new Set(MOCK_AUDIT_LOG.map((e) => e.user_email)).size;
-    const criticalEvents = MOCK_AUDIT_LOG.filter((e) => e.severity === "critical").length;
+    const totalEvents = events.length;
+    const uniqueUsers = new Set(events.map((e) => e.user_email)).size;
+    const criticalEvents = events.filter((e) => e.severity === "critical").length;
 
     return (
         <>
@@ -291,7 +298,7 @@ export default function AuditPage() {
             <main className="page">
                 {view === "list" && (
                     <ListView
-                        events={MOCK_AUDIT_LOG}
+                        events={events}
                         totalEvents={totalEvents}
                         uniqueUsers={uniqueUsers}
                         criticalEvents={criticalEvents}
@@ -949,4 +956,29 @@ function formatEventDescription(event: AuditLogEntry): string {
 
 function formatKey(key: string): string {
     return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function mapBackendAuditToLog(events: BackendAuditEvent[]): AuditLogEntry[] {
+    return events
+        .slice()
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .map((event) => ({
+            event_id: String(event.id),
+            timestamp: event.timestamp,
+            user_id: event.user_id,
+            user_email: event.user_id,
+            event_type: event.event_type,
+            action: event.event_type,
+            action_category: "system",
+            severity: event.event_type.includes("deleted") ? "warning" : "info",
+            status: "success",
+            ip_address: "n/a",
+            user_agent: "server",
+            resource: {
+                type: "system",
+                id: String(event.target_id ?? "n/a"),
+                name: event.summary,
+            },
+            metadata: { summary: event.summary },
+        }));
 }

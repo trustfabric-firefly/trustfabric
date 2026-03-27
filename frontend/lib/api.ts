@@ -9,12 +9,32 @@ import type {
     DashboardSummary,
 } from "@/types";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const RAW_BASE_URL =
+    process.env.NEXT_PUBLIC_API_BASE_URL ??
+    process.env.NEXT_PUBLIC_API_URL ??
+    "http://localhost:8000";
+const LOCAL_TOKEN_KEY = "trustfabric_api_token";
+
+function normalizeBaseUrl(value: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) return "http://localhost:8000";
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        return trimmed.replace(/\/+$/, "");
+    }
+    // Support values like 127.0.0.1:8000 by adding default protocol.
+    return `http://${trimmed.replace(/\/+$/, "")}`;
+}
+
+const BASE_URL = normalizeBaseUrl(RAW_BASE_URL);
 
 
 async function getAuthHeaders(): Promise<HeadersInit> {
-    const user = auth.currentUser;
+    const user = auth?.currentUser;
     if (!user) {
+        if (typeof window !== "undefined") {
+            const localToken = window.localStorage.getItem(LOCAL_TOKEN_KEY);
+            if (localToken) return { Authorization: `Bearer ${localToken}` };
+        }
         const devToken = process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN;
         if (devToken) return { Authorization: `Bearer ${devToken}` };
         throw new Error("Not authenticated");
@@ -29,7 +49,8 @@ async function request<T>(
     options: RequestInit = {}
 ): Promise<T> {
     const authHeaders = await getAuthHeaders();
-    const res = await fetch(`${BASE_URL}${path}`, {
+    const endpoint = new URL(path, `${BASE_URL}/`).toString();
+    const res = await fetch(endpoint, {
         ...options,
         headers: {
             "Content-Type": "application/json",

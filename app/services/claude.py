@@ -87,6 +87,7 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
             ],
         )
     except APIStatusError as exc:  # pragma: no cover - network error handling
+        error_detail = f"{type(exc).__name__}: {exc}"
         store.log_llm_interaction(
             LLMInteractionLog(
                 timestamp=now,
@@ -95,13 +96,13 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
                 prompt_template_version=PROMPT_TEMPLATE_VERSION,
                 input_summary=f"Claude call failed: {type(exc).__name__}",
                 model_name=settings.anthropic_model,
-                response_summary=str(exc),
+                response_summary=error_detail[:1000],
                 success=False,
             )
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Claude API call failed",
+            detail=f"Claude API call failed ({error_detail})",
         ) from exc
 
     text_parts = [c.text for c in message.content if getattr(c, "type", "") == "text"]

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
 import AddOutlinedIcon from "@mui/icons-material/AddOutlined";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
@@ -29,13 +30,17 @@ import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import GitHubIcon from "@mui/icons-material/GitHub";
 import type { SvgIconComponent } from "@mui/icons-material";
 import { TopBar } from "@/components/layout/TopBar";
+import { Modal } from "@/components/ui/Modal";
+import { auditApi, copilotApi, systemsApi } from "@/lib/api";
 import type {
     AISystemInventoryItem,
     AISystemType,
+    CopilotRecommendation,
     DataSensitivity,
     DataAccessType,
     RiskLevel,
     SystemAuditEntry,
+    AISystem as BackendAISystem,
 } from "@/types";
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -243,9 +248,34 @@ const MOCK_AUDIT_LOG: SystemAuditEntry[] = [
 type PageView = "list" | "register" | "details";
 
 export default function SystemsPage() {
+    const queryClient = useQueryClient();
     const [view, setView] = useState<PageView>("list");
-    const [systems, setSystems] = useState<AISystemInventoryItem[]>(MOCK_SYSTEMS);
+    const [systems, setSystems] = useState<AISystemInventoryItem[]>([]);
     const [selectedSystem, setSelectedSystem] = useState<AISystemInventoryItem | null>(null);
+    const [scanSystemName, setScanSystemName] = useState<string>("");
+    const [scanResult, setScanResult] = useState<CopilotRecommendation | null>(null);
+    const [scanError, setScanError] = useState<string>("");
+
+    const { data: backendSystems = [] } = useQuery({
+        queryKey: ["systems"],
+        queryFn: systemsApi.list,
+    });
+    const { data: backendAudit = [] } = useQuery({
+        queryKey: ["audit"],
+        queryFn: auditApi.list,
+    });
+
+    const createSystemMutation = useMutation({
+        mutationFn: systemsApi.create,
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["systems"] }),
+    });
+    const runScanMutation = useMutation({
+        mutationFn: copilotApi.recommend,
+    });
+
+    useEffect(() => {
+        setSystems(backendSystems.map(mapBackendSystemToInventory));
+    }, [backendSystems]);
 
     const hasSystems = systems.length > 0;
 
@@ -263,33 +293,23 @@ export default function SystemsPage() {
         setSelectedSystem(null);
     }, []);
 
-    const handleSaveSystem = useCallback((data: Partial<AISystemInventoryItem>) => {
-        const newSystem: AISystemInventoryItem = {
-            id: `sys_${Date.now()}`,
-            name: data.name ?? "",
-            type: data.type ?? "custom",
-            description: data.description ?? "",
-            owner: data.owner ?? "",
-            contact_email: data.contact_email ?? "",
-            department: data.department ?? "",
-            risk_level: calculateRiskLevel(data.data_sensitivity ?? "Low", data.data_access_types ?? []),
-            data_sensitivity: data.data_sensitivity ?? "Low",
-            data_access_types: data.data_access_types ?? [],
-            platform: data.platform ?? "",
-            provider: data.platform ?? "",
-            models_used: data.models_used ?? [],
-            external_integrations: data.external_integrations ?? [],
-            connected: data.connected ?? false,
-            active_violations: 0,
-            scan_status: "not_scanned",
-            status: "active",
-            registered_by: "dev@local",
-            registered_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-        };
-        setSystems((prev) => [newSystem, ...prev]);
+    const handleSaveSystem = useCallback(async (data: Partial<AISystemInventoryItem>) => {
+        const payload = toBackendCreatePayload(data);
+        await createSystemMutation.mutateAsync(payload as never);
         setView("list");
-    }, []);
+    }, [createSystemMutation]);
+
+    const handleRunScan = useCallback(async (system: AISystemInventoryItem) => {
+        setScanSystemName(system.name);
+        setScanError("");
+        setScanResult(null);
+        try {
+            const recommendation = await runScanMutation.mutateAsync(Number(system.id));
+            setScanResult(recommendation);
+        } catch (error: unknown) {
+            setScanError(error instanceof Error ? error.message : "Scan failed");
+        }
+    }, [runScanMutation]);
 
     // Stats
     const criticalCount = systems.filter((s) => s.risk_level === "critical").length;
@@ -320,6 +340,7 @@ export default function SystemsPage() {
                         lowCount={lowCount}
                         onRegister={handleRegister}
                         onViewDetails={handleViewDetails}
+                        onRunScan={handleRunScan}
                     />
                 )}
 
@@ -333,10 +354,63 @@ export default function SystemsPage() {
                 {view === "details" && selectedSystem && (
                     <DetailsView
                         system={selectedSystem}
+                        auditLog={buildAuditLogForSystem(selectedSystem, backendAudit)}
+                        onRunScan={() => handleRunScan(selectedSystem)}
                         onBack={handleBack}
                     />
                 )}
             </main>
+            <Modal
+                open={runScanMutation.isPending || !!scanResult || !!scanError}
+                onClose={() => {
+                    if (runScanMutation.isPending) return;
+                    setScanResult(null);
+                    setScanError("");
+                    setScanSystemName("");
+                }}
+                title={`Scan result: ${scanSystemName || "System"}`}
+                subtitle="NIST AI RMF recommendation from Claude"
+                footer={
+                    <button
+                        className="btn btn--primary btn--sm"
+                        onClick={() => {
+                            setScanResult(null);
+                            setScanError("");
+                            setScanSystemName("");
+                        }}
+                        disabled={runScanMutation.isPending}
+                    >
+                        Close
+                    </button>
+                }
+            >
+                {runScanMutation.isPending && (
+                    <div style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
+                        Running scan...
+                    </div>
+                )}
+                {!!scanError && (
+                    <div className="alert alert--danger" style={{ fontSize: "var(--fs-12)" }}>
+                        {scanError}
+                    </div>
+                )}
+                {scanResult && (
+                    <pre
+                        style={{
+                            whiteSpace: "pre-wrap",
+                            fontSize: "var(--fs-12)",
+                            background: "var(--c-surface-raised)",
+                            padding: "var(--s-3)",
+                            borderRadius: "var(--r-md)",
+                            border: "1px solid var(--c-border)",
+                            maxHeight: 420,
+                            overflow: "auto",
+                        }}
+                    >
+                        {scanResult.raw_response}
+                    </pre>
+                )}
+            </Modal>
         </>
     );
 }
@@ -353,6 +427,7 @@ function ListView({
     lowCount,
     onRegister,
     onViewDetails,
+    onRunScan,
 }: {
     systems: AISystemInventoryItem[];
     hasSystems: boolean;
@@ -361,6 +436,7 @@ function ListView({
     lowCount: number;
     onRegister: () => void;
     onViewDetails: (system: AISystemInventoryItem) => void;
+    onRunScan: (system: AISystemInventoryItem) => void;
 }) {
     const [search, setSearch] = useState("");
     const [riskFilter, setRiskFilter] = useState<"all" | RiskLevel>("all");
@@ -457,13 +533,13 @@ function ListView({
                         ) : (
                         <>
                             {criticalSystems.length > 0 && (
-                                <SystemGroup label="CRITICAL RISK" systems={criticalSystems} onViewDetails={onViewDetails} />
+                                <SystemGroup label="CRITICAL RISK" systems={criticalSystems} onViewDetails={onViewDetails} onRunScan={onRunScan} />
                             )}
                             {highSystems.length > 0 && (
-                                <SystemGroup label="HIGH RISK" systems={highSystems} onViewDetails={onViewDetails} />
+                                <SystemGroup label="HIGH RISK" systems={highSystems} onViewDetails={onViewDetails} onRunScan={onRunScan} />
                             )}
                             {lowSystems.length > 0 && (
-                                <SystemGroup label="LOW RISK" systems={lowSystems} onViewDetails={onViewDetails} />
+                                <SystemGroup label="LOW RISK" systems={lowSystems} onViewDetails={onViewDetails} onRunScan={onRunScan} />
                             )}
                         </>
                     )}
@@ -802,9 +878,13 @@ function RegisterView({
 
 function DetailsView({
     system,
+    auditLog,
+    onRunScan,
     onBack,
 }: {
     system: AISystemInventoryItem;
+    auditLog: SystemAuditEntry[];
+    onRunScan: () => void;
     onBack: () => void;
 }) {
     const TypeIcon = SYSTEM_TYPE_ICONS[system.type];
@@ -895,7 +975,7 @@ function DetailsView({
                         )}
                     </div>
                     <div style={{ display: "flex", gap: "var(--s-2)" }}>
-                        <button className="btn btn--primary">
+                        <button className="btn btn--primary" onClick={onRunScan}>
                             <DocumentScannerOutlinedIcon sx={{ fontSize: 16 }} /> Run Compliance Scan
                         </button>
                         <button className="btn btn--secondary">
@@ -950,7 +1030,7 @@ function DetailsView({
                     <span className="panel__title">Audit Trail</span>
                 </div>
                 <div className="panel__body--flush">
-                    {MOCK_AUDIT_LOG.map((entry) => (
+                    {auditLog.map((entry) => (
                         <div key={entry.id} style={{ display: "flex", alignItems: "flex-start", gap: "var(--s-3)", padding: "var(--s-3) var(--s-4)", borderBottom: "1px solid var(--c-border-subtle)" }}>
                             <HistoryOutlinedIcon sx={{ fontSize: 16, color: "var(--c-text-muted)", marginTop: 2 }} />
                             <div style={{ flex: 1 }}>
@@ -973,7 +1053,7 @@ function DetailsView({
                 <button className="btn btn--secondary">
                     <ArchiveOutlinedIcon sx={{ fontSize: 16 }} /> Archive
                 </button>
-                <button className="btn btn--primary">
+                <button className="btn btn--primary" onClick={onRunScan}>
                     <DocumentScannerOutlinedIcon sx={{ fontSize: 16 }} /> Run Scan
                 </button>
             </div>
@@ -989,10 +1069,12 @@ function SystemGroup({
     label,
     systems,
     onViewDetails,
+    onRunScan,
 }: {
     label: string;
     systems: AISystemInventoryItem[];
     onViewDetails: (system: AISystemInventoryItem) => void;
+    onRunScan: (system: AISystemInventoryItem) => void;
 }) {
     const riskColor = label.includes("CRITICAL") ? "var(--c-critical)" : label.includes("HIGH") ? "var(--c-high)" : "var(--c-live)";
 
@@ -1012,7 +1094,12 @@ function SystemGroup({
                 </span>
             </div>
             {systems.map((system) => (
-                <SystemCard key={system.id} system={system} onViewDetails={() => onViewDetails(system)} />
+                <SystemCard
+                    key={system.id}
+                    system={system}
+                    onViewDetails={() => onViewDetails(system)}
+                    onRunScan={() => onRunScan(system)}
+                />
             ))}
         </div>
     );
@@ -1021,9 +1108,11 @@ function SystemGroup({
 function SystemCard({
     system,
     onViewDetails,
+    onRunScan,
 }: {
     system: AISystemInventoryItem;
     onViewDetails: () => void;
+    onRunScan: () => void;
 }) {
     const TypeIcon = SYSTEM_TYPE_ICONS[system.type];
 
@@ -1055,7 +1144,7 @@ function SystemCard({
             </div>
             <div className="system-card__actions">
                 <button className="btn btn--ghost btn--sm" onClick={(e) => { e.stopPropagation(); onViewDetails(); }}>View Details</button>
-                <button className="btn btn--ghost btn--sm" onClick={(e) => e.stopPropagation()}>Run Scan</button>
+                <button className="btn btn--ghost btn--sm" onClick={(e) => { e.stopPropagation(); onRunScan(); }}>Run Scan</button>
                 <button className="btn btn--ghost btn--sm" onClick={(e) => e.stopPropagation()}>Edit</button>
                 <button className="btn btn--ghost btn--sm" onClick={(e) => e.stopPropagation()}>Archive</button>
             </div>
@@ -1187,6 +1276,73 @@ function calculateRiskLevel(sensitivity: DataSensitivity, dataTypes: DataAccessT
         return "high";
     }
     return "low";
+}
+
+function backendRiskTierToRiskLevel(tier: BackendAISystem["risk_tier"]): RiskLevel {
+    if (tier === "Tier 3") return "critical";
+    if (tier === "Tier 2") return "high";
+    return "low";
+}
+
+function riskLevelToBackendTier(level: RiskLevel): BackendAISystem["risk_tier"] {
+    if (level === "critical") return "Tier 3";
+    if (level === "high") return "Tier 2";
+    return "Tier 1";
+}
+
+function mapBackendSystemToInventory(system: BackendAISystem): AISystemInventoryItem {
+    return {
+        id: String(system.id),
+        name: system.name,
+        type: "custom",
+        description: system.description,
+        owner: system.owner,
+        contact_email: "",
+        department: system.business_unit,
+        risk_level: backendRiskTierToRiskLevel(system.risk_tier),
+        data_sensitivity: system.data_sensitivity,
+        data_access_types: [],
+        platform: system.external_integrations[0] ?? "Unknown",
+        provider: system.external_integrations[0] ?? "Unknown",
+        models_used: [system.model_type],
+        external_integrations: system.external_integrations,
+        connected: false,
+        active_violations: system.missing_required_controls ? 1 : 0,
+        scan_status: system.missing_required_controls ? "violations" : "compliant",
+        status: system.status === "Active" ? "active" : system.status === "Retired" ? "archived" : "draft",
+        registered_by: "api",
+        registered_at: system.created_at,
+        updated_at: system.updated_at,
+    };
+}
+
+function toBackendCreatePayload(data: Partial<AISystemInventoryItem>) {
+    const riskLevel = calculateRiskLevel(data.data_sensitivity ?? "Low", data.data_access_types ?? []);
+    return {
+        name: data.name ?? "",
+        description: data.description ?? "",
+        owner: data.owner ?? "",
+        business_unit: data.department ?? "General",
+        model_type: "LLM" as const,
+        data_sensitivity: data.data_sensitivity ?? "Low",
+        external_integrations: data.external_integrations ?? [],
+        status: "Draft" as const,
+        risk_tier: riskLevelToBackendTier(riskLevel),
+        risk_justification: "Registered from frontend systems page.",
+    };
+}
+
+function buildAuditLogForSystem(system: AISystemInventoryItem, backendAudit: { id: number; timestamp: string; summary: string; target_id: number | null }[]): SystemAuditEntry[] {
+    const systemId = Number(system.id);
+    return backendAudit
+        .filter((entry) => entry.target_id === systemId || entry.target_id === null)
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .slice(0, 8)
+        .map((entry) => ({
+            id: String(entry.id),
+            timestamp: entry.timestamp,
+            event: entry.summary,
+        }));
 }
 
 function formatDate(iso: string): string {

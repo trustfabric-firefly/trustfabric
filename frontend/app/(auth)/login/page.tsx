@@ -6,7 +6,7 @@ import { useAuth } from "@/providers/AuthProvider";
 import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
 
 export default function LoginPage() {
-    const { signIn } = useAuth();
+    const { signIn, isDevMode } = useAuth();
     const router = useRouter();
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -19,6 +19,10 @@ export default function LoginPage() {
         setLoading(true);
         try {
             await signIn(email, password);
+            if (isDevMode && typeof window !== "undefined") {
+                // In dev mode, backend APIs can use ADMIN_TOKEN/VIEWER_TOKEN directly.
+                window.localStorage.setItem("trustfabric_api_token", password.trim());
+            }
             router.push("/dashboard");
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Sign in failed.");

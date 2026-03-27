@@ -63,6 +63,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const logOut = async () => {
+        if (typeof window !== "undefined") {
+            window.localStorage.removeItem("trustfabric_api_token");
+        }
         if (!isFirebaseEnabled || !auth) {
             setUser(null);
             return;
