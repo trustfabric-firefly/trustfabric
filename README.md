@@ -1,7 +1,7 @@
 ## Trust Fabric Backend
 
-- **What it does**: API for AI system inventory, risk tiers, policy flags, events, audit log, and a Claude “governance copilot” aligned to the NIST AI RMF.
-- **Tech**: Python, FastAPI, Uvicorn, in-memory store (DB-ready), optional Firebase auth, Anthropic Claude.
+- **What it does**: API for AI system inventory, risk tiers, policy flags, events, audit log, and an AI “governance copilot” aligned to the NIST AI RMF.
+- **Tech**: Python, FastAPI, Uvicorn, in-memory store (DB-ready), optional Firebase auth, Anthropic Claude, Google Gemini.
 
 ### How to run it
 
@@ -60,4 +60,16 @@ All protected routes expect `Authorization: Bearer <token>` where `<token>` is:
 - Required policies for each risk tier are loaded from a YAML file:
   - Default: internal safe config.
   - Override: set `POLICIES_FILE` in `.env` (see `policies.example.yaml` for format).
+
+### Copilot provider (hotswappable)
+
+Set these in `.env`:
+
+- `COPILOT_PROVIDER=auto` (`auto`, `gemini`, `claude`)
+- `GEMINI_API_KEY=...`
+- `GEMINI_MODEL=gemini-1.5-pro` (optional)
+- `CLAUDE_API_KEY=...` (optional fallback if Gemini fails)
+- `ANTHROPIC_MODEL=claude-3-5-sonnet-20241022` (optional)
+
+With `COPILOT_PROVIDER=auto`, the backend tries Gemini first, then falls back to Claude.
 

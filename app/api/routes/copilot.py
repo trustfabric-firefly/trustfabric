@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 
 from app.core.rate_limit import rate_limit
 from app.core.security import Actor, get_actor #auth model
-from app.services.claude import generate_recommendations_for_system #claude wrapper (NIST Map/Measure/Manage)
+from app.services.copilot import generate_recommendations_for_system
 
 router = APIRouter()
 
