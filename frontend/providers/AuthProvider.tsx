@@ -13,7 +13,7 @@ import {
     signOut,
     type User,
 } from "firebase/auth";
-import { auth, isFirebaseEnabled } from "@/lib/firebase";
+import { auth, isFirebaseConfigured } from "@/lib/firebase";
 
 interface AuthContextValue {
     user: User | null;
@@ -37,15 +37,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // ── Firebase disabled (no API key in .env.local) ──────────────────────
-        if (!isFirebaseEnabled || !auth) {
-            // Auto-sign in as a dev stub so the app renders without blocking
+        // ── No Firebase web config: dev stub user ───────────────────────────────
+        if (!isFirebaseConfigured) {
             setUser(DEV_USER);
             setLoading(false);
             return;
         }
 
-        // ── Firebase enabled ──────────────────────────────────────────────────
+        // ── Firebase: wait for client SDK (auth is undefined during SSR) ────────
+        if (typeof window === "undefined" || !auth) {
+            setLoading(false);
+            return;
+        }
+
         const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
             setUser(firebaseUser);
             setLoading(false);
@@ -54,8 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const signIn = async (email: string, password: string) => {
-        if (!isFirebaseEnabled || !auth) {
-            // Dev mode: accept any credentials
+        if (!isFirebaseConfigured || !auth) {
             setUser(DEV_USER);
             return;
         }
@@ -66,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (typeof window !== "undefined") {
             window.localStorage.removeItem("trustfabric_api_token");
         }
-        if (!isFirebaseEnabled || !auth) {
+        if (!isFirebaseConfigured || !auth) {
             setUser(null);
             return;
         }
@@ -75,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return (
         <AuthContext.Provider
-            value={{ user, loading, isDevMode: !isFirebaseEnabled, signIn, logOut }}
+            value={{ user, loading, isDevMode: !isFirebaseConfigured, signIn, logOut }}
         >
             {children}
         </AuthContext.Provider>

@@ -19,11 +19,20 @@ export default function LoginPage() {
         setLoading(true);
         try {
             await signIn(email, password);
-            if (isDevMode && typeof window !== "undefined") {
-                // In dev mode, backend APIs can use ADMIN_TOKEN/VIEWER_TOKEN directly.
-                window.localStorage.setItem("trustfabric_api_token", password.trim());
+            if (typeof window !== "undefined") {
+                if (isDevMode) {
+                    window.localStorage.setItem("trustfabric_api_token", password.trim());
+                } else {
+                    window.localStorage.removeItem("trustfabric_api_token");
+                }
             }
-            router.push("/dashboard");
+            const raw =
+                typeof window !== "undefined"
+                    ? new URLSearchParams(window.location.search).get("returnTo")
+                    : null;
+            const returnTo =
+                raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : "/dashboard";
+            router.push(returnTo);
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : "Sign in failed.");
         } finally {

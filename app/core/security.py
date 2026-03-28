@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import settings
-# from app.integrations.firebase import verify_firebase_token
+from app.integrations.firebase import verify_firebase_token
 
 
 class Role(str, Enum):

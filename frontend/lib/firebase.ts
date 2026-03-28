@@ -10,13 +10,16 @@ const firebaseConfig = {
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-const hasConfig =
-    typeof window !== "undefined" && !!firebaseConfig.apiKey;
+/** True when web env vars are set (SSR-safe; use for routing and dev vs prod auth). */
+export const isFirebaseConfigured =
+    typeof firebaseConfig.apiKey === "string" && firebaseConfig.apiKey.length > 0;
+
+const hasClientConfig = typeof window !== "undefined" && isFirebaseConfigured;
 
 let firebaseApp: FirebaseApp | undefined;
 let auth: Auth | undefined;
 
-if (hasConfig) {
+if (hasClientConfig) {
     firebaseApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
     auth = getAuth(firebaseApp);
 }
@@ -24,4 +27,5 @@ if (hasConfig) {
 export { auth };
 export default firebaseApp;
 
-export const isFirebaseEnabled = hasConfig;
+/** True when the Firebase client is initialized in the browser (not available during SSR). */
+export const isFirebaseEnabled = hasClientConfig;
