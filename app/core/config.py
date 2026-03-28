@@ -24,10 +24,11 @@ class Settings(BaseSettings):
     claude_api_key: str = ""
     anthropic_model: str = "claude-3-5-sonnet-20241022"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-1.5-pro"
+    gemini_model: str = "gemini-2.5-flash"
     copilot_provider: str = "auto"  # auto | gemini | claude
 
     rate_limit_per_minute: int = 60
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
     # Policy engine
     policies_file: str | None = "policies.yaml"

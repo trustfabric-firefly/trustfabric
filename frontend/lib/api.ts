@@ -13,14 +13,19 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 
 async function getAuthHeaders(): Promise<HeadersInit> {
-    const user = auth.currentUser;
-    if (!user) {
-        const devToken = process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN;
-        if (devToken) return { Authorization: `Bearer ${devToken}` };
-        throw new Error("Not authenticated");
+    const user = auth?.currentUser;
+    if (user) {
+        const token = await user.getIdToken();
+        return { Authorization: `Bearer ${token}` };
     }
-    const token = await user.getIdToken();
-    return { Authorization: `Bearer ${token}` };
+
+    // Local dev fallback (when Firebase auth is not configured in frontend).
+    const devToken =
+        process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN
+        ?? process.env.NEXT_PUBLIC_DEV_VIEWER_TOKEN
+        ?? "admin-dev-token";
+
+    return { Authorization: `Bearer ${devToken}` };
 }
 
 
@@ -50,10 +55,10 @@ async function request<T>(
 
 
 export const systemsApi = {
-    list: () => request<AISystem[]>("/api/v1/systems"),
+    list: () => request<AISystem[]>("/api/v1/systems/"),
     get: (id: number) => request<AISystem>(`/api/v1/systems/${id}`),
     create: (data: AISystemCreate) =>
-        request<AISystem>("/api/v1/systems", {
+        request<AISystem>("/api/v1/systems/", {
             method: "POST",
             body: JSON.stringify(data),
         }),

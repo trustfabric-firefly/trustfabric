@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import ListOutlinedIcon from "@mui/icons-material/ListOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import DashboardCustomizeOutlinedIcon from "@mui/icons-material/DashboardCustomizeOutlined";
@@ -26,7 +27,17 @@ import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import type { SvgIconComponent } from "@mui/icons-material";
 import { TopBar } from "@/components/layout/TopBar";
-import type { Policy, PolicySeverity, PolicyCategory, PolicyTemplate as TPolicyTemplate, PolicyCreate } from "@/types";
+import { copilotApi, systemsApi } from "@/lib/api";
+import type {
+    AISystem,
+    CopilotRecommendation,
+    ParsedRecommendation,
+    Policy,
+    PolicySeverity,
+    PolicyCategory,
+    PolicyTemplate as TPolicyTemplate,
+    PolicyCreate,
+} from "@/types";
 
 
 type Tab = "view_all" | "manual" | "template" | "ai_generate";
@@ -430,14 +441,31 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState("");
     const [isTyping, setIsTyping] = useState(false);
+    const [selectedSystemId, setSelectedSystemId] = useState<number | "">("");
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const {
+        data: systems = [],
+        isLoading: isLoadingSystems,
+        isError: isSystemsError,
+        error: systemsError,
+    } = useQuery({
+        queryKey: ["systems"],
+        queryFn: systemsApi.list,
+        refetchOnMount: "always",
+    });
+
+    useEffect(() => {
+        if (selectedSystemId === "" && systems.length > 0) {
+            setSelectedSystemId(systems[0].id);
+        }
+    }, [selectedSystemId, systems]);
 
     const scrollToBottom = useCallback(() => {
         setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
     }, []);
 
-    const handleSend = useCallback((text?: string) => {
+    const handleSend = useCallback(async (text?: string) => {
         const msg = (text ?? input).trim();
         if (!msg || isTyping) return;
 
@@ -450,15 +478,52 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
         // Auto-resize textarea back
         if (textareaRef.current) textareaRef.current.style.height = "24px";
 
-        // Simulate AI response (backend will replace with streaming API)
-        const delay = messages.length === 0 ? 2500 : 1800;
-        setTimeout(() => {
+        const hasPolicy = messages.some((m) => m.role === "ai" && m.policy);
+        const isRefinement = isLikelyRefinement(msg);
+
+        // Keep iterative local refinement behavior once a policy exists.
+        if (hasPolicy && isRefinement) {
             const aiResponse = generateAIResponse(msg, messages);
             setMessages((prev) => [...prev, aiResponse]);
             setIsTyping(false);
             scrollToBottom();
-        }, delay);
-    }, [input, isTyping, messages, scrollToBottom]);
+            return;
+        }
+
+        if (selectedSystemId === "") {
+            setMessages((prev) => [
+                ...prev,
+                {
+                    id: `msg_${Date.now()}`,
+                    role: "ai",
+                    content: "Select an AI system first so I can generate policies from backend risk recommendations.",
+                },
+            ]);
+            setIsTyping(false);
+            scrollToBottom();
+            return;
+        }
+
+        try {
+            const selectedSystem = systems.find((s) => s.id === selectedSystemId) ?? null;
+            const recommendation = await copilotApi.recommend(selectedSystemId);
+            const aiResponse = buildAIResponseFromCopilot(msg, recommendation, selectedSystem);
+            setMessages((prev) => [...prev, aiResponse]);
+        } catch (err) {
+            const detail = err instanceof Error ? err.message : "Failed to generate policy";
+            setMessages((prev) => [
+                ...prev,
+                {
+                    id: `msg_${Date.now()}`,
+                    role: "ai",
+                    content: `I couldn't reach the backend copilot: ${detail}`,
+                },
+            ]);
+        } finally {
+            setIsTyping(false);
+            scrollToBottom();
+        }
+    }, [input, isTyping, messages, scrollToBottom, selectedSystemId, systems]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Enter" && !e.shiftKey) {
@@ -492,7 +557,7 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
                         </div>
                         <div className="chat__empty-title">AI Policy Generator</div>
                         <div className="chat__empty-desc">
-                            Describe the policy you need in plain language. I'll generate a structured, enforceable policy for your organization. You can keep refining it through conversation.
+                            Describe the policy you need in plain language. I will generate a structured, enforceable policy for your organization. You can keep refining it through conversation.
                         </div>
                         <div className="chat__suggestions">
                             {AI_SUGGESTIONS.map((s, i) => (
@@ -581,6 +646,35 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
 
             {/* Input bar — always at bottom */}
             <div className="chat__input-bar">
+                <div style={{ maxWidth: 760, margin: "0 auto 8px", display: "flex", gap: "var(--s-2)", alignItems: "center" }}>
+                    <label style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)" }}>System</label>
+                    <select
+                        className="input"
+                        style={{ width: "100%" }}
+                        value={selectedSystemId}
+                        onChange={(e) => setSelectedSystemId(e.target.value ? Number(e.target.value) : "")}
+                        disabled={isLoadingSystems || isTyping}
+                    >
+                        <option value="">
+                            {isLoadingSystems ? "Loading systems..." : systems.length === 0 ? "No systems available" : "Select system"}
+                        </option>
+                        {systems.map((system) => (
+                            <option key={system.id} value={system.id}>
+                                {system.name} (Risk: {system.risk_tier ?? "Unassigned"})
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                {systems.length === 0 && !isLoadingSystems && (
+                    <div style={{ maxWidth: 760, margin: "0 auto 8px", fontSize: "var(--fs-11)", color: "var(--c-text-muted)", textAlign: "center" }}>
+                        No systems found. Create one via `POST /api/v1/systems` and refresh this page.
+                    </div>
+                )}
+                {isSystemsError && (
+                    <div style={{ maxWidth: 760, margin: "0 auto 8px", fontSize: "var(--fs-11)", color: "var(--c-high)", textAlign: "center" }}>
+                        Failed to load systems: {systemsError instanceof Error ? systemsError.message : "Unknown error"}
+                    </div>
+                )}
                 <div className="chat__input-wrap">
                     <textarea
                         ref={textareaRef}
@@ -776,4 +870,127 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
         },
         rules: { policy_name: "custom_governance", enforcement: "advisory", monitoring: true, review_cycle_days: 30, requires_approval: true },
     };
+}
+
+function isLikelyRefinement(message: string): boolean {
+    const lower = message.toLowerCase();
+    return lower.includes("refine")
+        || lower.includes("strict")
+        || lower.includes("change")
+        || lower.includes("update")
+        || lower.includes("modify")
+        || lower.includes("add");
+}
+
+function buildAIResponseFromCopilot(
+    userMsg: string,
+    recommendation: CopilotRecommendation,
+    system: AISystem | null,
+): ChatMessage {
+    const parsed = parseRawRecommendation(recommendation.raw_response);
+    const provider = (recommendation as CopilotRecommendation & { provider?: string }).provider ?? "copilot";
+    const source = `${provider}/${recommendation.model}`;
+
+    if (!parsed) {
+        return {
+            id: `msg_${Date.now()}`,
+            role: "ai",
+            content: `I generated guidance from backend (${source}), but the model response was not strict JSON. Raw output:\n\n${recommendation.raw_response}`,
+        };
+    }
+
+    const policyCategory = mapPoliciesToCategory(parsed.suggested_policies);
+    const severity = mapRiskTierToSeverity(parsed.suggested_risk_tier);
+    const generatedName = `${system?.name ?? "AI System"} Governance Controls`;
+    const clarifying = parsed.clarifying_questions.length > 0
+        ? `\n\nClarifying questions:\n- ${parsed.clarifying_questions.join("\n- ")}`
+        : "";
+
+    return {
+        id: `msg_${Date.now()}`,
+        role: "ai",
+        content: `I've generated a policy from backend copilot recommendations for **${system?.name ?? "the selected system"}**.\n\nSource: ${source}${userMsg ? `\nPrompt: "${userMsg}"` : ""}`,
+        policy: {
+            name: generatedName,
+            description: `${parsed.rationale}${clarifying}`,
+            category: policyCategory,
+            severity,
+            applies_to: [system?.business_unit || "All Organizations"],
+            creation_method: "ai_generated",
+        },
+        rules: {
+            suggested_model_type: parsed.suggested_model_type,
+            suggested_data_sensitivity: parsed.suggested_data_sensitivity,
+            suggested_risk_tier: parsed.suggested_risk_tier,
+            suggested_policies: parsed.suggested_policies,
+            clarifying_questions: parsed.clarifying_questions,
+            source_provider: provider,
+            source_model: recommendation.model,
+        },
+    };
+}
+
+function parseRawRecommendation(raw: string): ParsedRecommendation | null {
+    const trimmed = raw.trim();
+    const codeFenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const candidate = (codeFenceMatch?.[1] ?? trimmed).trim();
+
+    const tryParse = (text: string): ParsedRecommendation | null => {
+        try {
+            const obj = JSON.parse(text) as Partial<ParsedRecommendation>;
+            if (
+                typeof obj.suggested_model_type === "string"
+                && typeof obj.suggested_data_sensitivity === "string"
+                && typeof obj.suggested_risk_tier === "string"
+                && Array.isArray(obj.suggested_policies)
+                && typeof obj.rationale === "string"
+                && Array.isArray(obj.clarifying_questions)
+            ) {
+                return {
+                    suggested_model_type: obj.suggested_model_type as ParsedRecommendation["suggested_model_type"],
+                    suggested_data_sensitivity: obj.suggested_data_sensitivity as ParsedRecommendation["suggested_data_sensitivity"],
+                    suggested_risk_tier: obj.suggested_risk_tier,
+                    suggested_policies: obj.suggested_policies as ParsedRecommendation["suggested_policies"],
+                    rationale: obj.rationale,
+                    clarifying_questions: obj.clarifying_questions as string[],
+                };
+            }
+            return null;
+        } catch {
+            return null;
+        }
+    };
+
+    const direct = tryParse(candidate);
+    if (direct) return direct;
+
+    // Fallback: if model wraps JSON with extra text, extract the first balanced object.
+    const firstBrace = candidate.indexOf("{");
+    if (firstBrace < 0) return null;
+    let depth = 0;
+    let endIndex = -1;
+    for (let i = firstBrace; i < candidate.length; i += 1) {
+        if (candidate[i] === "{") depth += 1;
+        if (candidate[i] === "}") depth -= 1;
+        if (depth === 0) {
+            endIndex = i;
+            break;
+        }
+    }
+    if (endIndex < 0) return null;
+    return tryParse(candidate.slice(firstBrace, endIndex + 1));
+}
+
+function mapPoliciesToCategory(suggested: string[]): PolicyCategory {
+    if (suggested.includes("pii_restrictions")) return "data_privacy";
+    if (suggested.includes("human_review_required")) return "quality_control";
+    if (suggested.includes("logging_required")) return "compliance";
+    return "compliance";
+}
+
+function mapRiskTierToSeverity(riskTier: string): PolicySeverity {
+    const normalized = riskTier.toLowerCase();
+    if (normalized.includes("tier 1")) return "high";
+    if (normalized.includes("tier 2")) return "medium";
+    return "low";
 }

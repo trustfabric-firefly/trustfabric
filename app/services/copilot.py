@@ -15,9 +15,9 @@ ProviderFn = Callable[[int, str], dict]
 def _provider_order() -> list[str]:
     provider = settings.copilot_provider.lower().strip()
     if provider == "gemini":
-        return ["gemini", "claude"]
+        return ["gemini"]
     if provider == "claude":
-        return ["claude", "gemini"]
+        return ["claude"]
     if provider == "auto":
         # Prefer Gemini for temporary Claude downtime.
         return ["gemini", "claude"]
