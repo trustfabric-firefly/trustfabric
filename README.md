@@ -76,11 +76,3 @@ Do not commit real secrets (`.env`, `.env.local`, `service-firebase.json`).
 ### 5. API auth
 
 Send `Authorization: Bearer <token>` with `ADMIN_TOKEN`, `VIEWER_TOKEN`, or a Firebase **ID token** (when `FIREBASE_PROJECT_ID` is set). Admin-only routes (e.g. create/update/delete systems) need admin (`ADMIN_TOKEN` or Firebase custom claim `role: admin`).
-
----
-
-### 6. API surface (short)
-
-Systems, events, dashboard, audit under `/api/v1/…`. Copilot: `POST /api/v1/copilot/systems/{id}/recommendations` (no body), `POST /api/v1/copilot/policies/recommendations` with `{ "prompt", "history" }`. Sample payloads: **`examples/`**.
-
-**Note:** One shared Firestore database today — no per-tenant DB isolation in code.

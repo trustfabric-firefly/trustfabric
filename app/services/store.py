@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections import Counter
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -33,7 +33,13 @@ class FirestoreStore:
         self._llm_logs_collection = "llm_logs"
         self._counter_collection = "_counters"
         self._counter_document = "ids"
-        self._db = self._init_firestore_client()
+        # Lazy init so importing the app without Firebase creds (e.g. unit tests) does not fail.
+        self._db: Any = None
+
+    def _client(self) -> Any:
+        if self._db is None:
+            self._db = self._init_firestore_client()
+        return self._db
 
     def _init_firestore_client(self):
         """
@@ -53,11 +59,11 @@ class FirestoreStore:
         return firestore.client()
 
     def _next_id(self, key: str) -> int:
-        counter_ref = self._db.collection(self._counter_collection).document(self._counter_document)
+        counter_ref = self._client().collection(self._counter_collection).document(self._counter_document)
         field = f"{key}_id_seq"
         counter_ref.set({field: firestore.Increment(1)}, merge=True)
         data = counter_ref.get().to_dict() or {}
-        return int(data[field])
+        return int(data.get(field, 0))
 
     @staticmethod
     def _serialize(model_obj) -> dict:
@@ -78,7 +84,7 @@ class FirestoreStore:
             missing_required_controls=self._missing_controls(required_policies, data),
             **data.model_dump(),
         )
-        self._db.collection(self._systems_collection).document(str(system_id)).set(self._serialize(system))
+        self._client().collection(self._systems_collection).document(str(system_id)).set(self._serialize(system))
 
         self._record_audit(
             event_type=AuditEventType.system_created,
@@ -90,14 +96,14 @@ class FirestoreStore:
 
     def list_systems(self) -> List[AISystem]:
         systems: List[AISystem] = []
-        for doc in self._db.collection(self._systems_collection).stream():
+        for doc in self._client().collection(self._systems_collection).stream():
             payload = doc.to_dict() or {}
             payload["id"] = int(doc.id)
             systems.append(AISystem.model_validate(payload))
         return sorted(systems, key=lambda system: system.id)
 
     def get_system(self, system_id: int) -> Optional[AISystem]:
-        doc = self._db.collection(self._systems_collection).document(str(system_id)).get()
+        doc = self._client().collection(self._systems_collection).document(str(system_id)).get()
         if not doc.exists:
             return None
         payload = doc.to_dict() or {}
@@ -138,14 +144,14 @@ class FirestoreStore:
                     f"to {system.risk_tier} (justification: {system.risk_justification})"
                 ),
             )
-        self._db.collection(self._systems_collection).document(str(system_id)).set(self._serialize(system))
+        self._client().collection(self._systems_collection).document(str(system_id)).set(self._serialize(system))
         return system
 
     def delete_system(self, system_id: int, user_id: str) -> bool:
         system = self.get_system(system_id)
         if system is None:
             return False
-        self._db.collection(self._systems_collection).document(str(system_id)).delete()
+        self._client().collection(self._systems_collection).document(str(system_id)).delete()
         self._record_audit(
             event_type=AuditEventType.system_deleted,
             target_id=system_id,
@@ -158,7 +164,7 @@ class FirestoreStore:
     def create_event(self, data: ActivityEventCreate) -> ActivityEvent:
         event_id = self._next_id("event")
         event = ActivityEvent(id=event_id, **data.model_dump())
-        self._db.collection(self._events_collection).document(str(event_id)).set(self._serialize(event))
+        self._client().collection(self._events_collection).document(str(event_id)).set(self._serialize(event))
         return event
 
     def list_events(
@@ -169,7 +175,7 @@ class FirestoreStore:
         end: Optional[datetime] = None,
     ) -> List[ActivityEvent]:
         events: List[ActivityEvent] = []
-        for doc in self._db.collection(self._events_collection).stream():
+        for doc in self._client().collection(self._events_collection).stream():
             payload = doc.to_dict() or {}
             payload["id"] = int(doc.id)
             events.append(ActivityEvent.model_validate(payload))
@@ -200,11 +206,11 @@ class FirestoreStore:
             timestamp=datetime.utcnow(),
             summary=summary,
         )
-        self._db.collection(self._audits_collection).document(str(audit_id)).set(self._serialize(audit))
+        self._client().collection(self._audits_collection).document(str(audit_id)).set(self._serialize(audit))
 
     def list_audits(self) -> List[AuditEvent]:
         audits: List[AuditEvent] = []
-        for doc in self._db.collection(self._audits_collection).stream():
+        for doc in self._client().collection(self._audits_collection).stream():
             payload = doc.to_dict() or {}
             payload["id"] = int(doc.id)
             audits.append(AuditEvent.model_validate(payload))
@@ -214,12 +220,12 @@ class FirestoreStore:
     def log_llm_interaction(self, log: LLMInteractionLog) -> LLMInteractionLog:
         log_id = self._next_id("llm_log")
         stored = log.model_copy(update={"id": log_id})
-        self._db.collection(self._llm_logs_collection).document(str(log_id)).set(self._serialize(stored))
+        self._client().collection(self._llm_logs_collection).document(str(log_id)).set(self._serialize(stored))
         return stored
 
     def list_llm_logs(self) -> List[LLMInteractionLog]:
         logs: List[LLMInteractionLog] = []
-        for doc in self._db.collection(self._llm_logs_collection).stream():
+        for doc in self._client().collection(self._llm_logs_collection).stream():
             payload = doc.to_dict() or {}
             payload["id"] = int(doc.id)
             logs.append(LLMInteractionLog.model_validate(payload))

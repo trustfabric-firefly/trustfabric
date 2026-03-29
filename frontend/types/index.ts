@@ -270,7 +270,8 @@ export interface AISystemInventoryItem {
   updated_at: string;
 }
 
-export interface AISystemCreate {
+/** Payload shape for the Systems UI “register” flow (distinct from API `AISystemCreate`). */
+export interface AISystemInventoryCreate {
   name: string;
   type: AISystemType;
   description: string;
