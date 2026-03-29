@@ -127,6 +127,10 @@ export interface Policy {
   created_at: string;
   updated_at: string;
   version: number;
+  /** Present when loaded from the API (Firestore-backed governance policy). */
+  system_id?: number;
+  /** Denormalized for the policies list UI. */
+  system_name?: string;
 }
 
 export interface PolicyCreate {

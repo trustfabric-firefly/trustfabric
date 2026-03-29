@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ListOutlinedIcon from "@mui/icons-material/ListOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import DashboardCustomizeOutlinedIcon from "@mui/icons-material/DashboardCustomizeOutlined";
@@ -27,13 +27,15 @@ import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import type { SvgIconComponent } from "@mui/icons-material";
 import { TopBar } from "@/components/layout/TopBar";
-import { policyApi, systemsApi } from "@/lib/api";
+import { policyApi, systemPoliciesApi, systemsApi } from "@/lib/api";
 import type {
+    AISystem,
     Policy,
     PolicySeverity,
     PolicyCategory,
     PolicyTemplate as TPolicyTemplate,
     PolicyCreate,
+    PolicyStatus,
 } from "@/types";
 
 
@@ -69,35 +71,6 @@ const CATEGORY_ICONS: Record<PolicyCategory, SvgIconComponent> = {
     compliance: BarChartOutlinedIcon,
 };
 
-const MOCK_POLICIES: Policy[] = [
-    {
-        id: "pol_001", name: "Restrict GPT-4 Models", description: "Only allow Claude Sonnet and GPT-3.5 Turbo for cost control. GPT-4 and GPT-4 Turbo are prohibited organization-wide.",
-        category: "model_restrictions", severity: "high", status: "active", creation_method: "ai_generated",
-        applies_to: ["All Organizations"], created_by: "admin@trustfabric.io", created_at: "2026-02-14T10:30:00Z", updated_at: "2026-02-15T08:00:00Z", version: 2,
-        rules: { allowed_models: ["claude-3-5-sonnet", "gpt-3.5-turbo"], forbidden_models: ["gpt-4*"], enforcement: "strict" },
-    },
-    {
-        id: "pol_002", name: "Require Human Review for AI Code", description: "All AI-generated code must go through human code review before merging to production branches.",
-        category: "quality_control", severity: "high", status: "active", creation_method: "manual",
-        applies_to: ["Engineering"], created_by: "admin@trustfabric.io", created_at: "2026-02-10T14:00:00Z", updated_at: "2026-02-10T14:00:00Z", version: 1,
-    },
-    {
-        id: "pol_003", name: "Enable Secret Scanning", description: "All repositories must have GitHub secret scanning enabled to prevent credential leaks in AI-assisted code.",
-        category: "security", severity: "medium", status: "active", creation_method: "template",
-        applies_to: ["All Organizations"], created_by: "security@trustfabric.io", created_at: "2026-02-05T09:00:00Z", updated_at: "2026-02-05T09:00:00Z", version: 1,
-    },
-    {
-        id: "pol_004", name: "PII Data Handling for AI Systems", description: "AI systems processing PII must implement data anonymization and comply with GDPR Article 22 automated decision restrictions.",
-        category: "data_privacy", severity: "high", status: "draft", creation_method: "ai_generated",
-        applies_to: ["Data Science", "Engineering"], created_by: "dpo@trustfabric.io", created_at: "2026-03-01T11:00:00Z", updated_at: "2026-03-01T11:00:00Z", version: 1,
-    },
-    {
-        id: "pol_005", name: "Disable AI CLI Tools", description: "CLI-based AI tools must be disabled in all development environments to prevent unauthorized data exfiltration.",
-        category: "feature_control", severity: "medium", status: "inactive", creation_method: "template",
-        applies_to: ["All Organizations"], created_by: "admin@trustfabric.io", created_at: "2026-01-20T16:00:00Z", updated_at: "2026-02-28T12:00:00Z", version: 3,
-    },
-];
-
 const MOCK_TEMPLATES: TPolicyTemplate[] = [
     { id: "tpl_001", name: "Restrict AI Models", description: "Limit which AI models developers can use. Configure allowed and prohibited models.", category: "model_restrictions", severity: "high", used_by: 47, default_rules: { allowed_models: ["claude-3-5-sonnet", "gpt-3.5-turbo"], forbidden_models: ["gpt-4*"], enforcement: "strict" }, customizable_fields: ["allowed_models", "forbidden_models", "enforcement"] },
     { id: "tpl_002", name: "Disable AI CLI Features", description: "Prevent use of command-line AI tools across the organization.", category: "feature_control", severity: "medium", used_by: 23, default_rules: { disabled_features: ["cli_completion", "cli_chat", "cli_edit"], environments: ["production", "staging"] }, customizable_fields: ["disabled_features", "environments"] },
@@ -109,36 +82,68 @@ const MOCK_TEMPLATES: TPolicyTemplate[] = [
 
 
 export default function PoliciesPage() {
+    const queryClient = useQueryClient();
     const [activeTab, setActiveTab] = useState<Tab>("view_all");
-    const [policies, setPolicies] = useState<Policy[]>(MOCK_POLICIES);
+    const [contextSystemId, setContextSystemId] = useState<number | "">("");
 
-    const handleCreate = useCallback((data: PolicyCreate) => {
-        const newPolicy: Policy = {
-            ...data,
-            id: `pol_${String(Date.now()).slice(-6)}`,
-            status: "active",
-            created_by: "dev@local",
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            version: 1,
-        };
-        setPolicies((prev) => [newPolicy, ...prev]);
-        setActiveTab("view_all");
-    }, []);
+    const { data: systems = [], isLoading: systemsLoading } = useQuery({
+        queryKey: ["systems"],
+        queryFn: systemsApi.list,
+    });
 
-    const handleToggle = useCallback((id: string) => {
-        setPolicies((prev) =>
-            prev.map((p) =>
-                p.id === id ? { ...p, status: p.status === "active" ? "inactive" : "active", updated_at: new Date().toISOString() } : p
-            )
-        );
-    }, []);
+    const { data: policies = [], isLoading: policiesLoading, isError: policiesError } = useQuery({
+        queryKey: ["governance-policies"],
+        queryFn: async () => {
+            const list = await systemsApi.list();
+            if (list.length === 0) return [];
+            const chunks = await Promise.all(
+                list.map(async (s) => {
+                    const ps = await systemPoliciesApi.list(s.id);
+                    return ps.map((p) => ({
+                        ...p,
+                        system_id: s.id,
+                        system_name: s.name,
+                    }));
+                })
+            );
+            return chunks
+                .flat()
+                .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+        },
+    });
+
+    useEffect(() => {
+        if (systems.length === 0) return;
+        setContextSystemId((prev) => (prev === "" ? systems[0].id : prev));
+    }, [systems]);
+
+    const handleCreate = useCallback(
+        async (data: PolicyCreate, systemId: number, opts?: { asDraft?: boolean }) => {
+            const status: PolicyStatus = opts?.asDraft ? "draft" : "active";
+            await systemPoliciesApi.create(systemId, { ...data, status });
+            await queryClient.invalidateQueries({ queryKey: ["governance-policies"] });
+            setActiveTab("view_all");
+        },
+        [queryClient]
+    );
+
+    const handleToggle = useCallback(
+        async (policy: Policy) => {
+            if (policy.system_id == null) return;
+            const next: PolicyStatus = policy.status === "active" ? "inactive" : "active";
+            await systemPoliciesApi.update(policy.system_id, policy.id, { status: next });
+            await queryClient.invalidateQueries({ queryKey: ["governance-policies"] });
+        },
+        [queryClient]
+    );
+
+    const loading = systemsLoading || policiesLoading;
 
     return (
         <>
             <TopBar
                 title="Policy Management"
-                subtitle={`${policies.length} policies`}
+                subtitle={loading ? "Loading…" : `${policies.length} policies`}
                 actions={
                     <button className="btn btn--primary" onClick={() => setActiveTab("manual")}>
                         <AddOutlinedIcon sx={{ fontSize: 16 }} /> Create Policy
@@ -163,10 +168,42 @@ export default function PoliciesPage() {
 
                     {/* Tab Content */}
                     <div className="tab-content">
-                        {activeTab === "view_all" && <ViewAllTab policies={policies} onToggle={handleToggle} />}
-                        {activeTab === "manual" && <ManualTab onCreate={handleCreate} />}
-                        {activeTab === "template" && <TemplateTab onCreate={handleCreate} />}
-                        {activeTab === "ai_generate" && <AIGenerateTab onCreate={handleCreate} />}
+                        {activeTab === "view_all" && (
+                            <ViewAllTab
+                                policies={policies}
+                                onToggle={handleToggle}
+                                error={policiesError}
+                            />
+                        )}
+                        {activeTab === "manual" && (
+                            <ManualTab
+                                systems={systems}
+                                systemId={contextSystemId}
+                                onSystemIdChange={setContextSystemId}
+                                systemsLoading={systemsLoading}
+                                onCreate={(data, opts) => {
+                                    if (contextSystemId === "") return;
+                                    return handleCreate(data, contextSystemId, opts);
+                                }}
+                            />
+                        )}
+                        {activeTab === "template" && (
+                            <TemplateTab
+                                systems={systems}
+                                systemId={contextSystemId}
+                                onSystemIdChange={setContextSystemId}
+                                systemsLoading={systemsLoading}
+                                onCreate={(data) => {
+                                    if (contextSystemId === "") return;
+                                    return handleCreate(data, contextSystemId);
+                                }}
+                            />
+                        )}
+                        {activeTab === "ai_generate" && (
+                            <AIGenerateTab
+                                onCreate={(data, systemId) => handleCreate(data, systemId)}
+                            />
+                        )}
                     </div>
                 </div>
             </main>
@@ -175,9 +212,25 @@ export default function PoliciesPage() {
 }
 
 
-function ViewAllTab({ policies, onToggle }: { policies: Policy[]; onToggle: (id: string) => void }) {
+function ViewAllTab({
+    policies,
+    onToggle,
+    error,
+}: {
+    policies: Policy[];
+    onToggle: (policy: Policy) => void | Promise<void>;
+    error?: boolean;
+}) {
     const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<"all" | "active" | "inactive" | "draft">("all");
+
+    if (error) {
+        return (
+            <div style={{ padding: "var(--s-4)", color: "var(--c-high)" }}>
+                Could not load policies. Check the API and sign-in. Saving/toggling policies requires an admin token or Firebase user with role admin.
+            </div>
+        );
+    }
 
     const filtered = policies
         .filter((p) => filter === "all" || p.status === filter)
@@ -217,6 +270,11 @@ function ViewAllTab({ policies, onToggle }: { policies: Policy[]; onToggle: (id:
                                 </div>
                                 <div className="policy-item__body">
                                     <div className="policy-item__name">{p.name}</div>
+                                    {p.system_name ? (
+                                        <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginBottom: "var(--s-1)" }}>
+                                            System: {p.system_name}
+                                        </div>
+                                    ) : null}
                                     <div className="policy-item__desc">{p.description}</div>
                                     <div className="policy-item__meta">
                                         <span className={`badge badge--${p.status === "active" ? "live" : p.status === "draft" ? "neutral" : "warning"}`}>
@@ -232,7 +290,7 @@ function ViewAllTab({ policies, onToggle }: { policies: Policy[]; onToggle: (id:
                                 <div className="policy-item__actions">
                                     <button className="btn btn--ghost btn--sm" title="Edit"><ModeEditOutlineOutlinedIcon sx={{ fontSize: 15 }} /></button>
                                     <button className="btn btn--ghost btn--sm" title="View details"><VisibilityOutlinedIcon sx={{ fontSize: 15 }} /></button>
-                                    <button className="btn btn--ghost btn--sm" title={p.status === "active" ? "Disable" : "Enable"} onClick={() => onToggle(p.id)}>
+                                    <button className="btn btn--ghost btn--sm" title={p.status === "active" ? "Disable" : "Enable"} onClick={() => onToggle(p)}>
                                         {p.status === "active" ? <ToggleOnOutlinedIcon sx={{ fontSize: 15 }} /> : <ToggleOffOutlinedIcon sx={{ fontSize: 15 }} />}
                                     </button>
                                 </div>
@@ -252,16 +310,46 @@ const EMPTY_MANUAL: PolicyCreate = {
     name: "", description: "", category: "compliance", severity: "medium", applies_to: ["All Organizations"], creation_method: "manual",
 };
 
-function ManualTab({ onCreate }: { onCreate: (data: PolicyCreate) => void }) {
+function ManualTab({
+    systems,
+    systemId,
+    onSystemIdChange,
+    systemsLoading,
+    onCreate,
+}: {
+    systems: AISystem[];
+    systemId: number | "";
+    onSystemIdChange: (id: number | "") => void;
+    systemsLoading: boolean;
+    onCreate: (data: PolicyCreate, opts?: { asDraft?: boolean }) => void | Promise<void>;
+}) {
     const [form, setForm] = useState<PolicyCreate>(EMPTY_MANUAL);
     const set = (k: keyof PolicyCreate, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
     const valid = form.name.trim().length > 0 && form.description.trim().length > 0;
+    const canSave = valid && systemId !== "";
 
     return (
         <div style={{ padding: "var(--s-4)", maxWidth: 640 }}>
             <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", marginBottom: "var(--s-5)", lineHeight: 1.5 }}>
-                Write your policy in plain language. The system will store it as-is without modification.
+                Write your policy in plain language. Policies are stored in Firestore under the selected AI system.
             </p>
+
+            <div className="form-group">
+                <label className="form-label">AI system *</label>
+                <select
+                    className="input"
+                    value={systemId}
+                    onChange={(e) => onSystemIdChange(e.target.value ? Number(e.target.value) : "")}
+                    disabled={systemsLoading}
+                >
+                    <option value="">{systemsLoading ? "Loading systems…" : systems.length === 0 ? "No systems — create one in Inventory" : "Select system"}</option>
+                    {systems.map((s) => (
+                        <option key={s.id} value={s.id}>
+                            {s.name} (Risk: {s.risk_tier ?? "Unassigned"})
+                        </option>
+                    ))}
+                </select>
+            </div>
 
             <div className="form-group">
                 <label className="form-label">Policy Name *</label>
@@ -301,10 +389,10 @@ function ManualTab({ onCreate }: { onCreate: (data: PolicyCreate) => void }) {
 
             <div style={{ display: "flex", gap: "var(--s-2)", justifyContent: "flex-end" }}>
                 <button className="btn btn--secondary" onClick={() => setForm(EMPTY_MANUAL)}>Cancel</button>
-                <button className="btn btn--secondary" onClick={() => valid && onCreate({ ...form, status: "draft" } as PolicyCreate & { status: string })}>
+                <button className="btn btn--secondary" disabled={!canSave} onClick={() => canSave && onCreate(form, { asDraft: true })}>
                     Save as Draft
                 </button>
-                <button className="btn btn--primary" disabled={!valid} onClick={() => onCreate(form)}>
+                <button className="btn btn--primary" disabled={!canSave} onClick={() => canSave && onCreate(form)}>
                     Create Policy
                 </button>
             </div>
@@ -312,7 +400,19 @@ function ManualTab({ onCreate }: { onCreate: (data: PolicyCreate) => void }) {
     );
 }
 
-function TemplateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void }) {
+function TemplateTab({
+    systems,
+    systemId,
+    onSystemIdChange,
+    systemsLoading,
+    onCreate,
+}: {
+    systems: AISystem[];
+    systemId: number | "";
+    onSystemIdChange: (id: number | "") => void;
+    systemsLoading: boolean;
+    onCreate: (data: PolicyCreate) => void | Promise<void>;
+}) {
     const [selected, setSelected] = useState<TPolicyTemplate | null>(null);
     const [search, setSearch] = useState("");
     const [form, setForm] = useState<PolicyCreate | null>(null);
@@ -335,6 +435,7 @@ function TemplateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void }) {
     );
 
     if (selected && form) {
+        const canCreate = systemId !== "";
         return (
             <div style={{ padding: "var(--s-4)", maxWidth: 640 }}>
                 <button className="btn btn--ghost btn--sm" style={{ marginBottom: "var(--s-4)", gap: 4 }} onClick={() => { setSelected(null); setForm(null); }}>
@@ -347,6 +448,23 @@ function TemplateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void }) {
                 <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-5)" }}>
                     Pre-filled from template. Modify fields as needed.
                 </p>
+
+                <div className="form-group">
+                    <label className="form-label">AI system *</label>
+                    <select
+                        className="input"
+                        value={systemId}
+                        onChange={(e) => onSystemIdChange(e.target.value ? Number(e.target.value) : "")}
+                        disabled={systemsLoading}
+                    >
+                        <option value="">{systemsLoading ? "Loading systems…" : systems.length === 0 ? "No systems" : "Select system"}</option>
+                        {systems.map((s) => (
+                            <option key={s.id} value={s.id}>
+                                {s.name} (Risk: {s.risk_tier ?? "Unassigned"})
+                            </option>
+                        ))}
+                    </select>
+                </div>
 
                 <div className="form-group">
                     <label className="form-label">Policy Name</label>
@@ -371,7 +489,7 @@ function TemplateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void }) {
                 <div className="divider" />
                 <div style={{ display: "flex", gap: "var(--s-2)", justifyContent: "flex-end" }}>
                     <button className="btn btn--secondary" onClick={() => { setSelected(null); setForm(null); }}>Cancel</button>
-                    <button className="btn btn--primary" onClick={() => onCreate(form)}>Create Policy</button>
+                    <button className="btn btn--primary" disabled={!canCreate} onClick={() => canCreate && onCreate(form)}>Create Policy</button>
                 </div>
             </div>
         );
@@ -380,7 +498,7 @@ function TemplateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void }) {
     return (
         <div style={{ padding: "var(--s-4)" }}>
             <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", marginBottom: "var(--s-4)", lineHeight: 1.5 }}>
-                Select a pre-configured policy template and customize it for your organization.
+                Select a pre-configured policy template and customize it for your organization. Saved policies are attached to an AI system in Firestore.
             </p>
 
             <div className="search-bar" style={{ marginBottom: "var(--s-4)" }}>
@@ -434,7 +552,11 @@ const AI_SUGGESTIONS = [
     "Set API rate limits for AI model usage",
 ];
 
-function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void }) {
+function AIGenerateTab({
+    onCreate,
+}: {
+    onCreate: (data: PolicyCreate, systemId: number) => void | Promise<void>;
+}) {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState("");
     const [isTyping, setIsTyping] = useState(false);
@@ -526,8 +648,8 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
     };
 
     const handleSavePolicy = (msg: ChatMessage) => {
-        if (msg.policy) {
-            onCreate({ ...msg.policy, rules: msg.rules });
+        if (msg.policy && selectedSystemId !== "") {
+            onCreate({ ...msg.policy, rules: msg.rules }, selectedSystemId as number);
         }
     };
 
@@ -585,7 +707,13 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
                                                         </div>
                                                     )}
                                                     <div className="chat__policy-card__actions">
-                                                        <button className="btn btn--primary btn--sm" onClick={() => handleSavePolicy(msg)}>
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn--primary btn--sm"
+                                                            disabled={selectedSystemId === ""}
+                                                            title={selectedSystemId === "" ? "Select an AI system below before saving" : undefined}
+                                                            onClick={() => handleSavePolicy(msg)}
+                                                        >
                                                             <CheckCircleOutlinedIcon sx={{ fontSize: 14 }} /> Save Policy
                                                         </button>
                                                         <button className="btn btn--secondary btn--sm" onClick={() => {

@@ -7,7 +7,9 @@ import type {
     AuditEvent,
     CopilotRecommendation,
     DashboardSummary,
+    Policy,
     PolicyCreate,
+    PolicyStatus,
 } from "@/types";
 
 const RAW_BASE_URL =
@@ -88,6 +90,22 @@ export const systemsApi = {
         }),
     delete: (id: number) =>
         request<void>(`/api/v1/systems/${id}`, { method: "DELETE" }),
+};
+
+/** Governance policies stored under Firestore `systems/{id}/policies/{policyId}`. */
+export const systemPoliciesApi = {
+    list: (systemId: number) =>
+        request<Policy[]>(`/api/v1/systems/${systemId}/policies`),
+    create: (systemId: number, body: PolicyCreate & { status: PolicyStatus }) =>
+        request<Policy>(`/api/v1/systems/${systemId}/policies`, {
+            method: "POST",
+            body: JSON.stringify(body),
+        }),
+    update: (systemId: number, policyId: string, body: { status: PolicyStatus }) =>
+        request<Policy>(`/api/v1/systems/${systemId}/policies/${policyId}`, {
+            method: "PATCH",
+            body: JSON.stringify(body),
+        }),
 };
 
 

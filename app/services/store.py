@@ -18,6 +18,9 @@ from app.domain.models import (
     AuditEvent,
     AuditEventType,
     DashboardSummary,
+    GovernancePolicy,
+    GovernancePolicyCreate,
+    GovernancePolicyUpdate,
     LLMInteractionLog,
     PolicyKey,
     RiskTier,
@@ -151,6 +154,7 @@ class FirestoreStore:
         system = self.get_system(system_id)
         if system is None:
             return False
+        self._delete_system_policies_subcollection(system_id)
         self._client().collection(self._systems_collection).document(str(system_id)).delete()
         self._record_audit(
             event_type=AuditEventType.system_deleted,
@@ -230,6 +234,119 @@ class FirestoreStore:
             payload["id"] = int(doc.id)
             logs.append(LLMInteractionLog.model_validate(payload))
         return sorted(logs, key=lambda log: log.id or 0)
+
+    # --- Governance policies (systems/{system_id}/policies) ---
+    def _system_policies_collection(self, system_id: int) -> Any:
+        return (
+            self._client()
+            .collection(self._systems_collection)
+            .document(str(system_id))
+            .collection("policies")
+        )
+
+    def _delete_system_policies_subcollection(self, system_id: int) -> None:
+        for doc in self._system_policies_collection(system_id).stream():
+            doc.reference.delete()
+
+    @staticmethod
+    def _coerce_policy_datetime(val: Any) -> datetime:
+        if isinstance(val, datetime):
+            return val
+        if hasattr(val, "timestamp") and callable(val.timestamp):
+            return datetime.utcfromtimestamp(val.timestamp())
+        if isinstance(val, str):
+            cleaned = val.replace("Z", "+00:00") if val.endswith("Z") else val
+            dt = datetime.fromisoformat(cleaned)
+            return dt.replace(tzinfo=None) if dt.tzinfo else dt
+        raise ValueError(f"Unsupported datetime value: {type(val)!r}")
+
+    def _normalize_policy_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        out = dict(payload)
+        for key in ("created_at", "updated_at"):
+            if key in out and out[key] is not None:
+                out[key] = self._coerce_policy_datetime(out[key])
+        return out
+
+    def list_system_policies(self, system_id: int) -> Optional[List[GovernancePolicy]]:
+        if self.get_system(system_id) is None:
+            return None
+        policies: List[GovernancePolicy] = []
+        for doc in self._system_policies_collection(system_id).stream():
+            raw = doc.to_dict() or {}
+            raw["id"] = doc.id
+            policies.append(GovernancePolicy.model_validate(self._normalize_policy_payload(raw)))
+        return sorted(policies, key=lambda p: p.created_at, reverse=True)
+
+    def create_system_policy(
+        self,
+        system_id: int,
+        data: GovernancePolicyCreate,
+        user_id: str,
+    ) -> Optional[GovernancePolicy]:
+        if self.get_system(system_id) is None:
+            return None
+        now = datetime.utcnow()
+        ref = self._system_policies_collection(system_id).document()
+        policy_id = ref.id
+        policy = GovernancePolicy(
+            id=policy_id,
+            system_id=system_id,
+            name=data.name,
+            description=data.description,
+            category=data.category,
+            severity=data.severity,
+            applies_to=data.applies_to,
+            creation_method=data.creation_method,
+            status=data.status,
+            rules=data.rules,
+            created_by=user_id,
+            created_at=now,
+            updated_at=now,
+            version=1,
+        )
+        ref.set(policy.model_dump(mode="json"))
+        self._record_audit(
+            event_type=AuditEventType.policy_created,
+            target_id=system_id,
+            user_id=user_id,
+            summary=f"Governance policy saved: {data.name} ({policy_id})",
+        )
+        return policy
+
+    def update_system_policy(
+        self,
+        system_id: int,
+        policy_id: str,
+        data: GovernancePolicyUpdate,
+        user_id: str,
+    ) -> Optional[GovernancePolicy]:
+        if self.get_system(system_id) is None:
+            return None
+        ref = self._system_policies_collection(system_id).document(policy_id)
+        snap = ref.get()
+        if not snap.exists:
+            return None
+        raw = dict(snap.to_dict() or {})
+        raw["id"] = policy_id
+        current = GovernancePolicy.model_validate(self._normalize_policy_payload(raw))
+        if data.status is None:
+            return current
+        now = datetime.utcnow()
+        updated = current.model_copy(
+            update={
+                "status": data.status,
+                "updated_at": now,
+                "version": current.version + 1,
+            }
+        )
+        ref.set(updated.model_dump(mode="json"))
+        self._record_audit(
+            event_type=AuditEventType.policy_updated,
+            target_id=system_id,
+            user_id=user_id,
+            summary=f"Governance policy updated: {current.name} ({policy_id}) status={data.status.value}",
+        )
+        return updated
 
     # --- Dashboard ---
     def dashboard_summary(self) -> DashboardSummary:

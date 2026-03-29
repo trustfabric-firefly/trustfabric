@@ -106,6 +106,8 @@ class AuditEventType(str, Enum):
     system_deleted = "system_deleted"
     risk_tier_changed = "risk_tier_changed"
     policy_mapping_changed = "policy_mapping_changed"
+    policy_created = "policy_created"
+    policy_updated = "policy_updated"
 
 
 class AuditEvent(BaseModel):
@@ -135,4 +137,68 @@ class DashboardSummary(BaseModel):
     systems_missing_controls: int
     total_events: int
     events_per_system: Dict[int, int]
+
+
+# --- UI governance policies (stored under Firestore: systems/{id}/policies/{policyDocId}) ---
+
+
+class GovernancePolicyCategory(str, Enum):
+    model_restrictions = "model_restrictions"
+    feature_control = "feature_control"
+    security = "security"
+    quality_control = "quality_control"
+    data_privacy = "data_privacy"
+    access_control = "access_control"
+    cost_management = "cost_management"
+    compliance = "compliance"
+
+
+class GovernancePolicySeverity(str, Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+
+
+class GovernancePolicyCreationMethod(str, Enum):
+    manual = "manual"
+    template = "template"
+    ai_generated = "ai_generated"
+
+
+class GovernancePolicyStatus(str, Enum):
+    active = "active"
+    inactive = "inactive"
+    draft = "draft"
+
+
+class GovernancePolicyCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=500)
+    description: str = Field(..., min_length=1, max_length=8000)
+    category: GovernancePolicyCategory
+    severity: GovernancePolicySeverity
+    applies_to: List[str] = Field(default_factory=list)
+    creation_method: GovernancePolicyCreationMethod
+    rules: Optional[Dict[str, Any]] = None
+    status: GovernancePolicyStatus = GovernancePolicyStatus.draft
+
+
+class GovernancePolicyUpdate(BaseModel):
+    status: Optional[GovernancePolicyStatus] = None
+
+
+class GovernancePolicy(BaseModel):
+    id: str
+    system_id: int
+    name: str
+    description: str
+    category: GovernancePolicyCategory
+    severity: GovernancePolicySeverity
+    applies_to: List[str]
+    creation_method: GovernancePolicyCreationMethod
+    status: GovernancePolicyStatus
+    rules: Optional[Dict[str, Any]] = None
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+    version: int = 1
 
