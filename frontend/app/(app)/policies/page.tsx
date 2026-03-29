@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import ListOutlinedIcon from "@mui/icons-material/ListOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import DashboardCustomizeOutlinedIcon from "@mui/icons-material/DashboardCustomizeOutlined";
@@ -26,8 +27,14 @@ import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import type { SvgIconComponent } from "@mui/icons-material";
 import { TopBar } from "@/components/layout/TopBar";
-import { policyApi } from "@/lib/api";
-import type { Policy, PolicySeverity, PolicyCategory, PolicyTemplate as TPolicyTemplate, PolicyCreate } from "@/types";
+import { policyApi, systemsApi } from "@/lib/api";
+import type {
+    Policy,
+    PolicySeverity,
+    PolicyCategory,
+    PolicyTemplate as TPolicyTemplate,
+    PolicyCreate,
+} from "@/types";
 
 
 type Tab = "view_all" | "manual" | "template" | "ai_generate";
@@ -431,14 +438,31 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState("");
     const [isTyping, setIsTyping] = useState(false);
+    const [selectedSystemId, setSelectedSystemId] = useState<number | "">("");
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const {
+        data: systems = [],
+        isLoading: isLoadingSystems,
+        isError: isSystemsError,
+        error: systemsError,
+    } = useQuery({
+        queryKey: ["systems"],
+        queryFn: systemsApi.list,
+        refetchOnMount: "always",
+    });
+
+    useEffect(() => {
+        if (selectedSystemId === "" && systems.length > 0) {
+            setSelectedSystemId(systems[0].id);
+        }
+    }, [selectedSystemId, systems]);
 
     const scrollToBottom = useCallback(() => {
         setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
     }, []);
 
-    const handleSend = useCallback((text?: string) => {
+    const handleSend = useCallback(async (text?: string) => {
         const msg = (text ?? input).trim();
         if (!msg || isTyping) return;
 
@@ -450,6 +474,17 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
 
         // Auto-resize textarea back
         if (textareaRef.current) textareaRef.current.style.height = "24px";
+
+        const hasPolicy = messages.some((m) => m.role === "ai" && m.policy);
+        const isRefinement = isLikelyRefinement(msg);
+
+        if (hasPolicy && isRefinement) {
+            const aiResponse = generateAIResponse(msg, messages);
+            setMessages((prev) => [...prev, aiResponse]);
+            setIsTyping(false);
+            scrollToBottom();
+            return;
+        }
 
         (async () => {
             try {
@@ -466,7 +501,6 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
                 };
                 setMessages((prev) => [...prev, aiResponse]);
             } catch {
-                // Keep a local fallback so UX still works if Claude is unavailable.
                 const fallback = generateAIResponse(msg, messages);
                 setMessages((prev) => [...prev, fallback]);
             } finally {
@@ -508,7 +542,7 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
                         </div>
                         <div className="chat__empty-title">AI Policy Generator</div>
                         <div className="chat__empty-desc">
-                            Describe the policy you need in plain language. I'll generate a structured, enforceable policy for your organization. You can keep refining it through conversation.
+                            Describe the policy you need in plain language. I will generate a structured, enforceable policy for your organization. You can keep refining it through conversation.
                         </div>
                         <div className="chat__suggestions">
                             {AI_SUGGESTIONS.map((s, i) => (
@@ -597,6 +631,35 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
 
             {/* Input bar — always at bottom */}
             <div className="chat__input-bar">
+                <div style={{ maxWidth: 760, margin: "0 auto 8px", display: "flex", gap: "var(--s-2)", alignItems: "center" }}>
+                    <label style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)" }}>System</label>
+                    <select
+                        className="input"
+                        style={{ width: "100%" }}
+                        value={selectedSystemId}
+                        onChange={(e) => setSelectedSystemId(e.target.value ? Number(e.target.value) : "")}
+                        disabled={isLoadingSystems || isTyping}
+                    >
+                        <option value="">
+                            {isLoadingSystems ? "Loading systems..." : systems.length === 0 ? "No systems available" : "Select system"}
+                        </option>
+                        {systems.map((system) => (
+                            <option key={system.id} value={system.id}>
+                                {system.name} (Risk: {system.risk_tier ?? "Unassigned"})
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                {systems.length === 0 && !isLoadingSystems && (
+                    <div style={{ maxWidth: 760, margin: "0 auto 8px", fontSize: "var(--fs-11)", color: "var(--c-text-muted)", textAlign: "center" }}>
+                        No systems found. Create one via `POST /api/v1/systems` and refresh this page.
+                    </div>
+                )}
+                {isSystemsError && (
+                    <div style={{ maxWidth: 760, margin: "0 auto 8px", fontSize: "var(--fs-11)", color: "var(--c-high)", textAlign: "center" }}>
+                        Failed to load systems: {systemsError instanceof Error ? systemsError.message : "Unknown error"}
+                    </div>
+                )}
                 <div className="chat__input-wrap">
                     <textarea
                         ref={textareaRef}
@@ -792,4 +855,14 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
         },
         rules: { policy_name: "custom_governance", enforcement: "advisory", monitoring: true, review_cycle_days: 30, requires_approval: true },
     };
+}
+
+function isLikelyRefinement(message: string): boolean {
+    const lower = message.toLowerCase();
+    return lower.includes("refine")
+        || lower.includes("strict")
+        || lower.includes("change")
+        || lower.includes("update")
+        || lower.includes("modify")
+        || lower.includes("add");
 }

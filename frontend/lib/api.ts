@@ -31,17 +31,19 @@ const BASE_URL = normalizeBaseUrl(RAW_BASE_URL);
 
 async function getAuthHeaders(): Promise<HeadersInit> {
     const user = auth?.currentUser;
-    if (!user) {
-        if (typeof window !== "undefined") {
-            const localToken = window.localStorage.getItem(LOCAL_TOKEN_KEY);
-            if (localToken) return { Authorization: `Bearer ${localToken}` };
-        }
-        const devToken = process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN;
-        if (devToken) return { Authorization: `Bearer ${devToken}` };
-        throw new Error("Not authenticated");
+    if (user) {
+        const token = await user.getIdToken();
+        return { Authorization: `Bearer ${token}` };
     }
-    const token = await user.getIdToken();
-    return { Authorization: `Bearer ${token}` };
+    if (typeof window !== "undefined") {
+        const localToken = window.localStorage.getItem(LOCAL_TOKEN_KEY);
+        if (localToken) return { Authorization: `Bearer ${localToken}` };
+    }
+    const devToken =
+        process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN
+        ?? process.env.NEXT_PUBLIC_DEV_VIEWER_TOKEN;
+    if (devToken) return { Authorization: `Bearer ${devToken}` };
+    throw new Error("Not authenticated");
 }
 
 
@@ -72,10 +74,10 @@ async function request<T>(
 
 
 export const systemsApi = {
-    list: () => request<AISystem[]>("/api/v1/systems"),
+    list: () => request<AISystem[]>("/api/v1/systems/"),
     get: (id: number) => request<AISystem>(`/api/v1/systems/${id}`),
     create: (data: AISystemCreate) =>
-        request<AISystem>("/api/v1/systems", {
+        request<AISystem>("/api/v1/systems/", {
             method: "POST",
             body: JSON.stringify(data),
         }),
