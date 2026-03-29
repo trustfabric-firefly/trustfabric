@@ -28,7 +28,10 @@ function normalizeBaseUrl(value: string): string {
     return `http://${trimmed.replace(/\/+$/, "")}`;
 }
 
-const BASE_URL = normalizeBaseUrl(RAW_BASE_URL);
+/** Resolved API origin (same logic as internal requests). Use for Settings / diagnostics. */
+export const RESOLVED_API_BASE_URL = normalizeBaseUrl(RAW_BASE_URL);
+
+const BASE_URL = RESOLVED_API_BASE_URL;
 
 
 async function getAuthHeaders(): Promise<HeadersInit> {
