@@ -29,7 +29,7 @@ const NAV = [
     },
     {
         section: "Others", items: [
-            { label: "Settings", href: "#settings", icon: SettingsOutlinedIcon },
+            { label: "Settings", href: "/settings", icon: SettingsOutlinedIcon },
         ]
     },
 ];
