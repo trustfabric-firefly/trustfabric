@@ -1,0 +1,128 @@
+id: soc2
+name: "SOC 2 Type II — Trust Services Criteria"
+version: "2017"
+short_name: "SOC 2"
+scope: >
+  Trust Services Criteria relevant to organizations deploying AI tools.
+  Focuses on CC6 (Logical Access), CC7 (System Operations), CC8 (Change Management),
+  and A1 (Availability) as they apply to AI system governance.
+
+requirements:
+  - id: cc6_1_access_control
+    article: "CC6.1"
+    title: "Logical Access Controls"
+    description: >
+      The entity implements logical access security measures to protect against
+      threats from sources outside its system boundaries.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_org_two_factor
+        weight: 3
+        rationale: "2FA is a direct logical access control for the AI platform"
+      - check_id: chk_seat_management
+        weight: 2
+        rationale: "Selective seat assignment restricts AI access to authorized users only"
+    policy_categories: [access_control, security]
+    pass_threshold: 0.6
+
+  - id: cc6_3_access_removal
+    article: "CC6.3"
+    title: "Access Revocation"
+    description: >
+      The entity removes access to protected information assets when appropriate
+      (e.g., upon employee termination or role change).
+    auto_evaluable: true
+    checks:
+      - check_id: chk_inactive_seats
+        weight: 3
+        rationale: "High inactive seat ratio indicates access is not being revoked promptly"
+    policy_categories: [access_control]
+    pass_threshold: 1.0
+
+  - id: cc7_1_change_detection
+    article: "CC7.1"
+    title: "Change Detection and Configuration Monitoring"
+    description: >
+      The entity uses detection and monitoring procedures to identify changes to
+      configurations or IT infrastructure and to detect unauthorized modification
+      of critical data inputs, outputs, and related processing for AI-integrated systems.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_branch_protection
+        weight: 2
+        rationale: "Branch protection detects and blocks unauthorized pushes to production code"
+      - check_id: chk_actions_restricted
+        weight: 1
+        rationale: "Restricted Actions detects and prevents unauthorized pipeline modifications"
+    pass_threshold: 0.6
+
+  - id: cc8_1_change_management
+    article: "CC8.1"
+    title: "Change Management Authorization"
+    description: >
+      The entity authorizes, designs, tests, approves, and implements changes to
+      infrastructure, data, software, and procedures to meet its objectives.
+      Changes to AI-integrated systems require documented approval before implementation.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_pr_reviews
+        weight: 3
+        rationale: "PR reviews are the primary authorization gate for all code changes to AI-integrated systems"
+      - check_id: chk_branch_protection
+        weight: 2
+        rationale: "Branch protection enforces that changes go through the approval workflow"
+    pass_threshold: 0.6
+
+  - id: cc7_2_monitoring
+    article: "CC7.2"
+    title: "System Monitoring"
+    description: >
+      The entity monitors system components and the operation of controls to detect
+      anomalies, unauthorized access, and security events.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_vulnerability_alerts
+        weight: 2
+        rationale: "Dependabot alerts provide automated security monitoring of dependencies"
+    policy_categories: [security, quality_control]
+    policy_keywords: ["monitor", "logging", "alert", "detect"]
+    pass_threshold: 0.5
+
+  - id: cc3_1_risk_assessment
+    article: "CC3.1"
+    title: "Risk Assessment Process"
+    description: >
+      The entity specifies objectives with sufficient clarity to enable the
+      identification and assessment of risks relating to objectives. Management
+      identifies risks to the achievement of its objectives across the entity
+      and analyzes risks as a basis for determining how risks should be managed,
+      including the risk posed by AI systems and third-party AI tools.
+    auto_evaluable: false
+    manual_checklist:
+      - "Risk tier is assigned to each AI system in the registry"
+      - "Risk justification is documented for each system"
+      - "Risk tiers are reviewed at least annually"
+      - "Third-party AI vendor risks are assessed before deployment"
+
+  - id: a1_1_availability
+    article: "A1.1"
+    title: "System Availability and Capacity Management"
+    description: >
+      Current processing capacity and usage are managed and monitored against
+      requirements to achieve availability commitments.
+    auto_evaluable: false
+    manual_checklist:
+      - "AI tool uptime and availability is tracked"
+      - "Backup or fallback procedures exist if primary AI tool is unavailable"
+
+  - id: cc1_2_board_oversight
+    article: "CC1.2"
+    title: "Governance and Oversight"
+    description: >
+      The board of directors or equivalent demonstrates independence and exercises
+      oversight for the development and performance of internal controls.
+    auto_evaluable: false
+    manual_checklist:
+      - "AI governance policies are approved by management"
+      - "Compliance reporting cadence is established"
+      - "AI governance ownership is assigned at the leadership level"

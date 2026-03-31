@@ -1,0 +1,140 @@
+id: nist_rmf
+name: "NIST AI Risk Management Framework"
+version: "1.0"
+short_name: "NIST AI RMF"
+scope: >
+  The four core functions of the NIST AI RMF as they apply to organizations
+  governing AI tools in their environment.
+
+requirements:
+  - id: govern_1_policies
+    article: "GOVERN 1"
+    title: "Policies, Processes and Procedures"
+    description: >
+      Policies, processes, procedures, and practices across the organization related
+      to the mapping, measuring, and managing of AI risks are in place.
+    auto_evaluable: true
+    checks: []
+    policy_categories: [compliance, security, access_control, data_privacy]
+    pass_threshold: 0.5
+    # Passes if the user has active governance policies in any risk category
+
+  - id: govern_2_accountability
+    article: "GOVERN 2"
+    title: "Accountability and Roles"
+    description: >
+      Accountability and change management processes are in place so that
+      appropriate teams and individuals are empowered, responsible and trained.
+    auto_evaluable: false
+    manual_checklist:
+      - "Each AI system has a named owner in the registry"
+      - "Roles and responsibilities for AI governance are documented"
+      - "AI governance training has been completed by relevant staff"
+
+  - id: govern_5_org_policies
+    article: "GOVERN 5"
+    title: "Organizational Risk Policies"
+    description: >
+      Organizational risk and AI risk policies are established, communicated,
+      and enforced across the organization.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_seat_management
+        weight: 1
+        rationale: "Seat management enforces the organization's access policy for AI tools"
+      - check_id: chk_public_code_blocked
+        weight: 2
+        rationale: "Public code blocking enforces data governance policy in Copilot"
+    policy_categories: [compliance, security]
+    pass_threshold: 0.5
+
+  - id: map_1_context
+    article: "MAP 1"
+    title: "Context Establishment"
+    description: >
+      Context is established for the AI risk assessment. AI systems are
+      identified, categorized by risk, and their context of use is documented.
+    auto_evaluable: false
+    manual_checklist:
+      - "All AI tools used in the organization are registered in TrustFabric"
+      - "Each system has a description, owner, and business unit assigned"
+      - "Data sensitivity classification is assigned to each system"
+      - "External integrations are documented for each system"
+
+  - id: map_2_risk_identification
+    article: "MAP 2"
+    title: "Risk Identification and Classification"
+    description: >
+      Scientific findings and organizational experience with AI risk are
+      documented and available for risk identification activities.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_vulnerability_alerts
+        weight: 1
+        rationale: "Automated vulnerability scanning contributes to continuous risk identification"
+    policy_categories: [security, compliance]
+    pass_threshold: 0.5
+
+  - id: measure_1_metrics
+    article: "MEASURE 1"
+    title: "AI Risk Measurement"
+    description: >
+      Approaches and metrics are identified and applied to assess AI risks
+      quantitatively and qualitatively.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_branch_protection
+        weight: 1
+      - check_id: chk_pr_reviews
+        weight: 1
+      - check_id: chk_vulnerability_alerts
+        weight: 1
+      - check_id: chk_org_two_factor
+        weight: 1
+    pass_threshold: 0.5
+    # Compliance scan score itself is the metric — if we're running scans, we're measuring
+
+  - id: measure_2_eval
+    article: "MEASURE 2"
+    title: "Ongoing Evaluation"
+    description: >
+      AI risks and benefits are continually evaluated. AI system performance
+      is monitored to detect deviations from intended behavior.
+    auto_evaluable: false
+    manual_checklist:
+      - "Compliance scans are run on a regular schedule (monthly at minimum)"
+      - "Scan results are reviewed by the AI system owner"
+      - "Deviations from previous scans are investigated"
+
+  - id: manage_1_response
+    article: "MANAGE 1"
+    title: "Risk Response and Prioritization"
+    description: >
+      Risks and benefits are prioritized. Countermeasures are applied and
+      responses are planned for identified risks.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_org_two_factor
+        weight: 2
+      - check_id: chk_public_code_blocked
+        weight: 2
+      - check_id: chk_seat_management
+        weight: 1
+    pass_threshold: 0.6
+
+  - id: manage_3_controls
+    article: "MANAGE 3"
+    title: "Controls Implementation"
+    description: >
+      AI risks are tracked and addressed according to established risk response plans.
+      Residual risks are monitored and managed.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_actions_restricted
+        weight: 1
+      - check_id: chk_vulnerability_alerts
+        weight: 2
+      - check_id: chk_branch_protection
+        weight: 1
+    policy_categories: [security, access_control]
+    pass_threshold: 0.5

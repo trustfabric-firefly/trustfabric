@@ -564,6 +564,64 @@ class FirestoreStore:
             return None
         return ScanRecord.model_validate(doc.to_dict())
 
+    # --- Framework Compliance Results ---
+
+    def save_framework_result(self, user_id: str, result) -> None:
+        """Persist a FrameworkResult under scans/{scan_id}/frameworks/{framework_id}."""
+        from app.domain.models import FrameworkResult
+        doc = result.model_dump(mode="json")
+        doc["user_id"] = user_id
+        (
+            self._client()
+            .collection("scans")
+            .document(result.scan_id)
+            .collection("frameworks")
+            .document(result.framework_id)
+            .set(doc)
+        )
+
+    def get_framework_results(self, scan_id: str) -> list:
+        """Return all FrameworkResult objects stored under a scan."""
+        from app.domain.models import FrameworkResult
+        results = []
+        try:
+            docs = (
+                self._client()
+                .collection("scans")
+                .document(scan_id)
+                .collection("frameworks")
+                .stream()
+            )
+            for doc in docs:
+                try:
+                    results.append(FrameworkResult.model_validate(doc.to_dict()))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return results
+
+    def save_attestation(self, user_id: str, framework_id: str, req_id: str, item_index: int, value: bool) -> None:
+        """Save a single manual checklist attestation."""
+        doc_id = f"{user_id}_{framework_id}"
+        field = f"{req_id}_{item_index}"
+        (
+            self._client()
+            .collection("attestations")
+            .document(doc_id)
+            .set({field: value, "updated_at": datetime.utcnow().isoformat()}, merge=True)
+        )
+
+    def get_attestations(self, user_id: str, framework_id: str) -> dict:
+        """Return all attestations for a user+framework as {req_id_item_index: bool}."""
+        doc_id = f"{user_id}_{framework_id}"
+        doc = self._client().collection("attestations").document(doc_id).get()
+        if not doc.exists:
+            return {}
+        data = doc.to_dict() or {}
+        # Filter out metadata fields
+        return {k: bool(v) for k, v in data.items() if k != "updated_at" and isinstance(v, bool)}
+
     # --- GitHub Integration ---
 
     def save_github_connection(self, user_id: str, token: str, user_info: dict) -> None:

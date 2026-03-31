@@ -1,0 +1,130 @@
+id: eu_ai_act
+name: "EU Artificial Intelligence Act"
+version: "2024"
+short_name: "EU AI Act"
+scope: >
+  Obligations for organizations deploying AI tools (deployers/users of AI systems)
+  in operational settings. Covers Articles 9-15 and Article 26 (deployer obligations).
+
+requirements:
+  - id: art_9_risk_management
+    article: "Article 9"
+    title: "Risk Management System"
+    description: >
+      Deployers must establish, implement, document and maintain a risk management
+      system for AI tools used in their organization.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_branch_protection
+        weight: 1
+        rationale: "Protects AI-integrated codebases from unauthorized modifications"
+      - check_id: chk_org_two_factor
+        weight: 2
+        rationale: "Identity security is a baseline risk control for AI system access"
+      - check_id: chk_vulnerability_alerts
+        weight: 1
+        rationale: "Continuous dependency monitoring is part of ongoing risk management"
+    policy_categories: [security, compliance]
+    pass_threshold: 0.6
+
+  - id: art_10_data_governance
+    article: "Article 10"
+    title: "Data and Data Governance"
+    description: >
+      AI systems must be subject to data governance practices including measures
+      to prevent IP leakage, PII exposure, and unauthorized data use.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_public_code_blocked
+        weight: 3
+        rationale: "Prevents proprietary code from being used as AI training input"
+    policy_categories: [data_privacy]
+    pass_threshold: 1.0
+
+  - id: art_11_technical_documentation
+    article: "Article 11"
+    title: "Technical Documentation"
+    description: >
+      Maintain technical documentation of AI systems including architecture,
+      capabilities, limitations, and intended use.
+    auto_evaluable: false
+    manual_checklist:
+      - "AI system registered in TrustFabric with name, description and owner"
+      - "Risk tier assigned with written justification"
+      - "External integrations and data flows documented"
+      - "AI models used are identified and recorded"
+
+  - id: art_12_record_keeping
+    article: "Article 12"
+    title: "Record-Keeping and Logging"
+    description: >
+      AI systems must automatically generate logs to enable monitoring of operations
+      and post-market monitoring. Logs must be kept for at least 6 months.
+    auto_evaluable: true
+    checks: []
+    policy_categories: [compliance, quality_control]
+    policy_keywords: ["logging", "audit", "monitor", "log"]
+    pass_threshold: 0.5
+
+  - id: art_13_transparency
+    article: "Article 13"
+    title: "Transparency and Information Provision"
+    description: >
+      Users interacting with AI systems must be informed they are interacting
+      with an AI. Deployers must ensure appropriate transparency measures.
+    auto_evaluable: false
+    manual_checklist:
+      - "Users are informed when AI-generated outputs are used in decisions"
+      - "AI system capabilities and limitations are communicated to users"
+      - "Contact information for governance queries is published internally"
+
+  - id: art_14_human_oversight
+    article: "Article 14"
+    title: "Human Oversight"
+    description: >
+      AI systems must be designed and deployed to allow effective human oversight.
+      Humans must be able to intervene, override, or stop AI outputs.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_pr_reviews
+        weight: 2
+        rationale: "Mandatory code reviews ensure humans review AI-generated code before merge"
+      - check_id: chk_seat_management
+        weight: 1
+        rationale: "Selective seat assignment means humans control who gets AI access"
+    policy_categories: [access_control, quality_control]
+    policy_keywords: ["human review", "approval", "oversight", "review"]
+    pass_threshold: 0.5
+
+  - id: art_15_accuracy_robustness
+    article: "Article 15"
+    title: "Accuracy, Robustness and Cybersecurity"
+    description: >
+      AI systems must achieve appropriate levels of accuracy and be resilient
+      against unauthorized third party attempts to alter their use or performance.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_vulnerability_alerts
+        weight: 2
+        rationale: "Automated vulnerability detection addresses cybersecurity resilience"
+      - check_id: chk_actions_restricted
+        weight: 2
+        rationale: "Restricting CI/CD actions prevents supply-chain compromise of AI workflows"
+      - check_id: chk_public_code_blocked
+        weight: 1
+        rationale: "Blocking public code reduces risk of adversarial/malicious code suggestion"
+    pass_threshold: 0.6
+
+  - id: art_26_deployer_obligations
+    article: "Article 26"
+    title: "Deployer Obligations"
+    description: >
+      Deployers must assign human oversight to competent persons, ensure
+      employees using AI receive adequate AI literacy training, and report
+      serious incidents to the provider and relevant authorities.
+    auto_evaluable: false
+    manual_checklist:
+      - "A named person is assigned responsibility for each AI system"
+      - "Employees using AI tools have received AI literacy training"
+      - "Incident reporting procedure is documented and communicated"
+      - "Regular review cadence for AI system governance is scheduled"

@@ -6,6 +6,7 @@
   --c-surface: #121214; 
   --c-surface-raised: #18181b;
   --c-surface-hover: #1c1c1f;
+  --c-surface-alt: #161618;
 
   --c-border: rgba(255, 255, 255, 0.06);
   --c-border-subtle: rgba(255, 255, 255, 0.03);
@@ -118,6 +119,7 @@
   --c-surface: #ffffff; 
   --c-surface-raised: #ffffff;
   --c-surface-hover: #f9fafb;
+  --c-surface-alt: #f1f5f9;
 
   --c-border: #e2e8f0;
   --c-border-subtle: #f1f5f9;

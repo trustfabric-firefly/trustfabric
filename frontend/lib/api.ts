@@ -5,8 +5,10 @@ import type {
     AISystemUpdate,
     ActivityEvent,
     AuditEvent,
+    ComplianceEvaluationResponse,
     CopilotRecommendation,
     DashboardSummary,
+    FrameworkMeta,
     GitHubIntegrationStatus,
     Policy,
     PolicyCreate,
@@ -195,6 +197,26 @@ export type ExplainMissingResponse = {
 
 export const settingsApi = {
     status: () => request<BackendStatus>("/api/v1/settings/status"),
+};
+
+export const complianceApi = {
+    listFrameworks: () => request<FrameworkMeta[]>("/api/v1/compliance/frameworks"),
+    evaluate: (scanId: string) =>
+        request<ComplianceEvaluationResponse>(`/api/v1/compliance/evaluate/${scanId}`),
+    refresh: (scanId: string) =>
+        request<ComplianceEvaluationResponse>(`/api/v1/compliance/evaluate/${scanId}/refresh`),
+    submitAttestation: (body: {
+        framework_id: string;
+        req_id: string;
+        item_index: number;
+        value: boolean;
+    }) =>
+        request<{ ok: boolean }>("/api/v1/compliance/attestations", {
+            method: "POST",
+            body: JSON.stringify(body),
+        }),
+    getAttestations: (frameworkId: string) =>
+        request<Record<string, boolean>>(`/api/v1/compliance/attestations/${frameworkId}`),
 };
 
 export type PolicyRecommendationResponse = {

@@ -271,6 +271,48 @@ class GitHubIntegrationStatus(BaseModel):
     user: Optional[GitHubUserInfo] = None
 
 
+# --- Compliance Framework Evaluation ---
+
+
+class FrameworkRequirementStatus(str, Enum):
+    passed = "passed"
+    failed = "failed"
+    partial = "partial"
+    manual = "manual"  # not auto-evaluable, awaiting attestation
+
+
+class FrameworkRequirementResult(BaseModel):
+    id: str
+    article: str
+    title: str
+    description: str
+    status: FrameworkRequirementStatus
+    score: float  # 0.0–1.0
+    auto_evaluable: bool
+    evidence: List[str]
+    gaps: List[str]
+    checklist: List[str] = Field(default_factory=list)
+    checklist_done: List[bool] = Field(default_factory=list)
+
+
+class FrameworkResult(BaseModel):
+    framework_id: str
+    framework_name: str
+    framework_short_name: str
+    framework_version: str
+    scan_id: str
+    evaluated_at: datetime
+    overall_score: int       # 0–100, partial counts 0.5
+    auto_score: int          # 0–100, auto-only requirements
+    total_requirements: int
+    auto_requirements: int
+    manual_requirements: int
+    passed_requirements: int
+    partial_requirements: int
+    failed_requirements: int
+    requirements: List[FrameworkRequirementResult]
+
+
 class GovernancePolicyCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=500)
     description: str = Field(..., min_length=1, max_length=8000)

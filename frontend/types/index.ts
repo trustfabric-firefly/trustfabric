@@ -401,3 +401,54 @@ export interface AuditLogEntry {
   // Metadata
   metadata?: Record<string, unknown>;
 }
+
+// ─── Compliance Frameworks ───────────────────────────────────────────────────
+
+export type FrameworkRequirementStatus = "passed" | "failed" | "partial" | "manual";
+
+export interface FrameworkRequirementResult {
+  id: string;
+  article: string;
+  title: string;
+  description: string;
+  status: FrameworkRequirementStatus;
+  score: number; // 0.0–1.0
+  auto_evaluable: boolean;
+  evidence: string[];
+  gaps: string[];
+  checklist: string[];
+  checklist_done: boolean[];
+}
+
+export interface FrameworkResult {
+  framework_id: string;
+  framework_name: string;
+  framework_short_name: string;
+  framework_version: string;
+  scan_id: string;
+  evaluated_at: string;
+  overall_score: number; // 0–100
+  auto_score: number;    // 0–100 (auto-only)
+  total_requirements: number;
+  auto_requirements: number;
+  manual_requirements: number;
+  passed_requirements: number;
+  partial_requirements: number;
+  failed_requirements: number;
+  requirements: FrameworkRequirementResult[];
+}
+
+export interface FrameworkMeta {
+  id: string;
+  name: string;
+  short_name: string;
+  version: string;
+  scope: string;
+  total_requirements: number;
+  auto_requirements: number;
+}
+
+export interface ComplianceEvaluationResponse {
+  scan_id: string;
+  frameworks: FrameworkResult[];
+}
