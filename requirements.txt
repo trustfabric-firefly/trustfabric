@@ -6,4 +6,8 @@ python-dotenv>=1.0.1
 anthropic>=0.34.0
 firebase-admin>=6.6.0
 pyyaml>=6.0.2
+<<<<<<< Updated upstream
 python-dotenv>=1.0.0
+=======
+httpx>=0.27.0
+>>>>>>> Stashed changes

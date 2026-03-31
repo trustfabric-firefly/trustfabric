@@ -22,10 +22,22 @@ from app.services.policies import required_policies_for_risk
 
 class InMemoryStore:
     def __init__(self) -> None:
+<<<<<<< Updated upstream
         self._systems: Dict[int, AISystem] = {}
         self._events: Dict[int, ActivityEvent] = {}
         self._audits: Dict[int, AuditEvent] = {}
         self._llm_logs: Dict[int, LLMInteractionLog] = {}
+=======
+        self._systems_collection = "systems"
+        self._events_collection = "events"
+        self._audits_collection = "audits"
+        self._llm_logs_collection = "llm_logs"
+        self._counter_collection = "_counters"
+        self._counter_document = "ids"
+        self._integrations_collection = "user_integrations"
+        # Lazy init so importing the app without Firebase creds (e.g. unit tests) does not fail.
+        self._db: Any = None
+>>>>>>> Stashed changes
 
         self._system_id_seq = 1
         self._event_id_seq = 1
@@ -169,7 +181,152 @@ class InMemoryStore:
         return stored
 
     def list_llm_logs(self) -> List[LLMInteractionLog]:
+<<<<<<< Updated upstream
         return list(self._llm_logs.values())
+=======
+        logs: List[LLMInteractionLog] = []
+        for doc in self._client().collection(self._llm_logs_collection).stream():
+            payload = doc.to_dict() or {}
+            payload["id"] = int(doc.id)
+            logs.append(LLMInteractionLog.model_validate(payload))
+        return sorted(logs, key=lambda log: log.id or 0)
+
+    # --- Governance policies (systems/{system_id}/policies) ---
+    def _system_policies_collection(self, system_id: int) -> Any:
+        return (
+            self._client()
+            .collection(self._systems_collection)
+            .document(str(system_id))
+            .collection("policies")
+        )
+
+    def _delete_system_policies_subcollection(self, system_id: int) -> None:
+        for doc in self._system_policies_collection(system_id).stream():
+            doc.reference.delete()
+
+    @staticmethod
+    def _coerce_policy_datetime(val: Any) -> datetime:
+        if isinstance(val, datetime):
+            return val
+        if hasattr(val, "timestamp") and callable(val.timestamp):
+            return datetime.utcfromtimestamp(val.timestamp())
+        if isinstance(val, str):
+            cleaned = val.replace("Z", "+00:00") if val.endswith("Z") else val
+            dt = datetime.fromisoformat(cleaned)
+            return dt.replace(tzinfo=None) if dt.tzinfo else dt
+        raise ValueError(f"Unsupported datetime value: {type(val)!r}")
+
+    def _normalize_policy_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        out = dict(payload)
+        for key in ("created_at", "updated_at"):
+            if key in out and out[key] is not None:
+                out[key] = self._coerce_policy_datetime(out[key])
+        return out
+
+    def list_system_policies(self, system_id: int) -> Optional[List[GovernancePolicy]]:
+        if self.get_system(system_id) is None:
+            return None
+        policies: List[GovernancePolicy] = []
+        for doc in self._system_policies_collection(system_id).stream():
+            raw = doc.to_dict() or {}
+            raw["id"] = doc.id
+            policies.append(GovernancePolicy.model_validate(self._normalize_policy_payload(raw)))
+        return sorted(policies, key=lambda p: p.created_at, reverse=True)
+
+    def create_system_policy(
+        self,
+        system_id: int,
+        data: GovernancePolicyCreate,
+        user_id: str,
+    ) -> Optional[GovernancePolicy]:
+        if self.get_system(system_id) is None:
+            return None
+        now = datetime.utcnow()
+        ref = self._system_policies_collection(system_id).document()
+        policy_id = ref.id
+        policy = GovernancePolicy(
+            id=policy_id,
+            system_id=system_id,
+            name=data.name,
+            description=data.description,
+            category=data.category,
+            severity=data.severity,
+            applies_to=data.applies_to,
+            creation_method=data.creation_method,
+            status=data.status,
+            rules=data.rules,
+            created_by=user_id,
+            created_at=now,
+            updated_at=now,
+            version=1,
+        )
+        ref.set(policy.model_dump(mode="json"))
+        self._record_audit(
+            event_type=AuditEventType.policy_created,
+            target_id=system_id,
+            user_id=user_id,
+            summary=f"Governance policy saved: {data.name} ({policy_id})",
+        )
+        return policy
+
+    def list_all_active_governance_policies(self) -> List[GovernancePolicy]:
+        """Return all active governance policies across every system via a collection group query."""
+        results: List[GovernancePolicy] = []
+        try:
+            docs = (
+                self._client()
+                .collection_group("policies")
+                .where("status", "==", "active")
+                .stream()
+            )
+            for doc in docs:
+                raw = doc.to_dict() or {}
+                raw["id"] = doc.id
+                try:
+                    results.append(
+                        GovernancePolicy.model_validate(self._normalize_policy_payload(raw))
+                    )
+                except Exception:
+                    pass  # skip malformed docs
+        except Exception:
+            pass  # never fail a scan due to policy fetch error
+        return results
+
+    def update_system_policy(
+        self,
+        system_id: int,
+        policy_id: str,
+        data: GovernancePolicyUpdate,
+        user_id: str,
+    ) -> Optional[GovernancePolicy]:
+        if self.get_system(system_id) is None:
+            return None
+        ref = self._system_policies_collection(system_id).document(policy_id)
+        snap = ref.get()
+        if not snap.exists:
+            return None
+        raw = dict(snap.to_dict() or {})
+        raw["id"] = policy_id
+        current = GovernancePolicy.model_validate(self._normalize_policy_payload(raw))
+        if data.status is None:
+            return current
+        now = datetime.utcnow()
+        updated = current.model_copy(
+            update={
+                "status": data.status,
+                "updated_at": now,
+                "version": current.version + 1,
+            }
+        )
+        ref.set(updated.model_dump(mode="json"))
+        self._record_audit(
+            event_type=AuditEventType.policy_updated,
+            target_id=system_id,
+            user_id=user_id,
+            summary=f"Governance policy updated: {current.name} ({policy_id}) status={data.status.value}",
+        )
+        return updated
+>>>>>>> Stashed changes
 
     # --- Dashboard ---
     def dashboard_summary(self) -> DashboardSummary:
@@ -195,6 +352,190 @@ class InMemoryStore:
             total_events=total_events,
             events_per_system=dict(events_per_system_counter),
         )
+
+    # --- Scan Policies ---
+
+    _DEFAULT_SCAN_POLICIES = [
+        # ── Personal / repo-level checks ─────────────────────────────────────
+        {
+            "check_id": "chk_branch_protection",
+            "name": "Branch Protection on Default Branch",
+            "description": "Checks that your repositories have protection rules enabled on their default branch, preventing direct pushes and enforcing review workflows.",
+            "severity": "high",
+            "tier": "personal",
+        },
+        {
+            "check_id": "chk_pr_reviews",
+            "name": "Pull Request Reviews Required",
+            "description": "Checks that protected branches require at least one approving review before code can be merged, ensuring human oversight of all changes.",
+            "severity": "medium",
+            "tier": "personal",
+        },
+        {
+            "check_id": "chk_vulnerability_alerts",
+            "name": "Vulnerability Alerts Enabled",
+            "description": "Checks that Dependabot vulnerability alerts are active on your repositories, notifying you when dependencies have known security issues.",
+            "severity": "high",
+            "tier": "personal",
+        },
+        {
+            "check_id": "chk_actions_restricted",
+            "name": "GitHub Actions Restricted to Trusted Sources",
+            "description": "Checks that GitHub Actions are configured to allow only local or verified actions rather than all third-party actions, reducing supply-chain risk.",
+            "severity": "medium",
+            "tier": "personal",
+        },
+        # ── Enterprise-only checks (Copilot Business/Enterprise) ─────────────
+        {
+            "check_id": "chk_public_code_blocked",
+            "name": "Copilot Public Code Suggestions Blocked",
+            "description": "Checks that your GitHub Copilot org policy blocks suggestions that match public code, preventing potential IP and license compliance issues.",
+            "severity": "high",
+            "tier": "enterprise",
+        },
+        {
+            "check_id": "chk_copilot_cli_disabled",
+            "name": "Copilot CLI Feature Disabled (or Controlled)",
+            "description": "Checks that the Copilot CLI feature is not openly enabled across the org unless explicitly approved, limiting the attack surface for AI-generated shell commands.",
+            "severity": "medium",
+            "tier": "enterprise",
+        },
+        {
+            "check_id": "chk_seat_management",
+            "name": "Copilot Seat Assignment Restricted",
+            "description": "Checks that Copilot seats are assigned to specific approved users rather than enabled for all org members, ensuring access control over AI tool usage.",
+            "severity": "medium",
+            "tier": "enterprise",
+        },
+        {
+            "check_id": "chk_inactive_seats",
+            "name": "Copilot Inactive Seat Ratio Below 30%",
+            "description": "Checks that fewer than 30% of allocated Copilot seats are inactive, flagging license waste and potential security risk from unused elevated access.",
+            "severity": "low",
+            "tier": "enterprise",
+        },
+        {
+            "check_id": "chk_org_two_factor",
+            "name": "Organization Two-Factor Authentication Required",
+            "description": "Checks that your GitHub organization enforces two-factor authentication for all members, a baseline identity security control required by most enterprise security policies.",
+            "severity": "high",
+            "tier": "enterprise",
+        },
+    ]
+
+    def get_scan_policies(self, user_id: str) -> list:
+        from app.domain.models import ScanPolicy, GovernancePolicySeverity
+        docs = (
+            self._client()
+            .collection("scan_policies")
+            .where("user_id", "==", user_id)
+            .stream()
+        )
+        results = [ScanPolicy.model_validate(d.to_dict()) for d in docs]
+
+        existing_ids = {r.check_id for r in results}
+
+        # Seed defaults (full set if empty; backfill missing checks if partially seeded)
+        now = datetime.utcnow()
+        for p in self._DEFAULT_SCAN_POLICIES:
+            if p["check_id"] in existing_ids:
+                continue
+            policy = ScanPolicy(
+                check_id=p["check_id"],
+                name=p["name"],
+                description=p["description"],
+                severity=GovernancePolicySeverity(p["severity"]),
+                enabled=True,
+                tier=p.get("tier", "personal"),
+                user_id=user_id,
+                created_at=now,
+                updated_at=now,
+            )
+            doc_id = f"{user_id}_{p['check_id']}"
+            self._client().collection("scan_policies").document(doc_id).set(
+                policy.model_dump(mode="json")
+            )
+            results.append(policy)
+
+        return sorted(results, key=lambda p: p.check_id)
+
+    def update_scan_policy(self, user_id: str, check_id: str, enabled: bool):
+        from app.domain.models import ScanPolicy
+        doc_id = f"{user_id}_{check_id}"
+        doc_ref = self._client().collection("scan_policies").document(doc_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            # Seed first, then update
+            self.get_scan_policies(user_id)
+            doc_ref = self._client().collection("scan_policies").document(doc_id)
+        doc_ref.update({"enabled": enabled, "updated_at": datetime.utcnow().isoformat()})
+        updated = doc_ref.get().to_dict()
+        return ScanPolicy.model_validate(updated)
+
+    # --- Scans ---
+
+    def save_scan(self, user_id: str, record) -> None:
+        from app.domain.models import ScanRecord
+        doc = record.model_dump(mode="json")
+        doc["user_id"] = user_id
+        self._client().collection("scans").document(record.scan_id).set(doc)
+
+    def list_scans(self, user_id: str) -> list:
+        from app.domain.models import ScanRecord
+        results = []
+        # Avoid composite index requirement by filtering + sorting in Python
+        docs = (
+            self._client()
+            .collection("scans")
+            .where("user_id", "==", user_id)
+            .limit(50)
+            .stream()
+        )
+        for doc in docs:
+            results.append(ScanRecord.model_validate(doc.to_dict()))
+        results.sort(key=lambda r: r.timestamp, reverse=True)
+        return results
+
+    def get_scan(self, scan_id: str):
+        from app.domain.models import ScanRecord
+        doc = self._client().collection("scans").document(scan_id).get()
+        if not doc.exists:
+            return None
+        return ScanRecord.model_validate(doc.to_dict())
+
+    # --- GitHub Integration ---
+
+    def save_github_connection(self, user_id: str, token: str, user_info: dict) -> None:
+        doc = {
+            "github_access_token": token,
+            "github_login": user_info.get("login", ""),
+            "github_name": user_info.get("name"),
+            "github_avatar_url": user_info.get("avatar_url", ""),
+            "github_public_repos": user_info.get("public_repos", 0),
+            "github_orgs": user_info.get("orgs", []),
+            "github_connected_at": datetime.utcnow().isoformat(),
+        }
+        self._client().collection(self._integrations_collection).document(user_id).set(doc, merge=True)
+
+    def get_github_connection(self, user_id: str) -> Optional[dict]:
+        doc = self._client().collection(self._integrations_collection).document(user_id).get()
+        if not doc.exists:
+            return None
+        return doc.to_dict()
+
+    def delete_github_connection(self, user_id: str) -> None:
+        fields_to_remove = {
+            "github_access_token": firestore.DELETE_FIELD,
+            "github_login": firestore.DELETE_FIELD,
+            "github_name": firestore.DELETE_FIELD,
+            "github_avatar_url": firestore.DELETE_FIELD,
+            "github_public_repos": firestore.DELETE_FIELD,
+            "github_orgs": firestore.DELETE_FIELD,
+            "github_connected_at": firestore.DELETE_FIELD,
+        }
+        doc_ref = self._client().collection(self._integrations_collection).document(user_id)
+        if doc_ref.get().exists:
+            doc_ref.update(fields_to_remove)
 
     # --- Helpers ---
     @staticmethod

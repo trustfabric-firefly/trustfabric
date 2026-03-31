@@ -150,6 +150,36 @@ export interface PolicyTemplate {
   customizable_fields: string[];
 }
 
+// ─── Scan Policies ───────────────────────────────────────────────────────────
+
+export interface ScanPolicy {
+  check_id: string;
+  name: string;
+  description: string;
+  severity: PolicySeverity;
+  enabled: boolean;
+  tier: "personal" | "enterprise";
+  user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── GitHub Integration ───────────────────────────────────────────────────────
+
+export interface GitHubUserInfo {
+  login: string;
+  name: string | null;
+  avatar_url: string;
+  public_repos: number;
+  orgs: string[];
+  connected_at: string;
+}
+
+export interface GitHubIntegrationStatus {
+  connected: boolean;
+  user: GitHubUserInfo | null;
+}
+
 // ─── Compliance Scans Domain ─────────────────────────────────────────────────
 
 export type ScanStatus = "pending" | "running" | "completed" | "failed";

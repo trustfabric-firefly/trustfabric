@@ -29,5 +29,11 @@ class Settings(BaseSettings):
     # Policy engine
     policies_file: str | None = "policies.yaml"
 
+    # GitHub OAuth
+    github_client_id: str = ""
+    github_client_secret: str = ""
+    github_redirect_uri: str = "http://localhost:8000/api/v1/integrations/github/callback"
+    frontend_url: str = "http://localhost:3000"
+
 
 settings = Settings()

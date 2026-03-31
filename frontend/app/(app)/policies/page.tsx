@@ -25,17 +25,33 @@ import AttachMoneyOutlinedIcon from "@mui/icons-material/AttachMoneyOutlined";
 import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import type { SvgIconComponent } from "@mui/icons-material";
+import GitHubIcon from "@mui/icons-material/GitHub";
 import { TopBar } from "@/components/layout/TopBar";
+<<<<<<< Updated upstream
 import type { Policy, PolicySeverity, PolicyCategory, PolicyTemplate as TPolicyTemplate, PolicyCreate } from "@/types";
+=======
+import { policyApi, systemPoliciesApi, systemsApi, scanPoliciesApi } from "@/lib/api";
+import type {
+    AISystem,
+    Policy,
+    PolicySeverity,
+    PolicyCategory,
+    PolicyTemplate as TPolicyTemplate,
+    PolicyCreate,
+    PolicyStatus,
+    ScanPolicy,
+} from "@/types";
+>>>>>>> Stashed changes
 
 
-type Tab = "view_all" | "manual" | "template" | "ai_generate";
+type Tab = "view_all" | "manual" | "template" | "ai_generate" | "github_checks";
 
 const TABS: { id: Tab; label: string; icon: SvgIconComponent }[] = [
     { id: "view_all", label: "View All", icon: ListOutlinedIcon },
     { id: "manual", label: "Manual", icon: EditOutlinedIcon },
     { id: "template", label: "Template", icon: DashboardCustomizeOutlinedIcon },
     { id: "ai_generate", label: "AI Generate", icon: AutoAwesomeOutlinedIcon },
+    { id: "github_checks", label: "GitHub Checks", icon: GitHubIcon },
 ];
 
 
@@ -118,6 +134,7 @@ export default function PoliciesPage() {
         setActiveTab("view_all");
     }, []);
 
+<<<<<<< Updated upstream
     const handleToggle = useCallback((id: string) => {
         setPolicies((prev) =>
             prev.map((p) =>
@@ -125,6 +142,66 @@ export default function PoliciesPage() {
             )
         );
     }, []);
+=======
+    const { data: policies = [], isLoading: policiesLoading, isError: policiesError } = useQuery({
+        queryKey: ["governance-policies"],
+        queryFn: async () => {
+            const list = await systemsApi.list();
+            if (list.length === 0) return [];
+            const chunks = await Promise.all(
+                list.map(async (s) => {
+                    const ps = await systemPoliciesApi.list(s.id);
+                    return ps.map((p) => ({
+                        ...p,
+                        system_id: s.id,
+                        system_name: s.name,
+                    }));
+                })
+            );
+            return chunks
+                .flat()
+                .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+        },
+    });
+
+    useEffect(() => {
+        if (systems.length === 0) return;
+        setContextSystemId((prev) => (prev === "" ? systems[0].id : prev));
+    }, [systems]);
+
+    const handleCreate = useCallback(
+        async (data: PolicyCreate, systemId: number, opts?: { asDraft?: boolean }) => {
+            const status: PolicyStatus = opts?.asDraft ? "draft" : "active";
+            await systemPoliciesApi.create(systemId, { ...data, status });
+            await queryClient.invalidateQueries({ queryKey: ["governance-policies"] });
+            setActiveTab("view_all");
+        },
+        [queryClient]
+    );
+
+    const handleToggle = useCallback(
+        async (policy: Policy) => {
+            if (policy.system_id == null) return;
+            const next: PolicyStatus = policy.status === "active" ? "inactive" : "active";
+            await systemPoliciesApi.update(policy.system_id, policy.id, { status: next });
+            await queryClient.invalidateQueries({ queryKey: ["governance-policies"] });
+        },
+        [queryClient]
+    );
+
+    const { data: scanPolicies = [], refetch: refetchScanPolicies } = useQuery({
+        queryKey: ["scan-policies"],
+        queryFn: scanPoliciesApi.list,
+        retry: false,
+    });
+
+    const handleToggleScanPolicy = useCallback(async (checkId: string, enabled: boolean) => {
+        await scanPoliciesApi.toggle(checkId, enabled);
+        await refetchScanPolicies();
+    }, [refetchScanPolicies]);
+
+    const loading = systemsLoading || policiesLoading;
+>>>>>>> Stashed changes
 
     return (
         <>
@@ -155,10 +232,55 @@ export default function PoliciesPage() {
 
                     {/* Tab Content */}
                     <div className="tab-content">
+<<<<<<< Updated upstream
                         {activeTab === "view_all" && <ViewAllTab policies={policies} onToggle={handleToggle} />}
                         {activeTab === "manual" && <ManualTab onCreate={handleCreate} />}
                         {activeTab === "template" && <TemplateTab onCreate={handleCreate} />}
                         {activeTab === "ai_generate" && <AIGenerateTab onCreate={handleCreate} />}
+=======
+                        {activeTab === "view_all" && (
+                            <ViewAllTab
+                                policies={policies}
+                                onToggle={handleToggle}
+                                error={policiesError}
+                            />
+                        )}
+                        {activeTab === "manual" && (
+                            <ManualTab
+                                systems={systems}
+                                systemId={contextSystemId}
+                                onSystemIdChange={setContextSystemId}
+                                systemsLoading={systemsLoading}
+                                onCreate={(data, opts) => {
+                                    if (contextSystemId === "") return;
+                                    return handleCreate(data, contextSystemId, opts);
+                                }}
+                            />
+                        )}
+                        {activeTab === "template" && (
+                            <TemplateTab
+                                systems={systems}
+                                systemId={contextSystemId}
+                                onSystemIdChange={setContextSystemId}
+                                systemsLoading={systemsLoading}
+                                onCreate={(data) => {
+                                    if (contextSystemId === "") return;
+                                    return handleCreate(data, contextSystemId);
+                                }}
+                            />
+                        )}
+                        {activeTab === "ai_generate" && (
+                            <AIGenerateTab
+                                onCreate={(data, systemId) => handleCreate(data, systemId)}
+                            />
+                        )}
+                        {activeTab === "github_checks" && (
+                            <GitHubChecksTab
+                                policies={scanPolicies}
+                                onToggle={handleToggleScanPolicy}
+                            />
+                        )}
+>>>>>>> Stashed changes
                     </div>
                 </div>
             </main>
@@ -777,3 +899,129 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
         rules: { policy_name: "custom_governance", enforcement: "advisory", monitoring: true, review_cycle_days: 30, requires_approval: true },
     };
 }
+<<<<<<< Updated upstream
+=======
+
+function GitHubChecksTab({
+    policies,
+    onToggle,
+}: {
+    policies: ScanPolicy[];
+    onToggle: (checkId: string, enabled: boolean) => Promise<void>;
+}) {
+    const [toggling, setToggling] = useState<string | null>(null);
+    const enabledCount = policies.filter(p => p.enabled).length;
+
+    const handleToggle = async (p: ScanPolicy) => {
+        setToggling(p.check_id);
+        try {
+            await onToggle(p.check_id, !p.enabled);
+        } finally {
+            setToggling(null);
+        }
+    };
+
+    const personalChecks = policies.filter(p => p.tier !== "enterprise");
+    const enterpriseChecks = policies.filter(p => p.tier === "enterprise");
+
+    const renderCheck = (p: ScanPolicy) => (
+        <div
+            key={p.check_id}
+            style={{
+                padding: "var(--s-4)",
+                borderRadius: "var(--r-md)",
+                border: `1px solid ${p.enabled ? "var(--c-border)" : "rgba(255,255,255,0.05)"}`,
+                background: p.enabled ? "var(--c-surface-elevated)" : "rgba(255,255,255,0.02)",
+                opacity: p.enabled ? 1 : 0.6,
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "var(--s-4)",
+                transition: "opacity 0.15s",
+            }}
+        >
+            <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--s-2)", marginBottom: "var(--s-2)", flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: "var(--fw-semibold)", fontSize: "var(--fs-13)" }}>{p.name}</span>
+                    <span className={`badge badge--${p.severity === "high" ? "danger" : p.severity === "medium" ? "warning" : "neutral"}`} style={{ fontSize: "var(--fs-11)" }}>
+                        {p.severity}
+                    </span>
+                    {p.tier === "enterprise" && (
+                        <span className="badge badge--info" style={{ fontSize: "var(--fs-11)" }}>Enterprise</span>
+                    )}
+                    {p.enabled
+                        ? <span className="badge badge--live" style={{ fontSize: "var(--fs-11)" }}>Active</span>
+                        : <span className="badge badge--neutral" style={{ fontSize: "var(--fs-11)" }}>Disabled</span>}
+                </div>
+                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-secondary)", lineHeight: 1.6, margin: 0 }}>
+                    {p.description}
+                </p>
+            </div>
+            <button
+                type="button"
+                className={`btn btn--sm ${p.enabled ? "btn--secondary" : "btn--ghost"}`}
+                disabled={toggling === p.check_id}
+                onClick={() => void handleToggle(p)}
+                style={{ flexShrink: 0, marginTop: 2 }}
+            >
+                {toggling === p.check_id
+                    ? "…"
+                    : p.enabled
+                        ? <><ToggleOnOutlinedIcon sx={{ fontSize: 16 }} /> Enabled</>
+                        : <><ToggleOffOutlinedIcon sx={{ fontSize: 16 }} /> Disabled</>}
+            </button>
+        </div>
+    );
+
+    return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
+            {/* Summary */}
+            <div style={{ display: "flex", gap: "var(--s-3)" }}>
+                <span className="badge badge--live">{enabledCount} active</span>
+                <span className="badge badge--neutral">{policies.length - enabledCount} disabled</span>
+                <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginLeft: "auto", alignSelf: "center" }}>
+                    Changes take effect on next scan
+                </span>
+            </div>
+
+            {policies.length === 0 && (
+                <div style={{ padding: "var(--s-6)", textAlign: "center", color: "var(--c-text-muted)", fontSize: "var(--fs-13)" }}>
+                    Loading checks…
+                </div>
+            )}
+
+            {/* Personal / repo-level checks */}
+            {personalChecks.length > 0 && (
+                <>
+                    <p style={{ fontSize: "var(--fs-12)", fontWeight: "var(--fw-semibold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0 }}>
+                        Repository Checks
+                    </p>
+                    {personalChecks.map(renderCheck)}
+                </>
+            )}
+
+            {/* Enterprise Copilot checks */}
+            {enterpriseChecks.length > 0 && (
+                <>
+                    <p style={{ fontSize: "var(--fs-12)", fontWeight: "var(--fw-semibold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", margin: "var(--s-2) 0 0" }}>
+                        Enterprise Copilot Checks
+                    </p>
+                    <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", margin: "0 0 var(--s-1)", lineHeight: 1.5 }}>
+                        Requires GitHub Copilot Business or Enterprise. These checks are automatically skipped on personal accounts.
+                    </p>
+                    {enterpriseChecks.map(renderCheck)}
+                </>
+            )}
+        </div>
+    );
+}
+
+function isLikelyRefinement(message: string): boolean {
+    const lower = message.toLowerCase();
+    return lower.includes("refine")
+        || lower.includes("strict")
+        || lower.includes("change")
+        || lower.includes("update")
+        || lower.includes("modify")
+        || lower.includes("add");
+}
+>>>>>>> Stashed changes

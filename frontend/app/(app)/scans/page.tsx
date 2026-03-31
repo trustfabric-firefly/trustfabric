@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { scansApi, integrationsApi } from "@/lib/api";
 import DocumentScannerOutlinedIcon from "@mui/icons-material/DocumentScannerOutlined";
 import PlayArrowOutlinedIcon from "@mui/icons-material/PlayArrowOutlined";
 import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
@@ -137,30 +139,54 @@ const MOCK_SCAN_HISTORY: ScanResult[] = [
 type PageView = "main" | "config" | "scanning" | "results" | "trends";
 
 export default function ScansPage() {
+    const queryClient = useQueryClient();
     const [view, setView] = useState<PageView>("main");
-    const [scanHistory, setScanHistory] = useState<ScanResult[]>(MOCK_SCAN_HISTORY);
     const [currentScan, setCurrentScan] = useState<ScanResult | null>(null);
     const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
     const [selectedScan, setSelectedScan] = useState<ScanResult | null>(null);
+    const [scanError, setScanError] = useState<string | null>(null);
+    const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    const { data: githubStatus } = useQuery({
+        queryKey: ["github-status"],
+        queryFn: integrationsApi.getGitHubStatus,
+        retry: false,
+    });
+
+    const { data: scanHistory = [] } = useQuery({
+        queryKey: ["scans"],
+        queryFn: scansApi.list,
+        retry: false,
+    });
+
+    const githubLogin = githubStatus?.user?.login ?? "";
 
     // Configuration state
-    const [configOrg, setConfigOrg] = useState(MOCK_ORGS[0].id);
-    const [configScope, setConfigScope] = useState<ScanScope>("organization");
-    const [configPolicies, setConfigPolicies] = useState<string[]>(MOCK_POLICIES.map(p => p.id));
+    const [configOrg, setConfigOrg] = useState("");
+    const [configScope, setConfigScope] = useState<ScanScope>("repositories");
+    const [configPolicies, setConfigPolicies] = useState<string[]>(["chk_branch_protection", "chk_pr_reviews", "chk_vulnerability_alerts", "chk_actions_restricted"]);
 
     const hasScans = scanHistory.length > 0;
     const latestScan = scanHistory[0] ?? null;
 
+    // Pre-fill org with GitHub login when the config view opens
     const handleStartConfig = useCallback(() => {
+        if (!configOrg && githubLogin) setConfigOrg(githubLogin);
         setView("config");
-    }, []);
+    }, [configOrg, githubLogin]);
 
     const handleCancelConfig = useCallback(() => {
         setView("main");
     }, []);
 
-    const handleStartScan = useCallback(() => {
+    const handleStartScan = useCallback(async () => {
+        const org = configOrg || githubLogin;
+        if (!org) return;
+        setScanError(null);
         setView("scanning");
+
+        // Animate progress steps while the real API call runs in parallel
+        let stepIndex = 0;
         setScanProgress({
             step: SCAN_STEPS[0],
             percentage: 0,
@@ -168,76 +194,30 @@ export default function ScansPage() {
             current_step: SCAN_STEPS[0],
             pending_steps: SCAN_STEPS.slice(1),
         });
+        intervalRef.current = setInterval(() => {
+            stepIndex = Math.min(stepIndex + 1, SCAN_STEPS.length - 1);
+            setScanProgress({
+                step: SCAN_STEPS[stepIndex],
+                percentage: Math.round((stepIndex / (SCAN_STEPS.length - 1)) * 90),
+                completed_steps: SCAN_STEPS.slice(0, stepIndex),
+                current_step: SCAN_STEPS[stepIndex],
+                pending_steps: SCAN_STEPS.slice(stepIndex + 1),
+            });
+        }, 1200);
 
-        // Simulate scan progress
-        let stepIndex = 0;
-        const interval = setInterval(() => {
-            stepIndex++;
-            if (stepIndex < SCAN_STEPS.length) {
-                setScanProgress({
-                    step: SCAN_STEPS[stepIndex],
-                    percentage: Math.round((stepIndex / SCAN_STEPS.length) * 100),
-                    completed_steps: SCAN_STEPS.slice(0, stepIndex),
-                    current_step: SCAN_STEPS[stepIndex],
-                    pending_steps: SCAN_STEPS.slice(stepIndex + 1),
-                });
-            } else {
-                clearInterval(interval);
-                // Generate mock result
-                const hasViolations = Math.random() > 0.3;
-                const newScan: ScanResult = {
-                    scan_id: `scan_${Date.now()}`,
-                    organization: configOrg,
-                    timestamp: new Date().toISOString(),
-                    config: {
-                        scope: configScope,
-                        policies_checked: configPolicies,
-                        github_org: configOrg,
-                    },
-                    github_config: {
-                        enabled_models: hasViolations ? ["gpt-4", "claude-sonnet-3.5"] : ["claude-sonnet-3.5"],
-                        cli_enabled: hasViolations,
-                        ide_features: { suggestions: true },
-                        secret_scanning_enabled: true,
-                        code_review_required: true,
-                    },
-                    results: hasViolations ? {
-                        compliance_score: 67,
-                        total_policies: configPolicies.length,
-                        violations: [
-                            { policy_id: "pol_001", policy_name: "Restrict AI Models", status: "violation", severity: "high", evidence: "GPT-4 found in enabled_models", recommendation: "Remove GPT-4 from org settings under Copilot configuration.", risk_score: 85 },
-                            { policy_id: "pol_002", policy_name: "Disable Copilot CLI", status: "violation", severity: "medium", evidence: "cli_enabled: true", recommendation: "Disable Copilot CLI in organization settings.", risk_score: 60 },
-                        ],
-                        compliant: [
-                            { policy_id: "pol_003", policy_name: "Require Code Review for AI Code", status: "compliant", severity: "medium", evidence: "All repos have required reviewers configured", recommendation: "", risk_score: 0 },
-                        ],
-                    } : {
-                        compliance_score: 100,
-                        total_policies: configPolicies.length,
-                        violations: [],
-                        compliant: MOCK_POLICIES.map(p => ({
-                            policy_id: p.id,
-                            policy_name: p.name,
-                            status: "compliant" as const,
-                            severity: p.severity,
-                            evidence: "Configuration compliant with policy requirements",
-                            recommendation: "",
-                            risk_score: 0,
-                        })),
-                    },
-                    duration_seconds: Math.floor(Math.random() * 10) + 25,
-                    triggered_by: "dev@local",
-                    status: "completed",
-                };
-
-                setCurrentScan(newScan);
-                setScanHistory(prev => [newScan, ...prev]);
-                setView("results");
-            }
-        }, 800);
-
-        return () => clearInterval(interval);
-    }, [configOrg, configScope, configPolicies]);
+        try {
+            const result = await scansApi.trigger({ github_org: org, scope: configScope });
+            if (intervalRef.current) clearInterval(intervalRef.current);
+            setScanProgress({ step: "Done", percentage: 100, completed_steps: SCAN_STEPS, current_step: "Done", pending_steps: [] });
+            setCurrentScan(result);
+            void queryClient.invalidateQueries({ queryKey: ["scans"] });
+            setView("results");
+        } catch (err) {
+            if (intervalRef.current) clearInterval(intervalRef.current);
+            setScanError(err instanceof Error ? err.message : "Scan failed");
+            setView("config");
+        }
+    }, [configOrg, configScope, githubLogin, queryClient]);
 
     const handleViewResults = useCallback((scan: ScanResult) => {
         setSelectedScan(scan);
@@ -295,7 +275,9 @@ export default function ScansPage() {
                         configPolicies={configPolicies}
                         setConfigPolicies={setConfigPolicies}
                         onCancel={handleCancelConfig}
-                        onStart={handleStartScan}
+                        onStart={() => void handleStartScan()}
+                        githubLogin={githubLogin}
+                        scanError={scanError}
                     />
                 )}
 
@@ -443,6 +425,13 @@ function MainView({
 }
 
 
+const BUILT_IN_CHECKS = [
+    { id: "chk_branch_protection", name: "Branch Protection on Default Branch", severity: "high" as const },
+    { id: "chk_pr_reviews", name: "Pull Request Reviews Required", severity: "medium" as const },
+    { id: "chk_vulnerability_alerts", name: "Vulnerability Alerts Enabled", severity: "high" as const },
+    { id: "chk_actions_restricted", name: "GitHub Actions Restricted to Trusted Sources", severity: "medium" as const },
+];
+
 function ConfigView({
     configOrg,
     setConfigOrg,
@@ -452,6 +441,8 @@ function ConfigView({
     setConfigPolicies,
     onCancel,
     onStart,
+    githubLogin,
+    scanError,
 }: {
     configOrg: string;
     setConfigOrg: (v: string) => void;
@@ -461,8 +452,10 @@ function ConfigView({
     setConfigPolicies: (v: string[]) => void;
     onCancel: () => void;
     onStart: () => void;
+    githubLogin: string;
+    scanError: string | null;
 }) {
-    const selectedPolicies = MOCK_POLICIES.filter(p => configPolicies.includes(p.id));
+    const effectiveOrg = configOrg || githubLogin;
 
     return (
         <div className="panel" style={{ maxWidth: 640 }}>
@@ -471,34 +464,40 @@ function ConfigView({
             </div>
             <div className="panel__body" style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
                 <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", lineHeight: 1.5 }}>
-                    Select what to scan and which policies to check against.
+                    Scan your GitHub repositories against the built-in governance checks.
                 </p>
 
+                {scanError && (
+                    <div style={{ padding: "var(--s-3)", borderRadius: "var(--r-md)", background: "rgba(239,68,68,0.08)", border: "1px solid var(--c-critical)", fontSize: "var(--fs-13)", color: "var(--c-critical)" }}>
+                        {scanError}
+                    </div>
+                )}
+
                 <div className="form-group">
-                    <label className="form-label">GitHub Organization *</label>
-                    <select className="input" value={configOrg} onChange={(e) => setConfigOrg(e.target.value)}>
-                        {MOCK_ORGS.map(org => (
-                            <option key={org.id} value={org.id}>{org.name}</option>
-                        ))}
-                    </select>
+                    <label className="form-label">GitHub Username / Organization *</label>
+                    <input
+                        className="input"
+                        placeholder={githubLogin || "your-github-username"}
+                        value={configOrg}
+                        onChange={(e) => setConfigOrg(e.target.value)}
+                    />
+                    {githubLogin && !configOrg && (
+                        <p style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: 4 }}>
+                            Defaults to connected account: @{githubLogin}
+                        </p>
+                    )}
                 </div>
 
                 <div className="form-group">
-                    <label className="form-label">Policies to Check</label>
+                    <label className="form-label">Checks to Run</label>
                     <div className="scan-config__policies">
                         <label className="scan-config__policy-option">
                             <input
                                 type="checkbox"
-                                checked={configPolicies.length === MOCK_POLICIES.length}
-                                onChange={(e) => {
-                                    if (e.target.checked) {
-                                        setConfigPolicies(MOCK_POLICIES.map(p => p.id));
-                                    } else {
-                                        setConfigPolicies([]);
-                                    }
-                                }}
+                                checked={configPolicies.length === BUILT_IN_CHECKS.length}
+                                onChange={(e) => setConfigPolicies(e.target.checked ? BUILT_IN_CHECKS.map(c => c.id) : [])}
                             />
-                            <span>All Active Policies ({MOCK_POLICIES.length})</span>
+                            <span>All checks ({BUILT_IN_CHECKS.length})</span>
                         </label>
                     </div>
                 </div>
@@ -526,15 +525,15 @@ function ConfigView({
                 <div className="scan-config__preview">
                     <h4 style={{ fontSize: "var(--fs-13)", fontWeight: "var(--fw-semibold)", color: "var(--c-text)", marginBottom: "var(--s-2)", display: "flex", alignItems: "center", gap: "var(--s-2)" }}>
                         <DescriptionOutlinedIcon sx={{ fontSize: 16 }} />
-                        Active Policies to be Checked:
+                        Checks that will run:
                     </h4>
                     <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
-                        {selectedPolicies.map((p) => (
-                            <li key={p.id} style={{ display: "flex", alignItems: "center", gap: "var(--s-2)", fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
+                        {BUILT_IN_CHECKS.map((c) => (
+                            <li key={c.id} style={{ display: "flex", alignItems: "center", gap: "var(--s-2)", fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
                                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--c-text-muted)", flexShrink: 0 }} />
-                                {p.name}
-                                <span className="badge badge--neutral" style={{ fontSize: "var(--fs-11)" }}>
-                                    {p.severity}
+                                {c.name}
+                                <span className={`badge badge--${c.severity === "high" ? "danger" : "warning"}`} style={{ fontSize: "var(--fs-11)" }}>
+                                    {c.severity}
                                 </span>
                             </li>
                         ))}
@@ -703,7 +702,14 @@ function ResultsView({
                                     <CheckCircleOutlinedIcon sx={{ fontSize: 16 }} />
                                 </div>
                                 <div className="scan-compliant-item__content">
-                                    <span className="scan-compliant-item__name">{policy.policy_name}</span>
+                                    <span className="scan-compliant-item__name">
+                                        {policy.policy_name}
+                                        {!policy.policy_id.startsWith("chk_") && (
+                                            <span className="badge badge--info" style={{ fontSize: "var(--fs-11)", marginLeft: "var(--s-2)", verticalAlign: "middle" }}>
+                                                AI Evaluated
+                                            </span>
+                                        )}
+                                    </span>
                                     <span className="scan-compliant-item__evidence">{policy.evidence}</span>
                                 </div>
                             </div>
@@ -981,7 +987,14 @@ function ViolationSection({ severity, violations }: { severity: PolicySeverity; 
                             <DescriptionOutlinedIcon sx={{ fontSize: 16 }} />
                         </div>
                         <div className="violation-card__title">
-                            <span className="violation-card__policy">Policy: {v.policy_name}</span>
+                            <span className="violation-card__policy">
+                                Policy: {v.policy_name}
+                                {!v.policy_id.startsWith("chk_") && (
+                                    <span className="badge badge--info" style={{ fontSize: "var(--fs-11)", marginLeft: "var(--s-2)", verticalAlign: "middle" }}>
+                                        AI Evaluated
+                                    </span>
+                                )}
+                            </span>
                             <span className="violation-card__status">
                                 <CancelOutlinedIcon sx={{ fontSize: 14 }} /> VIOLATION
                             </span>

@@ -136,3 +136,165 @@ class DashboardSummary(BaseModel):
     total_events: int
     events_per_system: Dict[int, int]
 
+<<<<<<< Updated upstream
+=======
+
+# --- UI governance policies (stored under Firestore: systems/{id}/policies/{policyDocId}) ---
+
+
+class GovernancePolicyCategory(str, Enum):
+    model_restrictions = "model_restrictions"
+    feature_control = "feature_control"
+    security = "security"
+    quality_control = "quality_control"
+    data_privacy = "data_privacy"
+    access_control = "access_control"
+    cost_management = "cost_management"
+    compliance = "compliance"
+
+
+class GovernancePolicySeverity(str, Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+
+
+class GovernancePolicyCreationMethod(str, Enum):
+    manual = "manual"
+    template = "template"
+    ai_generated = "ai_generated"
+
+
+class GovernancePolicyStatus(str, Enum):
+    active = "active"
+    inactive = "inactive"
+    draft = "draft"
+
+
+# --- Compliance Scans ---
+
+
+class ScanStatus(str, Enum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
+
+class ViolationStatus(str, Enum):
+    violation = "violation"
+    compliant = "compliant"
+
+
+class ScanViolation(BaseModel):
+    policy_id: str
+    policy_name: str
+    status: ViolationStatus
+    severity: GovernancePolicySeverity
+    evidence: str
+    recommendation: str
+    risk_score: int
+
+
+class ScanConfig(BaseModel):
+    scope: str
+    github_org: str
+    policies_checked: List[str]
+
+
+class GitHubScannedConfig(BaseModel):
+    enabled_models: List[str] = Field(default_factory=list)
+    cli_enabled: bool = False
+    ide_features: Dict[str, Any] = Field(default_factory=dict)
+    secret_scanning_enabled: bool = False
+    code_review_required: bool = False
+
+
+class ScanResults(BaseModel):
+    compliance_score: int
+    total_policies: int
+    violations: List[ScanViolation]
+    compliant: List[ScanViolation]
+
+
+class ScanRecord(BaseModel):
+    scan_id: str
+    organization: str
+    timestamp: datetime
+    config: ScanConfig
+    github_config: GitHubScannedConfig
+    results: ScanResults
+    duration_seconds: float
+    triggered_by: str
+    status: ScanStatus
+
+
+class ScanTriggerRequest(BaseModel):
+    github_org: str
+    scope: str = "repositories"
+
+
+# --- Scan Policies (user-scoped, drive which checks run) ---
+
+
+class ScanPolicy(BaseModel):
+    check_id: str
+    name: str
+    description: str
+    severity: GovernancePolicySeverity
+    enabled: bool = True
+    tier: str = "personal"   # "personal" | "enterprise"
+    user_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+# --- GitHub Integration ---
+
+
+class GitHubUserInfo(BaseModel):
+    login: str
+    name: Optional[str] = None
+    avatar_url: str
+    public_repos: int = 0
+    orgs: List[str] = Field(default_factory=list)
+    connected_at: datetime
+
+
+class GitHubIntegrationStatus(BaseModel):
+    connected: bool
+    user: Optional[GitHubUserInfo] = None
+
+
+class GovernancePolicyCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=500)
+    description: str = Field(..., min_length=1, max_length=8000)
+    category: GovernancePolicyCategory
+    severity: GovernancePolicySeverity
+    applies_to: List[str] = Field(default_factory=list)
+    creation_method: GovernancePolicyCreationMethod
+    rules: Optional[Dict[str, Any]] = None
+    status: GovernancePolicyStatus = GovernancePolicyStatus.draft
+
+
+class GovernancePolicyUpdate(BaseModel):
+    status: Optional[GovernancePolicyStatus] = None
+
+
+class GovernancePolicy(BaseModel):
+    id: str
+    system_id: int
+    name: str
+    description: str
+    category: GovernancePolicyCategory
+    severity: GovernancePolicySeverity
+    applies_to: List[str]
+    creation_method: GovernancePolicyCreationMethod
+    status: GovernancePolicyStatus
+    rules: Optional[Dict[str, Any]] = None
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+    version: int = 1
+
+>>>>>>> Stashed changes

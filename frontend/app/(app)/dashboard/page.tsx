@@ -26,7 +26,7 @@ import Link from "next/link";
 import { TopBar } from "@/components/layout/TopBar";
 import { RiskTierBadge } from "@/components/ui/Badge";
 import { GlowingEffect } from "@/components/ui/glowing-effect";
-import { dashboardApi, systemsApi, auditApi } from "@/lib/api";
+import { dashboardApi, systemsApi, auditApi, integrationsApi, scansApi } from "@/lib/api";
 import type { RiskTier } from "@/types";
 import type { SvgIconComponent } from "@mui/icons-material";
 
@@ -92,9 +92,33 @@ export default function DashboardPage() {
     // Recently viewed items synthesized from audit events + systems
     const recentlyViewed = useMemo(() => buildRecentlyViewed(systems, auditEvents), [systems, auditEvents]);
 
-    // Connected / failed integrations
-    const connectedCount = INTEGRATIONS.filter((i) => i.status === "connected").length;
-    const needsSetupCount = INTEGRATIONS.filter((i) => i.status === "needs_setup").length;
+    const { data: latestScans = [] } = useQuery({
+        queryKey: ["scans"],
+        queryFn: scansApi.list,
+        retry: false,
+    });
+    const latestScan = latestScans[0] ?? null;
+    const scanScore = latestScan?.results.compliance_score ?? null;
+
+    const { data: githubStatus, refetch: refetchGitHub } = useQuery({
+        queryKey: ["github-status"],
+        queryFn: integrationsApi.getGitHubStatus,
+        retry: false,
+    });
+
+    const connectGitHub = async () => {
+        try {
+            const { url } = await integrationsApi.getGitHubConnectUrl();
+            window.location.href = url;
+        } catch {
+            // silently ignore — user will see the card stays disconnected
+        }
+    };
+
+    // Connected / failed integrations (GitHub status comes from API; rest are static placeholders)
+    const githubConnected = githubStatus?.connected ?? false;
+    const connectedCount = INTEGRATIONS.filter((i) => i.name !== "GitHub" && i.status === "connected").length + (githubConnected ? 1 : 0);
+    const needsSetupCount = INTEGRATIONS.filter((i) => i.name !== "GitHub" && i.status === "needs_setup").length + (!githubConnected ? 1 : 0);
 
     return (
         <>
@@ -103,9 +127,15 @@ export default function DashboardPage() {
 
                 {/* Row 1: KPI Stats */}
                 <div className="stats-grid" style={{ marginBottom: "var(--s-4)" }}>
-                    <StatTile label="Model Compliance Score" value={loadingSummary ? "--" : `${complianceRate}%`} sub="Across all registered systems"
-                        trend={complianceRate > 0 ? "up" : undefined} trendVal={complianceRate > 0 ? `${complianceRate}%` : undefined}
-                        icon={<VerifiedUserOutlinedIcon sx={{ fontSize: 18 }} />} variant="success" />
+                    <StatTile
+                        label="GitHub Scan Score"
+                        value={scanScore !== null ? `${scanScore}%` : "—"}
+                        sub={latestScan ? `Last scan: ${new Date(latestScan.timestamp).toLocaleDateString()}` : "No scans yet"}
+                        trend={scanScore !== null ? (scanScore >= 75 ? "up" : "down") : undefined}
+                        trendVal={scanScore !== null ? `${scanScore}%` : undefined}
+                        icon={<VerifiedUserOutlinedIcon sx={{ fontSize: 18 }} />}
+                        variant={scanScore === null ? "info" : scanScore >= 75 ? "success" : scanScore >= 50 ? "warning" : "danger"}
+                    />
                     <StatTile label="Policy Enforcement Rate" value={loadingSummary ? "--" : `${enforcementRate}%`} sub="Controls actively enforced"
                         trend={enforcementRate > 0 ? "up" : undefined} trendVal={enforcementRate > 0 ? `${enforcementRate}%` : undefined}
                         icon={<GppMaybeOutlinedIcon sx={{ fontSize: 18 }} />} variant="warning" />
@@ -353,6 +383,13 @@ export default function DashboardPage() {
                         <div className="panel__body--flush">
                             {INTEGRATIONS.map((integ) => {
                                 const Icon = integ.icon;
+                                const isGitHub = integ.name === "GitHub";
+                                const effectiveStatus = isGitHub
+                                    ? (githubConnected ? "connected" as const : "needs_setup" as const)
+                                    : integ.status;
+                                const desc = isGitHub && githubConnected && githubStatus?.user
+                                    ? `@${githubStatus.user.login}${githubStatus.user.orgs.length ? ` · ${githubStatus.user.orgs.length} org(s)` : ""}`
+                                    : integ.desc;
                                 return (
                                     <div key={integ.name} className="integration">
                                         <div className="integration__logo">
@@ -360,11 +397,21 @@ export default function DashboardPage() {
                                         </div>
                                         <div className="integration__info">
                                             <div className="integration__name">{integ.name}</div>
-                                            <div className="integration__desc">{integ.desc}</div>
+                                            <div className="integration__desc">{desc}</div>
                                         </div>
-                                        <span className={`badge ${STATUS_BADGE[integ.status]}`}>
-                                            {STATUS_LABELS[integ.status]}
-                                        </span>
+                                        {isGitHub && !githubConnected ? (
+                                            <button
+                                                type="button"
+                                                className="btn btn--primary btn--sm"
+                                                onClick={() => void connectGitHub()}
+                                            >
+                                                Connect
+                                            </button>
+                                        ) : (
+                                            <span className={`badge ${STATUS_BADGE[effectiveStatus]}`}>
+                                                {STATUS_LABELS[effectiveStatus]}
+                                            </span>
+                                        )}
                                         <ChevronRightOutlinedIcon sx={{ fontSize: 16, color: "var(--c-text-muted)", flexShrink: 0 }} />
                                     </div>
                                 );
