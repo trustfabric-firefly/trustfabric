@@ -7,9 +7,12 @@ import type {
     AuditEvent,
     CopilotRecommendation,
     DashboardSummary,
+    GitHubIntegrationStatus,
     Policy,
     PolicyCreate,
     PolicyStatus,
+    ScanPolicy,
+    ScanResult,
 } from "@/types";
 
 const RAW_BASE_URL =
@@ -136,6 +139,48 @@ export const copilotApi = {
             `/api/v1/copilot/systems/${systemId}/recommendations`,
             { method: "POST" }
         ),
+};
+
+export const scanPoliciesApi = {
+    list: () => request<ScanPolicy[]>("/api/v1/scan-policies/"),
+    toggle: (checkId: string, enabled: boolean) =>
+        request<ScanPolicy>(`/api/v1/scan-policies/${checkId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ enabled }),
+        }),
+};
+
+export const scansApi = {
+    trigger: (body: { github_org: string; scope: string }) =>
+        request<ScanResult>("/api/v1/scans/", { method: "POST", body: JSON.stringify(body) }),
+    list: () => request<ScanResult[]>("/api/v1/scans/"),
+    get: (scanId: string) => request<ScanResult>(`/api/v1/scans/${scanId}`),
+};
+
+export const integrationsApi = {
+    getGitHubConnectUrl: () =>
+        request<{ url: string }>("/api/v1/integrations/github/connect"),
+    getGitHubStatus: () =>
+        request<GitHubIntegrationStatus>("/api/v1/integrations/github/status"),
+    disconnectGitHub: () =>
+        request<{ message: string }>("/api/v1/integrations/github", { method: "DELETE" }),
+};
+
+export type BackendStatus = {
+    app_version: string;
+    app_env: string;
+    llm_provider: string;
+    llm_model: string;
+    gemini_model: string;
+    claude_api_configured: boolean;
+    gemini_api_configured: boolean;
+    firebase_configured: boolean;
+    github_oauth_configured: boolean;
+    rate_limit_per_minute: number;
+};
+
+export const settingsApi = {
+    status: () => request<BackendStatus>("/api/v1/settings/status"),
 };
 
 export type PolicyRecommendationResponse = {

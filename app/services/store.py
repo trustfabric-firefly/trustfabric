@@ -36,6 +36,7 @@ class FirestoreStore:
         self._llm_logs_collection = "llm_logs"
         self._counter_collection = "_counters"
         self._counter_document = "ids"
+        self._integrations_collection = "user_integrations"
         # Lazy init so importing the app without Firebase creds (e.g. unit tests) does not fail.
         self._db: Any = None
 
@@ -313,6 +314,29 @@ class FirestoreStore:
         )
         return policy
 
+    def list_all_active_governance_policies(self) -> List[GovernancePolicy]:
+        """Return all active governance policies across every system via a collection group query."""
+        results: List[GovernancePolicy] = []
+        try:
+            docs = (
+                self._client()
+                .collection_group("policies")
+                .where("status", "==", "active")
+                .stream()
+            )
+            for doc in docs:
+                raw = doc.to_dict() or {}
+                raw["id"] = doc.id
+                try:
+                    results.append(
+                        GovernancePolicy.model_validate(self._normalize_policy_payload(raw))
+                    )
+                except Exception:
+                    pass  # skip malformed docs
+        except Exception:
+            pass  # never fail a scan due to policy fetch error
+        return results
+
     def update_system_policy(
         self,
         system_id: int,
@@ -372,6 +396,190 @@ class FirestoreStore:
             total_events=total_events,
             events_per_system=dict(events_per_system_counter),
         )
+
+    # --- Scan Policies ---
+
+    _DEFAULT_SCAN_POLICIES = [
+        # ── Personal / repo-level checks ─────────────────────────────────────
+        {
+            "check_id": "chk_branch_protection",
+            "name": "Branch Protection on Default Branch",
+            "description": "Checks that your repositories have protection rules enabled on their default branch, preventing direct pushes and enforcing review workflows.",
+            "severity": "high",
+            "tier": "personal",
+        },
+        {
+            "check_id": "chk_pr_reviews",
+            "name": "Pull Request Reviews Required",
+            "description": "Checks that protected branches require at least one approving review before code can be merged, ensuring human oversight of all changes.",
+            "severity": "medium",
+            "tier": "personal",
+        },
+        {
+            "check_id": "chk_vulnerability_alerts",
+            "name": "Vulnerability Alerts Enabled",
+            "description": "Checks that Dependabot vulnerability alerts are active on your repositories, notifying you when dependencies have known security issues.",
+            "severity": "high",
+            "tier": "personal",
+        },
+        {
+            "check_id": "chk_actions_restricted",
+            "name": "GitHub Actions Restricted to Trusted Sources",
+            "description": "Checks that GitHub Actions are configured to allow only local or verified actions rather than all third-party actions, reducing supply-chain risk.",
+            "severity": "medium",
+            "tier": "personal",
+        },
+        # ── Enterprise-only checks (Copilot Business/Enterprise) ─────────────
+        {
+            "check_id": "chk_public_code_blocked",
+            "name": "Copilot Public Code Suggestions Blocked",
+            "description": "Checks that your GitHub Copilot org policy blocks suggestions that match public code, preventing potential IP and license compliance issues.",
+            "severity": "high",
+            "tier": "enterprise",
+        },
+        {
+            "check_id": "chk_copilot_cli_disabled",
+            "name": "Copilot CLI Feature Disabled (or Controlled)",
+            "description": "Checks that the Copilot CLI feature is not openly enabled across the org unless explicitly approved, limiting the attack surface for AI-generated shell commands.",
+            "severity": "medium",
+            "tier": "enterprise",
+        },
+        {
+            "check_id": "chk_seat_management",
+            "name": "Copilot Seat Assignment Restricted",
+            "description": "Checks that Copilot seats are assigned to specific approved users rather than enabled for all org members, ensuring access control over AI tool usage.",
+            "severity": "medium",
+            "tier": "enterprise",
+        },
+        {
+            "check_id": "chk_inactive_seats",
+            "name": "Copilot Inactive Seat Ratio Below 30%",
+            "description": "Checks that fewer than 30% of allocated Copilot seats are inactive, flagging license waste and potential security risk from unused elevated access.",
+            "severity": "low",
+            "tier": "enterprise",
+        },
+        {
+            "check_id": "chk_org_two_factor",
+            "name": "Organization Two-Factor Authentication Required",
+            "description": "Checks that your GitHub organization enforces two-factor authentication for all members, a baseline identity security control required by most enterprise security policies.",
+            "severity": "high",
+            "tier": "enterprise",
+        },
+    ]
+
+    def get_scan_policies(self, user_id: str) -> list:
+        from app.domain.models import ScanPolicy, GovernancePolicySeverity
+        docs = (
+            self._client()
+            .collection("scan_policies")
+            .where("user_id", "==", user_id)
+            .stream()
+        )
+        results = [ScanPolicy.model_validate(d.to_dict()) for d in docs]
+
+        existing_ids = {r.check_id for r in results}
+
+        # Seed defaults (full set if empty; backfill missing checks if partially seeded)
+        now = datetime.utcnow()
+        for p in self._DEFAULT_SCAN_POLICIES:
+            if p["check_id"] in existing_ids:
+                continue
+            policy = ScanPolicy(
+                check_id=p["check_id"],
+                name=p["name"],
+                description=p["description"],
+                severity=GovernancePolicySeverity(p["severity"]),
+                enabled=True,
+                tier=p.get("tier", "personal"),
+                user_id=user_id,
+                created_at=now,
+                updated_at=now,
+            )
+            doc_id = f"{user_id}_{p['check_id']}"
+            self._client().collection("scan_policies").document(doc_id).set(
+                policy.model_dump(mode="json")
+            )
+            results.append(policy)
+
+        return sorted(results, key=lambda p: p.check_id)
+
+    def update_scan_policy(self, user_id: str, check_id: str, enabled: bool):
+        from app.domain.models import ScanPolicy
+        doc_id = f"{user_id}_{check_id}"
+        doc_ref = self._client().collection("scan_policies").document(doc_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            # Seed first, then update
+            self.get_scan_policies(user_id)
+            doc_ref = self._client().collection("scan_policies").document(doc_id)
+        doc_ref.update({"enabled": enabled, "updated_at": datetime.utcnow().isoformat()})
+        updated = doc_ref.get().to_dict()
+        return ScanPolicy.model_validate(updated)
+
+    # --- Scans ---
+
+    def save_scan(self, user_id: str, record) -> None:
+        from app.domain.models import ScanRecord
+        doc = record.model_dump(mode="json")
+        doc["user_id"] = user_id
+        self._client().collection("scans").document(record.scan_id).set(doc)
+
+    def list_scans(self, user_id: str) -> list:
+        from app.domain.models import ScanRecord
+        results = []
+        # Avoid composite index requirement by filtering + sorting in Python
+        docs = (
+            self._client()
+            .collection("scans")
+            .where("user_id", "==", user_id)
+            .limit(50)
+            .stream()
+        )
+        for doc in docs:
+            results.append(ScanRecord.model_validate(doc.to_dict()))
+        results.sort(key=lambda r: r.timestamp, reverse=True)
+        return results
+
+    def get_scan(self, scan_id: str):
+        from app.domain.models import ScanRecord
+        doc = self._client().collection("scans").document(scan_id).get()
+        if not doc.exists:
+            return None
+        return ScanRecord.model_validate(doc.to_dict())
+
+    # --- GitHub Integration ---
+
+    def save_github_connection(self, user_id: str, token: str, user_info: dict) -> None:
+        doc = {
+            "github_access_token": token,
+            "github_login": user_info.get("login", ""),
+            "github_name": user_info.get("name"),
+            "github_avatar_url": user_info.get("avatar_url", ""),
+            "github_public_repos": user_info.get("public_repos", 0),
+            "github_orgs": user_info.get("orgs", []),
+            "github_connected_at": datetime.utcnow().isoformat(),
+        }
+        self._client().collection(self._integrations_collection).document(user_id).set(doc, merge=True)
+
+    def get_github_connection(self, user_id: str) -> Optional[dict]:
+        doc = self._client().collection(self._integrations_collection).document(user_id).get()
+        if not doc.exists:
+            return None
+        return doc.to_dict()
+
+    def delete_github_connection(self, user_id: str) -> None:
+        fields_to_remove = {
+            "github_access_token": firestore.DELETE_FIELD,
+            "github_login": firestore.DELETE_FIELD,
+            "github_name": firestore.DELETE_FIELD,
+            "github_avatar_url": firestore.DELETE_FIELD,
+            "github_public_repos": firestore.DELETE_FIELD,
+            "github_orgs": firestore.DELETE_FIELD,
+            "github_connected_at": firestore.DELETE_FIELD,
+        }
+        doc_ref = self._client().collection(self._integrations_collection).document(user_id)
+        if doc_ref.get().exists:
+            doc_ref.update(fields_to_remove)
 
     # --- Helpers ---
     @staticmethod
