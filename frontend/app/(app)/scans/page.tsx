@@ -750,9 +750,15 @@ function ResultsView({
 
             {/* Actions */}
             <div style={{ display: "flex", gap: "var(--s-2)", justifyContent: "flex-end" }}>
-                <button className="btn btn--secondary">
+                <a
+                    href={scansApi.reportUrl(scan.scan_id)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn--secondary"
+                    style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}
+                >
                     <FileDownloadOutlinedIcon sx={{ fontSize: 16 }} /> Export Report (PDF)
-                </button>
+                </a>
                 <button className="btn btn--secondary" onClick={onViewTrends}>
                     <BarChartOutlinedIcon sx={{ fontSize: 16 }} /> View Trends
                 </button>
@@ -960,7 +966,14 @@ function ScanHistoryItem({ scan, onViewResults }: { scan: ScanResult; onViewResu
             </div>
             <div className="scan-history-item__actions">
                 <button className="btn btn--ghost btn--sm" onClick={(e) => { e.stopPropagation(); onViewResults(); }}>View Results</button>
-                <button className="btn btn--ghost btn--sm" onClick={(e) => e.stopPropagation()}>Export PDF</button>
+                <a
+                    href={scansApi.reportUrl(scan.scan_id)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn--ghost btn--sm"
+                    style={{ textDecoration: "none" }}
+                    onClick={(e) => e.stopPropagation()}
+                >Export PDF</a>
             </div>
             <ChevronRightOutlinedIcon sx={{ fontSize: 18, color: "var(--c-text-muted)", flexShrink: 0 }} />
         </div>

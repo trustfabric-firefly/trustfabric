@@ -309,4 +309,5 @@ async def run_scan(user_id: str, github_org: str, triggered_by: str) -> ScanReco
     )
 
     store.save_scan(user_id, record)
+    store.link_scan_to_systems(record)
     return record

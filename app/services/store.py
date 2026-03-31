@@ -106,6 +106,23 @@ class FirestoreStore:
             systems.append(AISystem.model_validate(payload))
         return sorted(systems, key=lambda system: system.id)
 
+    def link_scan_to_systems(self, scan_record) -> None:
+        """Update all AI systems that have a GitHub-related integration with the latest scan results.
+        Called automatically after every scan completes."""
+        github_keywords = {"github", "copilot", "github copilot"}
+        systems = self.list_systems()
+        for system in systems:
+            integrations_lower = {i.lower() for i in system.external_integrations}
+            # Also match systems with model_type LLM or any github keyword in integrations
+            if integrations_lower & github_keywords or "github" in system.name.lower():
+                self._client().collection(self._systems_collection).document(str(system.id)).update({
+                    "last_scan_id": scan_record.scan_id,
+                    "last_scan_date": scan_record.timestamp.isoformat(),
+                    "compliance_score": scan_record.results.compliance_score,
+                    "active_violations": len(scan_record.results.violations),
+                    "updated_at": datetime.utcnow().isoformat(),
+                })
+
     def get_system(self, system_id: int) -> Optional[AISystem]:
         doc = self._client().collection(self._systems_collection).document(str(system_id)).get()
         if not doc.exists:

@@ -29,9 +29,10 @@ import LinkOutlinedIcon from "@mui/icons-material/LinkOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import GitHubIcon from "@mui/icons-material/GitHub";
 import type { SvgIconComponent } from "@mui/icons-material";
+import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import { TopBar } from "@/components/layout/TopBar";
 import { Modal } from "@/components/ui/Modal";
-import { auditApi, copilotApi, systemsApi } from "@/lib/api";
+import { auditApi, copilotApi, systemsApi, type ExplainMissingResponse } from "@/lib/api";
 import type {
     AISystemInventoryItem,
     AISystemType,
@@ -888,6 +889,22 @@ function DetailsView({
     onBack: () => void;
 }) {
     const TypeIcon = SYSTEM_TYPE_ICONS[system.type];
+    const [explaining, setExplaining] = useState(false);
+    const [explanation, setExplanation] = useState<ExplainMissingResponse | null>(null);
+    const [explainError, setExplainError] = useState("");
+
+    const handleExplainMissing = async () => {
+        setExplaining(true);
+        setExplainError("");
+        try {
+            const result = await systemsApi.explainMissing(Number(system.id));
+            setExplanation(result);
+        } catch {
+            setExplainError("Claude could not generate an explanation. Check that CLAUDE_API_KEY is set on the server.");
+        } finally {
+            setExplaining(false);
+        }
+    };
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
@@ -974,14 +991,90 @@ function DetailsView({
                             </span>
                         )}
                     </div>
-                    <div style={{ display: "flex", gap: "var(--s-2)" }}>
+                    <div style={{ display: "flex", gap: "var(--s-2)", flexWrap: "wrap" }}>
                         <button className="btn btn--primary" onClick={onRunScan}>
                             <DocumentScannerOutlinedIcon sx={{ fontSize: 16 }} /> Run Compliance Scan
                         </button>
                         <button className="btn btn--secondary">
                             <HistoryOutlinedIcon sx={{ fontSize: 16 }} /> View Scan History
                         </button>
+                        {system.scan_status === "violations" && (
+                            <button
+                                className="btn btn--secondary"
+                                onClick={() => void handleExplainMissing()}
+                                disabled={explaining}
+                                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                            >
+                                <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />
+                                {explaining ? "Asking Claude…" : "Explain what's missing"}
+                            </button>
+                        )}
                     </div>
+
+                    {explainError && (
+                        <p style={{ marginTop: "var(--s-3)", fontSize: "var(--fs-12)", color: "var(--c-critical)" }}>{explainError}</p>
+                    )}
+
+                    {explanation && (
+                        <div style={{
+                            marginTop: "var(--s-4)",
+                            padding: "var(--s-4)",
+                            borderRadius: "var(--r-md)",
+                            border: "1px solid rgba(245,158,11,0.3)",
+                            background: "rgba(245,158,11,0.04)",
+                        }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "var(--s-2)", marginBottom: "var(--s-3)" }}>
+                                <AutoAwesomeOutlinedIcon sx={{ fontSize: 16, color: "var(--c-accent)" }} />
+                                <span style={{ fontWeight: "var(--fw-semibold)", fontSize: "var(--fs-13)" }}>
+                                    Claude&apos;s Explanation — {explanation.system_name}
+                                </span>
+                                <span style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginLeft: "auto" }}>
+                                    {explanation.disclaimer}
+                                </span>
+                                <button
+                                    type="button"
+                                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--c-text-muted)", fontSize: 16 }}
+                                    onClick={() => setExplanation(null)}
+                                >✕</button>
+                            </div>
+
+                            <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", lineHeight: 1.6, marginBottom: "var(--s-3)" }}>
+                                {explanation.summary}
+                            </p>
+
+                            {explanation.missing_controls.length > 0 && (
+                                <div style={{ marginBottom: "var(--s-3)" }}>
+                                    <p style={{ fontSize: "var(--fs-11)", fontWeight: "var(--fw-semibold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "var(--s-2)" }}>Missing Controls</p>
+                                    {explanation.missing_controls.map((mc, i) => (
+                                        <div key={i} style={{ display: "flex", gap: "var(--s-2)", marginBottom: "var(--s-2)" }}>
+                                            <span style={{ color: "var(--c-critical)", fontSize: 14, flexShrink: 0 }}>✕</span>
+                                            <div>
+                                                <span style={{ fontWeight: "var(--fw-medium)", fontSize: "var(--fs-13)" }}>{mc.control}</span>
+                                                <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginLeft: "var(--s-2)" }}>— {mc.why_required}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {explanation.action_steps.length > 0 && (
+                                <div style={{ marginBottom: "var(--s-3)" }}>
+                                    <p style={{ fontSize: "var(--fs-11)", fontWeight: "var(--fw-semibold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "var(--s-2)" }}>Action Steps</p>
+                                    <ol style={{ paddingLeft: "var(--s-4)", margin: 0 }}>
+                                        {explanation.action_steps.map((step, i) => (
+                                            <li key={i} style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", lineHeight: 1.6, marginBottom: "var(--s-1)" }}>{step}</li>
+                                        ))}
+                                    </ol>
+                                </div>
+                            )}
+
+                            <div style={{ padding: "var(--s-3)", background: "rgba(239,68,68,0.06)", borderRadius: "var(--r-sm)", border: "1px solid rgba(239,68,68,0.15)" }}>
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-secondary)", lineHeight: 1.5 }}>
+                                    <strong style={{ color: "var(--c-critical)" }}>Risk if ignored:</strong> {explanation.risk_if_ignored}
+                                </p>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -1291,6 +1384,8 @@ function riskLevelToBackendTier(level: RiskLevel): BackendAISystem["risk_tier"] 
 }
 
 function mapBackendSystemToInventory(system: BackendAISystem): AISystemInventoryItem {
+    const hasRealScan = system.compliance_score != null;
+    const violations = system.active_violations ?? (system.missing_required_controls ? 1 : 0);
     return {
         id: String(system.id),
         name: system.name,
@@ -1307,8 +1402,13 @@ function mapBackendSystemToInventory(system: BackendAISystem): AISystemInventory
         models_used: [system.model_type],
         external_integrations: system.external_integrations,
         connected: false,
-        active_violations: system.missing_required_controls ? 1 : 0,
-        scan_status: system.missing_required_controls ? "violations" : "compliant",
+        last_scan_id: system.last_scan_id ?? undefined,
+        last_scan_date: system.last_scan_date ?? undefined,
+        compliance_score: system.compliance_score ?? undefined,
+        active_violations: violations,
+        scan_status: hasRealScan
+            ? (violations > 0 ? "violations" : "compliant")
+            : (system.missing_required_controls ? "violations" : "not_scanned"),
         status: system.status === "Active" ? "active" : system.status === "Retired" ? "archived" : "draft",
         registered_by: "api",
         registered_at: system.created_at,

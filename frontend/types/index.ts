@@ -33,6 +33,11 @@ export interface AISystem {
   missing_required_controls: boolean;
   created_at: string;
   updated_at: string;
+  // Populated after a compliance scan runs against this system
+  last_scan_id?: string | null;
+  last_scan_date?: string | null;
+  compliance_score?: number | null;
+  active_violations?: number | null;
 }
 
 export interface AISystemCreate {

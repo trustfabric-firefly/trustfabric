@@ -160,6 +160,92 @@ def _extract_json_object(raw: str) -> dict[str, Any]:
     )
 
 
+def explain_missing_controls(system_id: int, user_id: str) -> dict:
+    """Generate a plain-English explanation of what governance controls a system is missing
+    and concrete action steps to become compliant. (Stretch goal — NIST Manage function.)"""
+    system = store.get_system(system_id)
+    if system is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
+
+    if not settings.claude_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Claude API key not configured on server",
+        )
+
+    from app.services.policies import required_policies_for_risk
+
+    required = required_policies_for_risk(system.risk_tier) if system.risk_tier else []
+    missing = [p for p in required if p not in (system.required_policies or [])]
+    # Also surface any required policies that are simply not yet documented
+    all_required = system.required_policies or []
+    present = [p for p in all_required]
+
+    prompt_text = f"""You are a governance compliance advisor using the NIST AI Risk Management Framework.
+
+An AI system in the organization's registry is flagged as "Missing Required Controls".
+
+System details:
+- Name: {system.name}
+- Description: {system.description}
+- Risk tier: {system.risk_tier or 'Not assigned'}
+- Data sensitivity: {system.data_sensitivity}
+- Business unit: {system.business_unit}
+- Required policies: {[p.value for p in all_required] or 'None defined'}
+- Missing controls: {[p.value for p in missing] or 'General incompleteness'}
+- missing_required_controls flag: {system.missing_required_controls}
+
+Write a response in strict JSON with these keys:
+- "summary": 2–3 sentence plain-English explanation of what is missing and why it matters
+- "missing_controls": array of objects, each with "control" (name) and "why_required" (1 sentence)
+- "action_steps": array of 3–6 concrete numbered steps the system owner should take
+- "risk_if_ignored": 1–2 sentences on the consequence of not addressing this
+- "nist_functions": array of NIST AI RMF functions this addresses (Govern/Map/Measure/Manage)
+
+Keep the language clear and actionable. This output is shown directly to system owners.""".strip()
+
+    client = Anthropic(api_key=settings.claude_api_key)
+    now = datetime.now(timezone.utc)
+
+    try:
+        message = client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=900,
+            temperature=0.2,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+    except APIStatusError as exc:
+        store.log_llm_interaction(LLMInteractionLog(
+            timestamp=now, user_id=user_id, system_id=system_id,
+            prompt_template_version="v1-explain-missing",
+            input_summary=f"explain_missing for system {system_id}",
+            model_name=settings.anthropic_model,
+            response_summary=str(exc)[:500], success=False,
+        ))
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail=f"Claude API call failed: {exc}") from exc
+
+    text_parts = [c.text for c in message.content if getattr(c, "type", "") == "text"]
+    raw = "".join(text_parts).strip()
+
+    store.log_llm_interaction(LLMInteractionLog(
+        timestamp=now, user_id=user_id, system_id=system_id,
+        prompt_template_version="v1-explain-missing",
+        input_summary=f"System {system_id} ({system.name}) — missing controls explanation",
+        model_name=settings.anthropic_model,
+        response_summary=raw[:1000] + ("..." if len(raw) > 1000 else ""),
+        success=True,
+    ))
+
+    payload = _extract_json_object(raw)
+    return {
+        **payload,
+        "system_name": system.name,
+        "risk_tier": system.risk_tier,
+        "disclaimer": "AI-generated guidance. Review with your compliance team before applying.",
+    }
+
+
 def generate_policy_recommendation(prompt: str, user_id: str, history: list[str] | None = None) -> dict:
     if not settings.claude_api_key:
         raise HTTPException(

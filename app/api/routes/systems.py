@@ -13,6 +13,7 @@ from app.domain.models import (
     GovernancePolicyCreate,
     GovernancePolicyUpdate,
 )
+from app.services import claude as claude_service
 from app.services.store import store
 
 router = APIRouter()
@@ -104,4 +105,12 @@ def delete_system(system_id: int, actor: Actor = Depends(require_admin)) -> None
     deleted = store.delete_system(system_id, user_id=actor.user_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
+
+
+@router.post(
+    "/{system_id}/explain-missing",
+    summary="Ask Claude to explain missing required controls for a system",
+)
+def explain_missing(system_id: int, actor: Actor = Depends(get_actor)) -> dict:
+    return claude_service.explain_missing_controls(system_id=system_id, user_id=actor.user_id)
 

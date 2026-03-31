@@ -89,6 +89,8 @@ export const systemsApi = {
             method: "POST",
             body: JSON.stringify(data),
         }),
+    explainMissing: (id: number) =>
+        request<ExplainMissingResponse>(`/api/v1/systems/${id}/explain-missing`, { method: "POST" }),
     update: (id: number, data: AISystemUpdate) =>
         request<AISystem>(`/api/v1/systems/${id}`, {
             method: "PATCH",
@@ -155,6 +157,7 @@ export const scansApi = {
         request<ScanResult>("/api/v1/scans/", { method: "POST", body: JSON.stringify(body) }),
     list: () => request<ScanResult[]>("/api/v1/scans/"),
     get: (scanId: string) => request<ScanResult>(`/api/v1/scans/${scanId}`),
+    reportUrl: (scanId: string) => `${RESOLVED_API_BASE_URL}/api/v1/scans/${scanId}/report`,
 };
 
 export const integrationsApi = {
@@ -177,6 +180,17 @@ export type BackendStatus = {
     firebase_configured: boolean;
     github_oauth_configured: boolean;
     rate_limit_per_minute: number;
+};
+
+export type ExplainMissingResponse = {
+    summary: string;
+    missing_controls: { control: string; why_required: string }[];
+    action_steps: string[];
+    risk_if_ignored: string;
+    nist_functions: string[];
+    system_name: string;
+    risk_tier: string | null;
+    disclaimer: string;
 };
 
 export const settingsApi = {

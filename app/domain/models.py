@@ -77,6 +77,11 @@ class AISystem(AISystemBase):
     risk_justification: Optional[str] = None
     required_policies: List[PolicyKey] = Field(default_factory=list)
     missing_required_controls: bool = False
+    # Populated when a compliance scan runs against this system
+    last_scan_id: Optional[str] = None
+    last_scan_date: Optional[datetime] = None
+    compliance_score: Optional[int] = None
+    active_violations: Optional[int] = None
 
 
 class RiskTierChange(BaseModel):
