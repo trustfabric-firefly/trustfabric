@@ -81,11 +81,11 @@ type FrameworkKey = keyof typeof FRAMEWORK_CONFIGS;
 
 const INTEGRATIONS = [
     { name: "GitHub", desc: "Code scanning & PR reviews", icon: GitHubIcon, status: "connected" as const },
-    { name: "Slack", desc: "Alerts & notifications", icon: ForumOutlinedIcon, status: "connected" as const },
+    { name: "Slack", desc: "Alerts & notifications", icon: ForumOutlinedIcon, status: "needs_setup" as const },
     { name: "AWS", desc: "Cloud infrastructure audit", icon: CloudOutlinedIcon, status: "needs_setup" as const },
     { name: "Azure", desc: "Identity & access management", icon: StorageOutlinedIcon, status: "needs_setup" as const },
     { name: "Google Cloud", desc: "Vertex AI model monitoring", icon: CloudOutlinedIcon, status: "disconnected" as const },
-    { name: "Jira", desc: "Issue tracking & remediation", icon: BoltOutlinedIcon, status: "connected" as const },
+    { name: "Jira", desc: "Issue tracking & remediation", icon: BoltOutlinedIcon, status: "needs_setup" as const },
 ];
 
 const STATUS_LABELS = { connected: "Connected", needs_setup: "Needs setup", disconnected: "Not connected" };

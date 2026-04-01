@@ -1017,7 +1017,7 @@ function DetailsView({
                             <HistoryOutlinedIcon sx={{ fontSize: 16 }} /> View Scan History
                         </button>
                         <button className="btn btn--secondary" onClick={onGenerateRecommendation}>
-                            <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} /> Generate Recommendation
+                            <AIIcon size={16} /> Generate Recommendation
                         </button>
                         {system.scan_status === "violations" && (
                             <button
@@ -1168,7 +1168,7 @@ function DetailsView({
                     <ArchiveOutlinedIcon sx={{ fontSize: 16 }} /> Archive
                 </button>
                 <button className="btn btn--primary" onClick={onGenerateRecommendation}>
-                    <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} /> Generate Recommendation
+                    <AIIcon size={16} /> Generate Recommendation
                 </button>
             </div>
         </div>

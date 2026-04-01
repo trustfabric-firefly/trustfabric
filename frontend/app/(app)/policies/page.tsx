@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ListOutlinedIcon from "@mui/icons-material/ListOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import DashboardCustomizeOutlinedIcon from "@mui/icons-material/DashboardCustomizeOutlined";
-import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import { AIIcon, AIIconWrapper } from "@/components/ui/AIIcon";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
 import SecurityOutlinedIcon from "@mui/icons-material/SecurityOutlined";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
@@ -47,7 +47,7 @@ const TABS: { id: Tab; label: string; icon: SvgIconComponent }[] = [
     { id: "view_all", label: "View All", icon: ListOutlinedIcon },
     { id: "manual", label: "Manual", icon: EditOutlinedIcon },
     { id: "template", label: "Template", icon: DashboardCustomizeOutlinedIcon },
-    { id: "ai_generate", label: "AI Generate", icon: AutoAwesomeOutlinedIcon },
+    { id: "ai_generate", label: "AI Generate", icon: AIIconWrapper as any },
     { id: "github_checks", label: "GitHub Checks", icon: GitHubIcon },
 ];
 
@@ -680,7 +680,7 @@ function AIGenerateTab({
                 {messages.length === 0 ? (
                     <div className="chat__empty">
                         <div className="chat__empty-icon">
-                            <AutoAwesomeOutlinedIcon sx={{ fontSize: 28 }} />
+                            <AIIcon size={28} />
                         </div>
                         <div className="chat__empty-title">AI Policy Generator</div>
                         <div className="chat__empty-desc">
@@ -700,7 +700,7 @@ function AIGenerateTab({
                             <div key={msg.id} className={`chat__msg chat__msg--${msg.role}`}>
                                 {msg.role === "ai" && (
                                     <div className="chat__avatar chat__avatar--ai">
-                                        <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />
+                                        <AIIcon size={16} />
                                     </div>
                                 )}
                                 <div className={`chat__bubble chat__bubble--${msg.role}`}>
@@ -763,7 +763,7 @@ function AIGenerateTab({
                         {isTyping && (
                             <div className="chat__msg chat__msg--ai">
                                 <div className="chat__avatar chat__avatar--ai">
-                                    <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />
+                                    <AIIcon size={16} />
                                 </div>
                                 <div className="chat__typing">
                                     <div className="chat__typing-dot" />
@@ -1076,43 +1076,51 @@ function GitHubChecksTab({
     );
 
     return (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
+        <div style={{ padding: "var(--s-5)", display: "flex", flexDirection: "column", gap: "var(--s-5)" }}>
             {/* Summary */}
-            <div style={{ display: "flex", gap: "var(--s-3)" }}>
-                <span className="badge badge--live">{enabledCount} active</span>
-                <span className="badge badge--neutral">{policies.length - enabledCount} disabled</span>
-                <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginLeft: "auto", alignSelf: "center" }}>
+            <div style={{ display: "flex", gap: "var(--s-4)", alignItems: "center", marginBottom: "var(--s-2)" }}>
+                <div style={{ display: "flex", gap: "var(--s-3)" }}>
+                    <span className="badge badge--live" style={{ padding: "4px 10px" }}>{enabledCount} active</span>
+                    <span className="badge badge--neutral" style={{ padding: "4px 10px" }}>{policies.length - enabledCount} disabled</span>
+                </div>
+                <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginLeft: "auto" }}>
                     Changes take effect on next scan
                 </span>
             </div>
 
             {policies.length === 0 && (
-                <div style={{ padding: "var(--s-6)", textAlign: "center", color: "var(--c-text-muted)", fontSize: "var(--fs-13)" }}>
+                <div style={{ padding: "var(--s-10)", textAlign: "center", color: "var(--c-text-muted)", fontSize: "var(--fs-13)" }}>
                     Loading checks…
                 </div>
             )}
 
             {/* Personal / repo-level checks */}
             {personalChecks.length > 0 && (
-                <>
-                    <p style={{ fontSize: "var(--fs-12)", fontWeight: "var(--fw-semibold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
+                    <p style={{ fontSize: "var(--fs-11)", fontWeight: "var(--fw-bold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0" }}>
                         Repository Checks
                     </p>
-                    {personalChecks.map(renderCheck)}
-                </>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
+                        {personalChecks.map(renderCheck)}
+                    </div>
+                </div>
             )}
 
             {/* Enterprise Copilot checks */}
             {enterpriseChecks.length > 0 && (
-                <>
-                    <p style={{ fontSize: "var(--fs-12)", fontWeight: "var(--fw-semibold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", margin: "var(--s-2) 0 0" }}>
-                        Enterprise Copilot Checks
-                    </p>
-                    <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", margin: "0 0 var(--s-1)", lineHeight: 1.5 }}>
-                        Requires GitHub Copilot Business or Enterprise. These checks are automatically skipped on personal accounts.
-                    </p>
-                    {enterpriseChecks.map(renderCheck)}
-                </>
+                <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)", marginTop: "var(--s-4)" }}>
+                    <div>
+                        <p style={{ fontSize: "var(--fs-11)", fontWeight: "var(--fw-bold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0" }}>
+                            Enterprise Copilot Checks
+                        </p>
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-1)", lineHeight: 1.5 }}>
+                            Requires GitHub Copilot Business or Enterprise. These checks are automatically skipped on personal accounts.
+                        </p>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
+                        {enterpriseChecks.map(renderCheck)}
+                    </div>
+                </div>
             )}
         </div>
     );

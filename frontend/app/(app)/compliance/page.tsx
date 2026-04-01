@@ -8,7 +8,7 @@ import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import PendingOutlinedIcon from "@mui/icons-material/PendingOutlined";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import { AIIcon } from "@/components/ui/AIIcon";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
 import { complianceApi, scansApi } from "@/lib/api";
@@ -514,7 +514,7 @@ export default function CompliancePage() {
             fontSize: "var(--fs-13)",
           }}
         >
-          <AutoAwesomeOutlinedIcon style={{ color: "var(--c-text)", fontSize: 20, opacity: 0.8 }} />
+          <AIIcon size={20} style={{ opacity: 0.8 }} />
           <span style={{ color: "var(--c-text)", lineHeight: 1.5 }}>
             <strong style={{ color: "var(--c-text)", fontWeight: "var(--fw-bold)" }}>{manualPending} requirements</strong> need manual attestation.
             Expand each framework below and check off completed items to improve your score.

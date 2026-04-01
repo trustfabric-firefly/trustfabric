@@ -110,6 +110,9 @@
 
   /* ─── Transitions ─────────────────────────────────────────────────── */
   --ease: 150ms ease;
+
+  /* ─── AI Icon Filters ─────────────────────────────────────────────── */
+  --ai-icon-filter: brightness(0) invert(1); /* Default to white for dark theme */
 }
 
 [data-theme="light"] {
@@ -150,6 +153,8 @@
   
   /* Disable glowing effect on panels for light mode */
   --stat-glow: transparent;
+
+  --ai-icon-filter: brightness(0); /* Black for light theme */
 }
 
 [data-theme="light"] .sidebar__active-well {
@@ -2109,7 +2114,7 @@ select.input {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: calc(100vh - 56px);
+  height: calc(100vh - 56px);
   box-sizing: border-box;
   padding-bottom: 0;
   overflow: hidden;
