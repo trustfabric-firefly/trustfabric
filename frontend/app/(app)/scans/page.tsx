@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { scansApi, integrationsApi } from "@/lib/api";
+import { Modal } from "@/components/ui/Modal";
 import DocumentScannerOutlinedIcon from "@mui/icons-material/DocumentScannerOutlined";
 import PlayArrowOutlinedIcon from "@mui/icons-material/PlayArrowOutlined";
 import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
@@ -147,6 +148,7 @@ export default function ScansPage() {
     const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
     const [selectedScan, setSelectedScan] = useState<ScanResult | null>(null);
     const [scanError, setScanError] = useState<string | null>(null);
+    const [trendSourceScanId, setTrendSourceScanId] = useState<string | null>(null);
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const { data: githubStatus } = useQuery({
@@ -252,13 +254,43 @@ export default function ScansPage() {
     }, []);
 
     const handleViewTrends = useCallback(() => {
+        setTrendSourceScanId(currentScan?.scan_id ?? null);
         setView("trends");
-    }, []);
+    }, [currentScan]);
 
     const handleBackToMain = useCallback(() => {
         setView("main");
         setSelectedScan(null);
         setCurrentScan(null);
+        setTrendSourceScanId(null);
+    }, []);
+
+    const handleBackFromTrends = useCallback(() => {
+        if (trendSourceScanId) {
+            const match = scanHistory.find((scan) => scan.scan_id === trendSourceScanId);
+            if (match) {
+                setSelectedScan(match);
+                setCurrentScan(match);
+                setView("results");
+                return;
+            }
+        }
+        setView("main");
+    }, [scanHistory, trendSourceScanId]);
+
+    const handleExportReport = useCallback(async (scanId: string) => {
+        const html = await scansApi.getReportHtml(scanId);
+        const popup = window.open("", "_blank", "noopener,noreferrer");
+        if (!popup) {
+            throw new Error("Popup blocked while opening the report preview.");
+        }
+        popup.document.open();
+        popup.document.write(html);
+        popup.document.close();
+        popup.focus();
+        window.setTimeout(() => {
+            popup.print();
+        }, 300);
     }, []);
 
     return (
@@ -289,6 +321,7 @@ export default function ScansPage() {
                         onStartConfig={handleStartConfig}
                         onViewResults={handleViewResults}
                         onViewTrends={handleViewTrends}
+                        onExportReport={handleExportReport}
                     />
                 )}
 
@@ -317,13 +350,14 @@ export default function ScansPage() {
                         onRunAnother={handleStartConfig}
                         onViewTrends={handleViewTrends}
                         onBack={handleBackToMain}
+                        onExportReport={handleExportReport}
                     />
                 )}
 
                 {view === "trends" && (
                     <TrendsView
                         scanHistory={scanHistory}
-                        onBack={handleBackToMain}
+                        onBack={handleBackFromTrends}
                     />
                 )}
             </main>
@@ -338,6 +372,7 @@ function MainView({
     scanHistory,
     onStartConfig,
     onViewResults,
+    onExportReport,
 }: {
     hasScans: boolean;
     latestScan: ScanResult | null;
@@ -345,6 +380,7 @@ function MainView({
     onStartConfig: () => void;
     onViewResults: (scan: ScanResult) => void;
     onViewTrends: () => void;
+    onExportReport: (scanId: string) => Promise<void>;
 }) {
     const [historyFilter, setHistoryFilter] = useState<"all" | "violations" | "compliant">("all");
 
@@ -437,6 +473,7 @@ function MainView({
                                     key={scan.scan_id}
                                     scan={scan}
                                     onViewResults={() => onViewResults(scan)}
+                                    onExportReport={onExportReport}
                                 />
                             ))}
                         </div>
@@ -644,17 +681,51 @@ function ResultsView({
     onRunAnother,
     onViewTrends,
     onBack,
+    onExportReport,
 }: {
     scan: ScanResult;
     onRunAnother: () => void;
     onViewTrends: () => void;
     onBack: () => void;
+    onExportReport: (scanId: string) => Promise<void>;
 }) {
     const hasViolations = scan.results.violations.length > 0;
     const highRisk = scan.results.violations.filter(v => v.severity === "high");
     const mediumRisk = scan.results.violations.filter(v => v.severity === "medium");
     const lowRisk = scan.results.violations.filter(v => v.severity === "low");
     const scannedRepositories = scan.results.scanned_repositories ?? [];
+    const [selectedViolation, setSelectedViolation] = useState<ScanViolation | null>(null);
+    const [acknowledgedPolicies, setAcknowledgedPolicies] = useState<string[]>([]);
+    const [exportError, setExportError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const key = `tf_scan_ack_${scan.scan_id}`;
+        const saved = window.localStorage.getItem(key);
+        setAcknowledgedPolicies(saved ? JSON.parse(saved) as string[] : []);
+        setSelectedViolation(null);
+        setExportError(null);
+    }, [scan.scan_id]);
+
+    const acknowledgedSet = useMemo(() => new Set(acknowledgedPolicies), [acknowledgedPolicies]);
+
+    const toggleAcknowledged = useCallback((policyId: string) => {
+        setAcknowledgedPolicies((current) => {
+            const next = current.includes(policyId)
+                ? current.filter((id) => id !== policyId)
+                : [...current, policyId];
+            window.localStorage.setItem(`tf_scan_ack_${scan.scan_id}`, JSON.stringify(next));
+            return next;
+        });
+    }, [scan.scan_id]);
+
+    const handleExportClick = useCallback(async () => {
+        setExportError(null);
+        try {
+            await onExportReport(scan.scan_id);
+        } catch (error) {
+            setExportError(error instanceof Error ? error.message : "Failed to export report");
+        }
+    }, [onExportReport, scan.scan_id]);
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
@@ -701,13 +772,31 @@ function ResultsView({
                     </div>
                     <div className="panel__body--flush">
                         {highRisk.length > 0 && (
-                            <ViolationSection severity="high" violations={highRisk} />
+                            <ViolationSection
+                                severity="high"
+                                violations={highRisk}
+                                acknowledgedPolicies={acknowledgedSet}
+                                onViewDetails={setSelectedViolation}
+                                onToggleAcknowledged={toggleAcknowledged}
+                            />
                         )}
                         {mediumRisk.length > 0 && (
-                            <ViolationSection severity="medium" violations={mediumRisk} />
+                            <ViolationSection
+                                severity="medium"
+                                violations={mediumRisk}
+                                acknowledgedPolicies={acknowledgedSet}
+                                onViewDetails={setSelectedViolation}
+                                onToggleAcknowledged={toggleAcknowledged}
+                            />
                         )}
                         {lowRisk.length > 0 && (
-                            <ViolationSection severity="low" violations={lowRisk} />
+                            <ViolationSection
+                                severity="low"
+                                violations={lowRisk}
+                                acknowledgedPolicies={acknowledgedSet}
+                                onViewDetails={setSelectedViolation}
+                                onToggleAcknowledged={toggleAcknowledged}
+                            />
                         )}
                     </div>
                 </div>
@@ -797,15 +886,13 @@ function ResultsView({
 
             {/* Actions */}
             <div style={{ display: "flex", gap: "var(--s-2)", justifyContent: "flex-end" }}>
-                <a
-                    href={scansApi.reportUrl(scan.scan_id)}
-                    target="_blank"
-                    rel="noreferrer"
+                <button
                     className="btn btn--secondary"
-                    style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                    onClick={() => void handleExportClick()}
                 >
                     <FileDownloadOutlinedIcon sx={{ fontSize: 16 }} /> Export Report (PDF)
-                </a>
+                </button>
                 <button className="btn btn--secondary" onClick={onViewTrends}>
                     <BarChartOutlinedIcon sx={{ fontSize: 16 }} /> View Trends
                 </button>
@@ -813,6 +900,65 @@ function ResultsView({
                     <RefreshOutlinedIcon sx={{ fontSize: 16 }} /> Run Another Scan
                 </button>
             </div>
+
+            {exportError && (
+                <div className="panel">
+                    <div className="panel__body">
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-critical-text)" }}>{exportError}</p>
+                    </div>
+                </div>
+            )}
+
+            <Modal
+                open={selectedViolation !== null}
+                onClose={() => setSelectedViolation(null)}
+                title={selectedViolation?.policy_name ?? "Violation Details"}
+                subtitle={selectedViolation ? `${selectedViolation.severity.toUpperCase()} severity` : undefined}
+                footer={
+                    selectedViolation ? (
+                        <>
+                            <button
+                                className="btn btn--secondary"
+                                onClick={() => toggleAcknowledged(selectedViolation.policy_id)}
+                            >
+                                {acknowledgedSet.has(selectedViolation.policy_id) ? "Remove Acknowledgement" : "Mark as Acknowledged"}
+                            </button>
+                            <button className="btn btn--primary" onClick={() => setSelectedViolation(null)}>
+                                Close
+                            </button>
+                        </>
+                    ) : undefined
+                }
+            >
+                {selectedViolation && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
+                        <div>
+                            <strong>Issue</strong>
+                            <p style={{ marginTop: "var(--s-1)", color: "var(--c-text-secondary)" }}>{selectedViolation.evidence}</p>
+                        </div>
+                        <div>
+                            <strong>Risk Score</strong>
+                            <p style={{ marginTop: "var(--s-1)", color: "var(--c-text-secondary)" }}>{selectedViolation.risk_score}</p>
+                        </div>
+                        <div>
+                            <strong>Recommended Fix</strong>
+                            <p style={{ marginTop: "var(--s-1)", color: "var(--c-text-secondary)" }}>{selectedViolation.recommendation}</p>
+                        </div>
+                        {selectedViolation.affected_repositories && selectedViolation.affected_repositories.length > 0 && (
+                            <div>
+                                <strong>Affected Repositories</strong>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s-2)", marginTop: "var(--s-2)" }}>
+                                    {selectedViolation.affected_repositories.map((repo) => (
+                                        <span key={`${selectedViolation.policy_id}-${repo}-badge`} className="badge badge--info">
+                                            {repo}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </Modal>
         </div>
     );
 }
@@ -981,7 +1127,15 @@ function LatestScanCard({ scan, onViewDetails }: { scan: ScanResult; onViewDetai
     );
 }
 
-function ScanHistoryItem({ scan, onViewResults }: { scan: ScanResult; onViewResults: () => void }) {
+function ScanHistoryItem({
+    scan,
+    onViewResults,
+    onExportReport,
+}: {
+    scan: ScanResult;
+    onViewResults: () => void;
+    onExportReport: (scanId: string) => Promise<void>;
+}) {
     const hasViolations = scan.results.violations.length > 0;
     const highCount = scan.results.violations.filter(v => v.severity === "high").length;
     const mediumCount = scan.results.violations.filter(v => v.severity === "medium").length;
@@ -1013,21 +1167,32 @@ function ScanHistoryItem({ scan, onViewResults }: { scan: ScanResult; onViewResu
             </div>
             <div className="scan-history-item__actions">
                 <button className="btn btn--ghost btn--sm" onClick={(e) => { e.stopPropagation(); onViewResults(); }}>View Results</button>
-                <a
-                    href={scansApi.reportUrl(scan.scan_id)}
-                    target="_blank"
-                    rel="noreferrer"
+                <button
                     className="btn btn--ghost btn--sm"
-                    style={{ textDecoration: "none" }}
-                    onClick={(e) => e.stopPropagation()}
-                >Export PDF</a>
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        void onExportReport(scan.scan_id);
+                    }}
+                >Export PDF</button>
             </div>
             <ChevronRightOutlinedIcon sx={{ fontSize: 18, color: "var(--c-text-muted)", flexShrink: 0 }} />
         </div>
     );
 }
 
-function ViolationSection({ severity, violations }: { severity: PolicySeverity; violations: ScanViolation[] }) {
+function ViolationSection({
+    severity,
+    violations,
+    acknowledgedPolicies,
+    onViewDetails,
+    onToggleAcknowledged,
+}: {
+    severity: PolicySeverity;
+    violations: ScanViolation[];
+    acknowledgedPolicies: Set<string>;
+    onViewDetails: (violation: ScanViolation) => void;
+    onToggleAcknowledged: (policyId: string) => void;
+}) {
     const severityConfig = {
         high: { label: "HIGH RISK", icon: CancelOutlinedIcon },
         medium: { label: "MEDIUM RISK", icon: WarningAmberOutlinedIcon },
@@ -1090,8 +1255,10 @@ function ViolationSection({ severity, violations }: { severity: PolicySeverity; 
                         </div>
                     </div>
                     <div className="violation-card__actions">
-                        <button className="btn btn--ghost btn--sm">View Details</button>
-                        <button className="btn btn--ghost btn--sm">Mark as Acknowledged</button>
+                        <button className="btn btn--ghost btn--sm" onClick={() => onViewDetails(v)}>View Details</button>
+                        <button className="btn btn--ghost btn--sm" onClick={() => onToggleAcknowledged(v.policy_id)}>
+                            {acknowledgedPolicies.has(v.policy_id) ? "Acknowledged" : "Mark as Acknowledged"}
+                        </button>
                     </div>
                 </div>
             ))}

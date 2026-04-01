@@ -82,6 +82,28 @@ async function request<T>(
     return res.json() as Promise<T>;
 }
 
+async function requestText(
+    path: string,
+    options: RequestInit = {}
+): Promise<string> {
+    const authHeaders = await getAuthHeaders();
+    const endpoint = new URL(path, `${BASE_URL}/`).toString();
+    const res = await fetch(endpoint, {
+        ...options,
+        headers: {
+            ...authHeaders,
+            ...options.headers,
+        },
+    });
+
+    if (!res.ok) {
+        const error = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(error.detail ?? "Request failed");
+    }
+
+    return res.text();
+}
+
 
 export const systemsApi = {
     list: () => request<AISystem[]>("/api/v1/systems/"),
@@ -160,6 +182,7 @@ export const scansApi = {
     list: () => request<ScanResult[]>("/api/v1/scans/"),
     get: (scanId: string) => request<ScanResult>(`/api/v1/scans/${scanId}`),
     reportUrl: (scanId: string) => `${RESOLVED_API_BASE_URL}/api/v1/scans/${scanId}/report`,
+    getReportHtml: (scanId: string) => requestText(`/api/v1/scans/${scanId}/report`),
 };
 
 export const integrationsApi = {
