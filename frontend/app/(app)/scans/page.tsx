@@ -654,6 +654,7 @@ function ResultsView({
     const highRisk = scan.results.violations.filter(v => v.severity === "high");
     const mediumRisk = scan.results.violations.filter(v => v.severity === "medium");
     const lowRisk = scan.results.violations.filter(v => v.severity === "low");
+    const scannedRepositories = scan.results.scanned_repositories ?? [];
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
@@ -760,6 +761,10 @@ function ResultsView({
                             <span className="scan-details__value">{scan.results.total_policies}</span>
                         </div>
                         <div className="scan-details__item">
+                            <span className="scan-details__label">Repositories Analyzed</span>
+                            <span className="scan-details__value">{scannedRepositories.length}</span>
+                        </div>
+                        <div className="scan-details__item">
                             <span className="scan-details__label">Duration</span>
                             <span className="scan-details__value">{scan.duration_seconds} seconds</span>
                         </div>
@@ -768,6 +773,25 @@ function ResultsView({
                             <span className="scan-details__value font-mono">{scan.scan_id}</span>
                         </div>
                     </div>
+                    {scannedRepositories.length > 0 && (
+                        <>
+                            <div className="divider" />
+                            <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
+                                <span className="scan-details__label">Repository Names</span>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s-2)" }}>
+                                    {scannedRepositories.map((repo) => (
+                                        <span
+                                            key={repo}
+                                            className="badge badge--info"
+                                            style={{ fontSize: "var(--fs-11)" }}
+                                        >
+                                            {repo}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -1048,6 +1072,16 @@ function ViolationSection({ severity, violations }: { severity: PolicySeverity; 
                             <li>{v.evidence}</li>
                         </ul>
                     </div>
+                    {v.affected_repositories && v.affected_repositories.length > 0 && (
+                        <div className="violation-card__evidence">
+                            <strong>Affected Repositories:</strong>
+                            <ul>
+                                {v.affected_repositories.map((repo) => (
+                                    <li key={`${v.policy_id}-${repo}`}>{repo}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
                     <div className="violation-card__recommendation">
                         <TipsAndUpdatesOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
                         <div>

@@ -136,8 +136,18 @@ async def run_scan(user_id: str, github_org: str, triggered_by: str) -> ScanReco
     if not conn or not conn.get("github_access_token"):
         raise ValueError("GitHub is not connected. Connect your GitHub account in Settings first.")
     token = conn["github_access_token"]
+    github_login = conn.get("github_login", "")
 
-    repos = await gh.get_user_repos(token)
+    if github_org and github_org != github_login:
+        repos = await gh.get_org_repos(token, github_org)
+        if not repos:
+            raise ValueError(
+                f"No repositories found for GitHub organization '{github_org}'. "
+                "If these are private org repositories, reconnect GitHub with repository read access."
+            )
+    else:
+        repos = await gh.get_user_repos(token)
+
     # Limit to 10 most-recently-pushed non-fork repos for speed
     repos = [r for r in repos if not r.get("fork")][:10]
     total = len(repos)
@@ -146,37 +156,62 @@ async def run_scan(user_id: str, github_org: str, triggered_by: str) -> ScanReco
         raise ValueError("No repositories found to scan.")
 
     # --- Gather GitHub data per repo ---
-    branch_protected = 0
-    pr_required = 0
-    vuln_enabled = 0
-    actions_restricted = 0
-    secret_scanning_enabled = 0
-    push_protection_enabled = 0
+    repo_checks = {
+        "chk_branch_protection": {"passed": [], "failed": []},
+        "chk_pr_reviews": {"passed": [], "failed": []},
+        "chk_vulnerability_alerts": {"passed": [], "failed": []},
+        "chk_actions_restricted": {"passed": [], "failed": []},
+        "chk_secret_scanning": {"passed": [], "failed": []},
+        "chk_secret_push_protection": {"passed": [], "failed": []},
+    }
+    scanned_repositories: list[str] = []
 
     for repo in repos:
         owner = repo["owner"]["login"]
         name = repo["name"]
         default_branch = repo.get("default_branch", "main")
+        scanned_repositories.append(name)
+        repo_details = await gh.get_repo(token, owner, name) or repo
 
         protection = await gh.get_branch_protection(token, owner, name, default_branch)
         if protection:
-            branch_protected += 1
-            if protection.get("required_pull_request_reviews"):
-                pr_required += 1
+            repo_checks["chk_branch_protection"]["passed"].append(name)
+        else:
+            repo_checks["chk_branch_protection"]["failed"].append(name)
 
-        if repo.get("has_vulnerability_alerts"):
-            vuln_enabled += 1
+        if protection and protection.get("required_pull_request_reviews"):
+            repo_checks["chk_pr_reviews"]["passed"].append(name)
+        else:
+            repo_checks["chk_pr_reviews"]["failed"].append(name)
+
+        if repo_details.get("has_vulnerability_alerts"):
+            repo_checks["chk_vulnerability_alerts"]["passed"].append(name)
+        else:
+            repo_checks["chk_vulnerability_alerts"]["failed"].append(name)
 
         actions = await gh.get_actions_permissions(token, owner, name)
         if actions and actions.get("allowed_actions") in ("local_only", "selected"):
-            actions_restricted += 1
+            repo_checks["chk_actions_restricted"]["passed"].append(name)
+        else:
+            repo_checks["chk_actions_restricted"]["failed"].append(name)
 
         # Secret scanning — available on public repos for free; private repos need GitHub Advanced Security
-        sec = repo.get("security_and_analysis") or {}
+        sec = repo_details.get("security_and_analysis") or repo.get("security_and_analysis") or {}
         if (sec.get("secret_scanning") or {}).get("status") == "enabled":
-            secret_scanning_enabled += 1
+            repo_checks["chk_secret_scanning"]["passed"].append(name)
+        else:
+            repo_checks["chk_secret_scanning"]["failed"].append(name)
         if (sec.get("secret_scanning_push_protection") or {}).get("status") == "enabled":
-            push_protection_enabled += 1
+            repo_checks["chk_secret_push_protection"]["passed"].append(name)
+        else:
+            repo_checks["chk_secret_push_protection"]["failed"].append(name)
+
+    branch_protected = len(repo_checks["chk_branch_protection"]["passed"])
+    pr_required = len(repo_checks["chk_pr_reviews"]["passed"])
+    vuln_enabled = len(repo_checks["chk_vulnerability_alerts"]["passed"])
+    actions_restricted = len(repo_checks["chk_actions_restricted"]["passed"])
+    secret_scanning_enabled = len(repo_checks["chk_secret_scanning"]["passed"])
+    push_protection_enabled = len(repo_checks["chk_secret_push_protection"]["passed"])
 
     # Copilot config + org info (enterprise only — None for personal accounts)
     copilot = await gh.get_copilot_config(token, github_org)
@@ -198,19 +233,13 @@ async def run_scan(user_id: str, github_org: str, triggered_by: str) -> ScanReco
 
         if chk_tier == "personal":
             # Repo-level checks — evaluated as pass/fail ratio
-            score_map = {
-                "chk_branch_protection": branch_protected,
-                "chk_pr_reviews": pr_required,
-                "chk_vulnerability_alerts": vuln_enabled,
-                "chk_actions_restricted": actions_restricted,
-                "chk_secret_scanning": secret_scanning_enabled,
-                "chk_secret_push_protection": push_protection_enabled,
-            }
-            passed_count = score_map.get(chk["id"], 0)
+            outcomes = repo_checks.get(chk["id"], {"passed": [], "failed": []})
+            passed_count = len(outcomes["passed"])
             passed = passed_count >= threshold
             pass_ev = chk.get("pass_evidence", lambda p, t: "Check passed")(passed_count, total)
             fail_ev = chk.get("fail_evidence", lambda p, t: "Check failed")(passed_count, total)
             evidence = pass_ev if passed else fail_ev
+            affected_repositories = outcomes["failed"] if not passed else outcomes["passed"]
 
         else:
             # Enterprise checks — skip when Copilot/org data unavailable
@@ -266,6 +295,7 @@ async def run_scan(user_id: str, github_org: str, triggered_by: str) -> ScanReco
 
             else:
                 continue
+            affected_repositories = []
 
         item = ScanViolation(
             policy_id=chk["id"],
@@ -275,6 +305,7 @@ async def run_scan(user_id: str, github_org: str, triggered_by: str) -> ScanReco
             evidence=evidence,
             recommendation="" if passed else chk["recommendation"],
             risk_score=0 if passed else chk["risk_score"],
+            affected_repositories=affected_repositories,
         )
         (compliant if passed else violations).append(item)
 
@@ -333,6 +364,7 @@ async def run_scan(user_id: str, github_org: str, triggered_by: str) -> ScanReco
             total_policies=total_checks,
             violations=violations,
             compliant=compliant,
+            scanned_repositories=scanned_repositories,
         ),
         duration_seconds=round(time.monotonic() - start, 2),
         triggered_by=triggered_by,

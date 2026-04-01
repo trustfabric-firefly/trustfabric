@@ -203,6 +203,7 @@ export interface ScanViolation {
   evidence: string;
   recommendation: string;
   risk_score: number;
+  affected_repositories?: string[];
 }
 
 export interface ScanConfig {
@@ -232,6 +233,7 @@ export interface ScanResult {
     total_policies: number;
     violations: ScanViolation[];
     compliant: ScanViolation[];
+    scanned_repositories?: string[];
   };
   duration_seconds: number;
   triggered_by: string;

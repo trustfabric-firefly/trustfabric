@@ -9,7 +9,11 @@ from app.core.config import settings
 
 GITHUB_API = "https://api.github.com"
 GITHUB_OAUTH_BASE = "https://github.com"
-_SCOPES = "read:user,read:org,manage_billing:copilot,security_events"
+_SCOPES = "read:user,read:org,repo,manage_billing:copilot,security_events"
+
+
+def _github_headers(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
 
 
 def build_oauth_url(state: str) -> str:
@@ -54,7 +58,7 @@ async def get_user_info(token: str) -> dict:
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{GITHUB_API}/user",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            headers=_github_headers(token),
             timeout=10,
         )
         resp.raise_for_status()
@@ -65,7 +69,7 @@ async def get_user_orgs(token: str) -> List[str]:
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{GITHUB_API}/user/orgs",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            headers=_github_headers(token),
             timeout=10,
         )
         if not resp.is_success:
@@ -79,7 +83,7 @@ async def get_user_repos(token: str) -> List[dict]:
         resp = await client.get(
             f"{GITHUB_API}/user/repos",
             params={"type": "owner", "sort": "pushed", "per_page": 30},
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            headers=_github_headers(token),
             timeout=15,
         )
         if not resp.is_success:
@@ -87,12 +91,39 @@ async def get_user_repos(token: str) -> List[dict]:
         return [r for r in resp.json() if not r.get("archived")]
 
 
+async def get_org_repos(token: str, org: str) -> List[dict]:
+    """Fetch repositories for a GitHub organization, sorted by recent push."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{GITHUB_API}/orgs/{org}/repos",
+            params={"type": "all", "sort": "pushed", "per_page": 30},
+            headers=_github_headers(token),
+            timeout=15,
+        )
+        if not resp.is_success:
+            return []
+        return [r for r in resp.json() if not r.get("archived")]
+
+
+async def get_repo(token: str, owner: str, repo: str) -> Optional[dict]:
+    """Fetch current repository metadata, including security settings when available."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{GITHUB_API}/repos/{owner}/{repo}",
+            headers=_github_headers(token),
+            timeout=10,
+        )
+        if not resp.is_success:
+            return None
+        return resp.json()
+
+
 async def get_branch_protection(token: str, owner: str, repo: str, branch: str) -> Optional[dict]:
     """Return branch protection config or None if not set."""
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{GITHUB_API}/repos/{owner}/{repo}/branches/{branch}/protection",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            headers=_github_headers(token),
             timeout=10,
         )
         if resp.status_code == 404:
@@ -107,7 +138,7 @@ async def get_actions_permissions(token: str, owner: str, repo: str) -> Optional
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{GITHUB_API}/repos/{owner}/{repo}/actions/permissions",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            headers=_github_headers(token),
             timeout=10,
         )
         if not resp.is_success:
@@ -121,7 +152,7 @@ async def get_copilot_config(token: str, org: str) -> Optional[dict]:
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{GITHUB_API}/orgs/{org}/copilot/billing",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            headers=_github_headers(token),
             timeout=10,
         )
         if resp.status_code in (401, 403, 404):
@@ -136,7 +167,7 @@ async def get_copilot_seats(token: str, org: str) -> Optional[dict]:
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{GITHUB_API}/orgs/{org}/copilot/billing/seats",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            headers=_github_headers(token),
             timeout=10,
         )
         if resp.status_code in (401, 403, 404):
@@ -152,7 +183,7 @@ async def get_org_info(token: str, org: str) -> Optional[dict]:
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{GITHUB_API}/orgs/{org}",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            headers=_github_headers(token),
             timeout=10,
         )
         if resp.status_code in (401, 403, 404):

@@ -199,6 +199,7 @@ class ScanViolation(BaseModel):
     evidence: str
     recommendation: str
     risk_score: int
+    affected_repositories: List[str] = Field(default_factory=list)
 
 
 class ScanConfig(BaseModel):
@@ -220,6 +221,7 @@ class ScanResults(BaseModel):
     total_policies: int
     violations: List[ScanViolation]
     compliant: List[ScanViolation]
+    scanned_repositories: List[str] = Field(default_factory=list)
 
 
 class ScanRecord(BaseModel):
