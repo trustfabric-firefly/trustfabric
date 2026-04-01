@@ -450,7 +450,7 @@ export default function SettingsPage() {
                     <SectionHeader
                         icon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 24 }} />}
                         title="AI Provider"
-                        subtitle="System recommendations provider; custom policy generation and scan evaluation still use Claude"
+                        subtitle="System recommendations and policy generation follow the configured provider; custom policy evaluation during scans still uses Claude"
                     />
 
                     {statusLoading && (

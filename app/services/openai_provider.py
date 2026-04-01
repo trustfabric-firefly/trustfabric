@@ -14,6 +14,7 @@ from app.services.store import store
 
 PROMPT_TEMPLATE_VERSION = "v1-nist"
 MAX_INPUT_CHARS = 4000
+POLICY_PROMPT_TEMPLATE_VERSION = "v1-policy-generator"
 
 
 def _parse_json_payload(text: str) -> dict[str, Any] | None:
@@ -116,6 +117,35 @@ Remember: your output is advisory only. Human reviewers make the final decisions
     return base
 
 
+def _build_policy_prompt(prompt: str, history: list[str] | None = None) -> str:
+    compact_history = (history or [])[-6:]
+    history_block = "\n".join(f"- {item}" for item in compact_history if item.strip()) or "- (none)"
+    user_prompt = prompt.strip()[:MAX_INPUT_CHARS]
+    return f"""
+You are an enterprise AI governance policy assistant.
+Generate one policy in strict JSON format.
+
+Conversation context:
+{history_block}
+
+User request:
+{user_prompt}
+
+Return strict JSON with keys:
+- content: string (short explanation for user)
+- policy: object with:
+  - name: string
+  - description: string
+  - category: one of [model_restrictions, feature_control, security, quality_control, data_privacy, access_control, cost_management, compliance]
+  - severity: one of [low, medium, high]
+  - applies_to: array of strings
+  - creation_method: "ai_generated"
+- rules: object (machine-friendly enforcement fields)
+
+Return only JSON.
+""".strip()
+
+
 def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
     system = store.get_system(system_id)
     if system is None:
@@ -214,3 +244,79 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
             "data_sensitivity": system.data_sensitivity,
         },
     }
+
+
+def generate_policy_recommendation(prompt: str, user_id: str, history: list[str] | None = None) -> dict:
+    if not settings.openai_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OpenAI-compatible API key not configured on server",
+        )
+
+    llm_prompt = _build_policy_prompt(prompt, history)
+    user_prompt = prompt.strip()[:MAX_INPUT_CHARS]
+    now = datetime.now(timezone.utc)
+    client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url or None)
+
+    parsed_obj: dict[str, Any] | None = None
+    raw = ""
+    try:
+        for attempt in range(2):
+            attempt_prompt = llm_prompt
+            if attempt == 1:
+                attempt_prompt = f"{llm_prompt}\n\nReturn ONLY a valid JSON object."
+
+            response = client.chat.completions.create(
+                model=settings.openai_model,
+                messages=[{"role": "user", "content": attempt_prompt}],
+                temperature=0.2,
+                max_tokens=1200,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            )
+            raw = (response.choices[0].message.content or "").strip()
+            parsed_obj = _parse_json_payload(raw)
+            if parsed_obj is not None:
+                break
+    except APIError as exc:  # pragma: no cover - network/provider error handling
+        provider_error = str(exc).strip() or type(exc).__name__
+        store.log_llm_interaction(
+            LLMInteractionLog(
+                timestamp=now,
+                user_id=user_id,
+                system_id=None,
+                prompt_template_version=POLICY_PROMPT_TEMPLATE_VERSION,
+                input_summary="Policy generation call failed",
+                model_name=settings.openai_model,
+                response_summary=provider_error[:1000],
+                success=False,
+            )
+        )
+        detail = "OpenAI-compatible API call failed"
+        if settings.app_env.lower() in {"dev", "local", "development"}:
+            detail = f"{detail}: {provider_error[:500]}"
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=detail,
+        ) from exc
+
+    if parsed_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="OpenAI-compatible policy response was not valid JSON",
+        )
+
+    store.log_llm_interaction(
+        LLMInteractionLog(
+            timestamp=now,
+            user_id=user_id,
+            system_id=None,
+            prompt_template_version=POLICY_PROMPT_TEMPLATE_VERSION,
+            input_summary=user_prompt[:200],
+            model_name=settings.openai_model,
+            response_summary=raw[:1000] + ("..." if len(raw) > 1000 else ""),
+            success=True,
+        )
+    )
+    parsed_obj.setdefault("provider", "openai")
+    parsed_obj.setdefault("model", settings.openai_model)
+    return parsed_obj

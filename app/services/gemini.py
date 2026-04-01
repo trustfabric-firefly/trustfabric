@@ -16,6 +16,7 @@ from app.services.store import store
 
 PROMPT_TEMPLATE_VERSION = "v1-nist"
 MAX_INPUT_CHARS = 4000
+POLICY_PROMPT_TEMPLATE_VERSION = "v1-policy-generator"
 
 
 def _parse_json_payload(text: str) -> dict[str, Any] | None:
@@ -130,6 +131,35 @@ Remember: your output is advisory only. Human reviewers make the final decisions
     if len(base) > MAX_INPUT_CHARS:
         base = base[: MAX_INPUT_CHARS - 200] + "\n\n[Prompt too long]"
     return base
+
+
+def _build_policy_prompt(prompt: str, history: list[str] | None = None) -> str:
+    compact_history = (history or [])[-6:]
+    history_block = "\n".join(f"- {item}" for item in compact_history if item.strip()) or "- (none)"
+    user_prompt = prompt.strip()[:MAX_INPUT_CHARS]
+    return f"""
+You are an enterprise AI governance policy assistant.
+Generate one policy in strict JSON format.
+
+Conversation context:
+{history_block}
+
+User request:
+{user_prompt}
+
+Return strict JSON with keys:
+- content: string (short explanation for user)
+- policy: object with:
+  - name: string
+  - description: string
+  - category: one of [model_restrictions, feature_control, security, quality_control, data_privacy, access_control, cost_management, compliance]
+  - severity: one of [low, medium, high]
+  - applies_to: array of strings
+  - creation_method: "ai_generated"
+- rules: object (machine-friendly enforcement fields)
+
+Return only JSON.
+""".strip()
 
 
 def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
@@ -273,3 +303,116 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
             "data_sensitivity": system.data_sensitivity,
         },
     }
+
+
+def generate_policy_recommendation(prompt: str, user_id: str, history: list[str] | None = None) -> dict:
+    if not settings.gemini_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Gemini API key not configured on server",
+        )
+
+    llm_prompt = _build_policy_prompt(prompt, history)
+    user_prompt = prompt.strip()[:MAX_INPUT_CHARS]
+    now = datetime.now(timezone.utc)
+    client = genai.Client(api_key=settings.gemini_api_key)
+
+    schema: dict[str, Any] = {
+        "type": "object",
+        "required": ["content", "policy", "rules"],
+        "properties": {
+            "content": {"type": "string"},
+            "policy": {
+                "type": "object",
+                "required": [
+                    "name",
+                    "description",
+                    "category",
+                    "severity",
+                    "applies_to",
+                    "creation_method",
+                ],
+                "properties": {
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "category": {"type": "string"},
+                    "severity": {"type": "string"},
+                    "applies_to": {"type": "array", "items": {"type": "string"}},
+                    "creation_method": {"type": "string"},
+                },
+            },
+            "rules": {"type": "object"},
+        },
+    }
+
+    parsed_obj: dict[str, Any] | None = None
+    raw = ""
+    try:
+        for attempt in range(2):
+            attempt_prompt = llm_prompt
+            if attempt == 1:
+                attempt_prompt = f"{llm_prompt}\n\nReturn ONLY a valid JSON object matching the schema."
+            response = client.models.generate_content(
+                model=settings.gemini_model,
+                contents=attempt_prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.2,
+                    max_output_tokens=1200,
+                    response_mime_type="application/json",
+                    response_schema=schema,
+                ),
+            )
+
+            if getattr(response, "parsed", None) is not None:
+                parsed_obj = _coerce_parsed_payload(response.parsed)
+            if parsed_obj is not None:
+                raw = json.dumps(parsed_obj, separators=(",", ":"))
+                break
+
+            raw = (response.text or "").strip()
+            parsed_obj = _parse_json_payload(raw)
+            if parsed_obj is not None:
+                break
+    except Exception as exc:  # pragma: no cover - network/provider error handling
+        provider_error = str(exc).strip() or type(exc).__name__
+        store.log_llm_interaction(
+            LLMInteractionLog(
+                timestamp=now,
+                user_id=user_id,
+                system_id=None,
+                prompt_template_version=POLICY_PROMPT_TEMPLATE_VERSION,
+                input_summary="Policy generation call failed",
+                model_name=settings.gemini_model,
+                response_summary=provider_error[:1000],
+                success=False,
+            )
+        )
+        detail = "Gemini API call failed"
+        if settings.app_env.lower() in {"dev", "local", "development"}:
+            detail = f"{detail}: {provider_error[:500]}"
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=detail,
+        ) from exc
+
+    if parsed_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Gemini policy response was not valid JSON",
+        )
+
+    store.log_llm_interaction(
+        LLMInteractionLog(
+            timestamp=now,
+            user_id=user_id,
+            system_id=None,
+            prompt_template_version=POLICY_PROMPT_TEMPLATE_VERSION,
+            input_summary=user_prompt[:200],
+            model_name=settings.gemini_model,
+            response_summary=raw[:1000] + ("..." if len(raw) > 1000 else ""),
+            success=True,
+        )
+    )
+    parsed_obj.setdefault("provider", "gemini")
+    parsed_obj.setdefault("model", settings.gemini_model)
+    return parsed_obj
