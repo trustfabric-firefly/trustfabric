@@ -84,6 +84,12 @@ requirements:
       - check_id: chk_vulnerability_alerts
         weight: 2
         rationale: "Dependabot alerts provide automated security monitoring of dependencies"
+      - check_id: chk_secret_scanning
+        weight: 2
+        rationale: "Secret scanning monitors for hardcoded credentials — a key class of security anomaly"
+      - check_id: chk_secret_push_protection
+        weight: 1
+        rationale: "Push protection is a preventive monitoring control that stops credential exposure at source"
     policy_categories: [security, quality_control]
     policy_keywords: ["monitor", "logging", "alert", "detect"]
     pass_threshold: 0.5

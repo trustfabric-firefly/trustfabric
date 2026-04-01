@@ -64,8 +64,14 @@ requirements:
       - check_id: chk_public_code_blocked
         weight: 3
         rationale: "Blocking public code prevents proprietary code leakage through AI"
+      - check_id: chk_secret_scanning
+        weight: 3
+        rationale: "Secret scanning detects hardcoded credentials that would expose sensitive data"
+      - check_id: chk_secret_push_protection
+        weight: 2
+        rationale: "Push protection prevents secrets from ever entering the repository"
     policy_categories: [data_privacy]
-    pass_threshold: 1.0
+    pass_threshold: 0.6
 
   - id: pr_ip_protect_processes
     article: "PR.IP"

@@ -9,7 +9,7 @@ from app.core.config import settings
 
 GITHUB_API = "https://api.github.com"
 GITHUB_OAUTH_BASE = "https://github.com"
-_SCOPES = "read:user,read:org,manage_billing:copilot"
+_SCOPES = "read:user,read:org,manage_billing:copilot,security_events"
 
 
 def build_oauth_url(state: str) -> str:

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
 import AddOutlinedIcon from "@mui/icons-material/AddOutlined";
@@ -39,6 +40,7 @@ import type {
     CopilotRecommendation,
     DataSensitivity,
     DataAccessType,
+    ParsedRecommendation,
     RiskLevel,
     SystemAuditEntry,
     AISystem as BackendAISystem,
@@ -249,6 +251,7 @@ const MOCK_AUDIT_LOG: SystemAuditEntry[] = [
 type PageView = "list" | "register" | "details";
 
 export default function SystemsPage() {
+    const router = useRouter();
     const queryClient = useQueryClient();
     const [view, setView] = useState<PageView>("list");
     const [systems, setSystems] = useState<AISystemInventoryItem[]>([]);
@@ -256,6 +259,7 @@ export default function SystemsPage() {
     const [scanSystemName, setScanSystemName] = useState<string>("");
     const [scanResult, setScanResult] = useState<CopilotRecommendation | null>(null);
     const [scanError, setScanError] = useState<string>("");
+    const [recommendationModalOpen, setRecommendationModalOpen] = useState(false);
 
     const { data: backendSystems = [] } = useQuery({
         queryKey: ["systems"],
@@ -301,6 +305,7 @@ export default function SystemsPage() {
     }, [createSystemMutation]);
 
     const handleRunScan = useCallback(async (system: AISystemInventoryItem) => {
+        setRecommendationModalOpen(true);
         setScanSystemName(system.name);
         setScanError("");
         setScanResult(null);
@@ -310,6 +315,26 @@ export default function SystemsPage() {
         } catch (error: unknown) {
             setScanError(error instanceof Error ? error.message : "Scan failed");
         }
+    }, [runScanMutation]);
+
+    const handleOpenComplianceScans = useCallback(() => {
+        router.push("/scans?start=config");
+    }, [router]);
+
+    const handleViewScanHistory = useCallback((system: AISystemInventoryItem) => {
+        if (system.last_scan_id) {
+            router.push(`/scans?scanId=${encodeURIComponent(system.last_scan_id)}`);
+            return;
+        }
+        router.push("/scans");
+    }, [router]);
+
+    const handleCloseRecommendationModal = useCallback(() => {
+        setRecommendationModalOpen(false);
+        setScanResult(null);
+        setScanError("");
+        setScanSystemName("");
+        runScanMutation.reset();
     }, [runScanMutation]);
 
     // Stats
@@ -356,38 +381,40 @@ export default function SystemsPage() {
                     <DetailsView
                         system={selectedSystem}
                         auditLog={buildAuditLogForSystem(selectedSystem, backendAudit)}
-                        onRunScan={() => handleRunScan(selectedSystem)}
+                        onGenerateRecommendation={() => handleRunScan(selectedSystem)}
+                        onRunComplianceScan={handleOpenComplianceScans}
+                        onViewScanHistory={() => handleViewScanHistory(selectedSystem)}
                         onBack={handleBack}
                     />
                 )}
             </main>
             <Modal
-                open={runScanMutation.isPending || !!scanResult || !!scanError}
-                onClose={() => {
-                    if (runScanMutation.isPending) return;
-                    setScanResult(null);
-                    setScanError("");
-                    setScanSystemName("");
-                }}
-                title={`Scan result: ${scanSystemName || "System"}`}
-                subtitle="NIST AI RMF recommendation from Claude"
+                open={recommendationModalOpen}
+                onClose={handleCloseRecommendationModal}
+                title={`Recommendation: ${scanSystemName || "System"}`}
+                subtitle="NIST AI RMF system recommendation"
                 footer={
-                    <button
-                        className="btn btn--primary btn--sm"
-                        onClick={() => {
-                            setScanResult(null);
-                            setScanError("");
-                            setScanSystemName("");
-                        }}
-                        disabled={runScanMutation.isPending}
-                    >
-                        Close
-                    </button>
+                    <div style={{ display: "flex", justifyContent: "space-between", width: "100%", gap: "var(--s-2)" }}>
+                        <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                            {runScanMutation.isPending ? "You can close this and keep working while the request finishes." : "Review the guidance before updating the system record."}
+                        </div>
+                        <button
+                            className="btn btn--primary btn--sm"
+                            onClick={handleCloseRecommendationModal}
+                        >
+                            Close
+                        </button>
+                    </div>
                 }
             >
                 {runScanMutation.isPending && (
-                    <div style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
-                        Running scan...
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
+                        <div style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
+                            Generating recommendation...
+                        </div>
+                        <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                            This evaluates the selected system and suggests risk tier, data sensitivity, policies, and follow-up questions.
+                        </div>
                     </div>
                 )}
                 {!!scanError && (
@@ -396,20 +423,7 @@ export default function SystemsPage() {
                     </div>
                 )}
                 {scanResult && (
-                    <pre
-                        style={{
-                            whiteSpace: "pre-wrap",
-                            fontSize: "var(--fs-12)",
-                            background: "var(--c-surface-raised)",
-                            padding: "var(--s-3)",
-                            borderRadius: "var(--r-md)",
-                            border: "1px solid var(--c-border)",
-                            maxHeight: 420,
-                            overflow: "auto",
-                        }}
-                    >
-                        {scanResult.raw_response}
-                    </pre>
+                    <RecommendationResult recommendation={scanResult} />
                 )}
             </Modal>
         </>
@@ -880,12 +894,16 @@ function RegisterView({
 function DetailsView({
     system,
     auditLog,
-    onRunScan,
+    onGenerateRecommendation,
+    onRunComplianceScan,
+    onViewScanHistory,
     onBack,
 }: {
     system: AISystemInventoryItem;
     auditLog: SystemAuditEntry[];
-    onRunScan: () => void;
+    onGenerateRecommendation: () => void;
+    onRunComplianceScan: () => void;
+    onViewScanHistory: () => void;
     onBack: () => void;
 }) {
     const TypeIcon = SYSTEM_TYPE_ICONS[system.type];
@@ -992,11 +1010,14 @@ function DetailsView({
                         )}
                     </div>
                     <div style={{ display: "flex", gap: "var(--s-2)", flexWrap: "wrap" }}>
-                        <button className="btn btn--primary" onClick={onRunScan}>
+                        <button className="btn btn--primary" onClick={onRunComplianceScan}>
                             <DocumentScannerOutlinedIcon sx={{ fontSize: 16 }} /> Run Compliance Scan
                         </button>
-                        <button className="btn btn--secondary">
+                        <button className="btn btn--secondary" onClick={onViewScanHistory}>
                             <HistoryOutlinedIcon sx={{ fontSize: 16 }} /> View Scan History
+                        </button>
+                        <button className="btn btn--secondary" onClick={onGenerateRecommendation}>
+                            <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} /> Generate Recommendation
                         </button>
                         {system.scan_status === "violations" && (
                             <button
@@ -1146,8 +1167,8 @@ function DetailsView({
                 <button className="btn btn--secondary">
                     <ArchiveOutlinedIcon sx={{ fontSize: 16 }} /> Archive
                 </button>
-                <button className="btn btn--primary" onClick={onRunScan}>
-                    <DocumentScannerOutlinedIcon sx={{ fontSize: 16 }} /> Run Scan
+                <button className="btn btn--primary" onClick={onGenerateRecommendation}>
+                    <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} /> Generate Recommendation
                 </button>
             </div>
         </div>
@@ -1237,9 +1258,90 @@ function SystemCard({
             </div>
             <div className="system-card__actions">
                 <button className="btn btn--ghost btn--sm" onClick={(e) => { e.stopPropagation(); onViewDetails(); }}>View Details</button>
-                <button className="btn btn--ghost btn--sm" onClick={(e) => { e.stopPropagation(); onRunScan(); }}>Run Scan</button>
+                <button className="btn btn--ghost btn--sm" onClick={(e) => { e.stopPropagation(); onRunScan(); }}>Generate Recommendation</button>
                 <button className="btn btn--ghost btn--sm" onClick={(e) => e.stopPropagation()}>Edit</button>
                 <button className="btn btn--ghost btn--sm" onClick={(e) => e.stopPropagation()}>Archive</button>
+            </div>
+        </div>
+    );
+}
+
+function RecommendationResult({ recommendation }: { recommendation: CopilotRecommendation }) {
+    const parsed = parseRecommendation(recommendation.raw_response);
+
+    if (!parsed) {
+        return (
+            <pre
+                style={{
+                    whiteSpace: "pre-wrap",
+                    fontSize: "var(--fs-12)",
+                    background: "var(--c-surface-raised)",
+                    padding: "var(--s-3)",
+                    borderRadius: "var(--r-md)",
+                    border: "1px solid var(--c-border)",
+                    maxHeight: 420,
+                    overflow: "auto",
+                }}
+            >
+                {recommendation.raw_response}
+            </pre>
+        );
+    }
+
+    return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "var(--s-3)" }}>
+                <RecommendationMetric label="Model Type" value={parsed.suggested_model_type} />
+                <RecommendationMetric label="Data Sensitivity" value={parsed.suggested_data_sensitivity} />
+                <RecommendationMetric label="Risk Tier" value={parsed.suggested_risk_tier} />
+            </div>
+
+            <div style={{ padding: "var(--s-3)", borderRadius: "var(--r-md)", border: "1px solid var(--c-border)", background: "var(--c-surface-raised)" }}>
+                <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "var(--s-2)" }}>
+                    Recommended Policies
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s-2)" }}>
+                    {parsed.suggested_policies.map((policy) => (
+                        <span key={policy} className="badge badge--neutral">{policy}</span>
+                    ))}
+                </div>
+            </div>
+
+            <div style={{ padding: "var(--s-3)", borderRadius: "var(--r-md)", border: "1px solid var(--c-border)", background: "var(--c-surface-raised)" }}>
+                <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "var(--s-2)" }}>
+                    Rationale
+                </div>
+                <div style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", lineHeight: 1.6 }}>
+                    {parsed.rationale}
+                </div>
+            </div>
+
+            <div style={{ padding: "var(--s-3)", borderRadius: "var(--r-md)", border: "1px solid var(--c-border)", background: "var(--c-surface-raised)" }}>
+                <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "var(--s-2)" }}>
+                    Clarifying Questions
+                </div>
+                <ol style={{ margin: 0, paddingLeft: "1.25rem", display: "flex", flexDirection: "column", gap: "var(--s-2)", fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
+                    {parsed.clarifying_questions.map((question, index) => (
+                        <li key={`${index}-${question}`}>{question}</li>
+                    ))}
+                </ol>
+            </div>
+
+            <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)" }}>
+                Model: {recommendation.model}
+            </div>
+        </div>
+    );
+}
+
+function RecommendationMetric({ label, value }: { label: string; value: string }) {
+    return (
+        <div style={{ padding: "var(--s-3)", borderRadius: "var(--r-md)", border: "1px solid var(--c-border)", background: "var(--c-surface-raised)" }}>
+            <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "var(--s-1)" }}>
+                {label}
+            </div>
+            <div style={{ fontSize: "var(--fs-14)", color: "var(--c-text)", fontWeight: "var(--fw-semibold)" }}>
+                {value}
             </div>
         </div>
     );
@@ -1461,4 +1563,18 @@ function formatDateTime(iso: string): string {
         hour: "numeric",
         minute: "2-digit",
     }).format(new Date(iso));
+}
+
+function parseRecommendation(raw: string): ParsedRecommendation | null {
+    try {
+        return JSON.parse(raw) as ParsedRecommendation;
+    } catch {
+        const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+        if (!fenced) return null;
+        try {
+            return JSON.parse(fenced[1]) as ParsedRecommendation;
+        } catch {
+            return null;
+        }
+    }
 }

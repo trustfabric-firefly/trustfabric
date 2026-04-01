@@ -446,6 +446,20 @@ class FirestoreStore:
             "severity": "medium",
             "tier": "personal",
         },
+        {
+            "check_id": "chk_secret_scanning",
+            "name": "Secret Scanning Enabled",
+            "description": "Checks that GitHub Secret Scanning is enabled on your repositories. When a hardcoded API key, token, or credential is committed, GitHub detects it and alerts you before it can be exploited.",
+            "severity": "high",
+            "tier": "personal",
+        },
+        {
+            "check_id": "chk_secret_push_protection",
+            "name": "Secret Scanning Push Protection Enabled",
+            "description": "Checks that push protection is active. This is stronger than secret scanning — it blocks the push entirely if a secret is detected, preventing it from ever reaching the repository history.",
+            "severity": "high",
+            "tier": "personal",
+        },
         # ── Enterprise-only checks (Copilot Business/Enterprise) ─────────────
         {
             "check_id": "chk_public_code_blocked",

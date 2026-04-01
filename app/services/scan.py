@@ -61,6 +61,26 @@ CHECKS = [
         "recommendation": "Go to repo Settings → Actions → General → Change to 'Allow local and select actions'",
         "risk_score": 55,
     },
+    {
+        "id": "chk_secret_scanning",
+        "name": "Secret Scanning Enabled",
+        "severity": GovernancePolicySeverity.high,
+        "tier": "personal",
+        "pass_evidence": lambda p, t: f"Secret scanning active on {p}/{t} repositories — hardcoded credentials will be detected",
+        "fail_evidence": lambda p, t: f"Secret scanning disabled on {t - p}/{t} repositories — hardcoded API keys and tokens will NOT be caught",
+        "recommendation": "Go to repo Settings → Security → Code security and analysis → Enable Secret scanning",
+        "risk_score": 85,
+    },
+    {
+        "id": "chk_secret_push_protection",
+        "name": "Secret Scanning Push Protection Enabled",
+        "severity": GovernancePolicySeverity.high,
+        "tier": "personal",
+        "pass_evidence": lambda p, t: f"Push protection active on {p}/{t} repositories — secrets are blocked before they land",
+        "fail_evidence": lambda p, t: f"Push protection disabled on {t - p}/{t} repositories — secrets can still be pushed and are only detected after the fact",
+        "recommendation": "Go to repo Settings → Security → Code security and analysis → Enable 'Push protection' under Secret scanning",
+        "risk_score": 90,
+    },
     # ── Enterprise-only checks (require Copilot Business/Enterprise) ──────────
     {
         "id": "chk_public_code_blocked",
@@ -130,6 +150,8 @@ async def run_scan(user_id: str, github_org: str, triggered_by: str) -> ScanReco
     pr_required = 0
     vuln_enabled = 0
     actions_restricted = 0
+    secret_scanning_enabled = 0
+    push_protection_enabled = 0
 
     for repo in repos:
         owner = repo["owner"]["login"]
@@ -148,6 +170,13 @@ async def run_scan(user_id: str, github_org: str, triggered_by: str) -> ScanReco
         actions = await gh.get_actions_permissions(token, owner, name)
         if actions and actions.get("allowed_actions") in ("local_only", "selected"):
             actions_restricted += 1
+
+        # Secret scanning — available on public repos for free; private repos need GitHub Advanced Security
+        sec = repo.get("security_and_analysis") or {}
+        if (sec.get("secret_scanning") or {}).get("status") == "enabled":
+            secret_scanning_enabled += 1
+        if (sec.get("secret_scanning_push_protection") or {}).get("status") == "enabled":
+            push_protection_enabled += 1
 
     # Copilot config + org info (enterprise only — None for personal accounts)
     copilot = await gh.get_copilot_config(token, github_org)
@@ -174,6 +203,8 @@ async def run_scan(user_id: str, github_org: str, triggered_by: str) -> ScanReco
                 "chk_pr_reviews": pr_required,
                 "chk_vulnerability_alerts": vuln_enabled,
                 "chk_actions_restricted": actions_restricted,
+                "chk_secret_scanning": secret_scanning_enabled,
+                "chk_secret_push_protection": push_protection_enabled,
             }
             passed_count = score_map.get(chk["id"], 0)
             passed = passed_count >= threshold

@@ -176,7 +176,9 @@ export type BackendStatus = {
     app_env: string;
     llm_provider: string;
     llm_model: string;
+    openai_model: string;
     gemini_model: string;
+    openai_api_configured: boolean;
     claude_api_configured: boolean;
     gemini_api_configured: boolean;
     firebase_configured: boolean;

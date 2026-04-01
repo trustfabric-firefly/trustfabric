@@ -113,6 +113,12 @@ requirements:
       - check_id: chk_public_code_blocked
         weight: 1
         rationale: "Blocking public code reduces risk of adversarial/malicious code suggestion"
+      - check_id: chk_secret_scanning
+        weight: 2
+        rationale: "Secret scanning prevents credential leakage that could allow unauthorized access to AI systems"
+      - check_id: chk_secret_push_protection
+        weight: 1
+        rationale: "Push protection is a preventive cybersecurity control against credential exposure"
     pass_threshold: 0.6
 
   - id: art_26_deployer_obligations

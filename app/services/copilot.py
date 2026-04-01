@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from app.core.config import settings
 from app.services.claude import generate_recommendations_for_system as generate_with_claude
 from app.services.gemini import generate_recommendations_for_system as generate_with_gemini
+from app.services.openai_provider import generate_recommendations_for_system as generate_with_openai
 
 
 ProviderFn = Callable[[int, str], dict]
@@ -14,20 +15,24 @@ ProviderFn = Callable[[int, str], dict]
 
 def _provider_order() -> list[str]:
     provider = settings.copilot_provider.lower().strip()
+    if provider == "openai":
+        return ["openai"]
     if provider == "gemini":
         return ["gemini"]
     if provider == "claude":
         return ["claude"]
     if provider == "auto":
-        # Prefer Gemini for temporary Claude downtime.
-        return ["gemini", "claude"]
+        # Prefer OpenAI-compatible first, then Gemini, then Claude.
+        return ["openai", "gemini", "claude"]
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail="Invalid COPILOT_PROVIDER setting. Use auto, gemini, or claude.",
+        detail="Invalid COPILOT_PROVIDER setting. Use auto, openai, gemini, or claude.",
     )
 
 
 def _provider_fn(name: str) -> ProviderFn:
+    if name == "openai":
+        return generate_with_openai
     if name == "gemini":
         return generate_with_gemini
     if name == "claude":

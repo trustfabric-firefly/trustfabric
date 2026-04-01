@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { scansApi, integrationsApi } from "@/lib/api";
 import DocumentScannerOutlinedIcon from "@mui/icons-material/DocumentScannerOutlined";
@@ -140,6 +141,7 @@ type PageView = "main" | "config" | "scanning" | "results" | "trends";
 
 export default function ScansPage() {
     const queryClient = useQueryClient();
+    const searchParams = useSearchParams();
     const [view, setView] = useState<PageView>("main");
     const [currentScan, setCurrentScan] = useState<ScanResult | null>(null);
     const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
@@ -168,6 +170,27 @@ export default function ScansPage() {
 
     const hasScans = scanHistory.length > 0;
     const latestScan = scanHistory[0] ?? null;
+    const requestedScanId = searchParams.get("scanId");
+    const requestedStart = searchParams.get("start");
+
+    useEffect(() => {
+        if (requestedStart === "config") {
+            setView("config");
+            if (!configOrg) {
+                const saved = localStorage.getItem("tf_default_github_org");
+                setConfigOrg(saved || githubLogin);
+            }
+        }
+    }, [requestedStart, configOrg, githubLogin]);
+
+    useEffect(() => {
+        if (!requestedScanId || scanHistory.length === 0) return;
+        const match = scanHistory.find((scan) => scan.scan_id === requestedScanId);
+        if (!match) return;
+        setSelectedScan(match);
+        setCurrentScan(match);
+        setView("results");
+    }, [requestedScanId, scanHistory]);
 
     // Pre-fill org: saved default → GitHub login → empty
     const handleStartConfig = useCallback(() => {

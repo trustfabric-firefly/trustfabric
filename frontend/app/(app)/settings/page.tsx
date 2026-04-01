@@ -227,10 +227,12 @@ export default function SettingsPage() {
     // Determine active LLM model label
     const activeLlmLabel = () => {
         if (!backendStatus) return "Loading…";
-        const { llm_provider, claude_api_configured, gemini_api_configured, llm_model, gemini_model } = backendStatus;
+        const { llm_provider, openai_api_configured, claude_api_configured, gemini_api_configured, llm_model, openai_model, gemini_model } = backendStatus;
+        if (llm_provider === "openai") return openai_api_configured ? `OpenAI-compatible — ${openai_model}` : "OpenAI-compatible (API key not set)";
         if (llm_provider === "claude") return claude_api_configured ? `Claude — ${llm_model}` : "Claude (API key not set)";
         if (llm_provider === "gemini") return gemini_api_configured ? `Gemini — ${gemini_model}` : "Gemini (API key not set)";
         // auto
+        if (openai_api_configured) return `Auto → OpenAI-compatible — ${openai_model}`;
         if (gemini_api_configured) return `Auto → Gemini — ${gemini_model}`;
         if (claude_api_configured) return `Auto → Claude — ${llm_model}`;
         return "Auto (no API keys configured)";
@@ -448,7 +450,7 @@ export default function SettingsPage() {
                     <SectionHeader
                         icon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 24 }} />}
                         title="AI Provider"
-                        subtitle="LLM used for policy generation and automated compliance evaluation"
+                        subtitle="System recommendations provider; custom policy generation and scan evaluation still use Claude"
                     />
 
                     {statusLoading && (
@@ -458,9 +460,13 @@ export default function SettingsPage() {
                     {backendStatus && (
                         <>
                             <SettingRow label="Active provider" value={activeLlmLabel()} />
-                            <SettingRow label="Provider mode" value={backendStatus.llm_provider === "auto" ? "Auto (Gemini first, Claude fallback)" : backendStatus.llm_provider} />
+                            <SettingRow label="Provider mode" value={backendStatus.llm_provider === "auto" ? "Auto (OpenAI-compatible first, Gemini second, Claude fallback)" : backendStatus.llm_provider} />
 
                             <div style={{ display: "flex", gap: "var(--s-4)", marginBottom: "var(--s-4)" }}>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>OpenAI-compatible</div>
+                                    <StatusPill ok={backendStatus.openai_api_configured} labelOk={`Configured — ${backendStatus.openai_model}`} labelNo="Not configured" />
+                                </div>
                                 <div style={{ flex: 1 }}>
                                     <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>Claude (Anthropic)</div>
                                     <StatusPill ok={backendStatus.claude_api_configured} labelOk={`Configured — ${backendStatus.llm_model}`} labelNo="Not configured" />
@@ -498,7 +504,7 @@ export default function SettingsPage() {
                             </div>
 
                             <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-3)", lineHeight: 1.5 }}>
-                                To change the provider, set <code style={{ fontFamily: "monospace" }}>COPILOT_PROVIDER=claude|gemini|auto</code> in your backend <code style={{ fontFamily: "monospace" }}>.env</code> and restart the server.
+                                To change the provider, set <code style={{ fontFamily: "monospace" }}>COPILOT_PROVIDER=openai|claude|gemini|auto</code> in your backend <code style={{ fontFamily: "monospace" }}>.env</code> and restart the server.
                             </p>
                         </>
                     )}
