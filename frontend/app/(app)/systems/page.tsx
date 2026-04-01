@@ -33,6 +33,7 @@ import type { SvgIconComponent } from "@mui/icons-material";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import { TopBar } from "@/components/layout/TopBar";
 import { Modal } from "@/components/ui/Modal";
+import { AIIcon } from "@/components/ui/AIIcon";
 import { auditApi, copilotApi, systemsApi, type ExplainMissingResponse } from "@/lib/api";
 import type {
     AISystemInventoryItem,
