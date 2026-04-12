@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ListOutlinedIcon from "@mui/icons-material/ListOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import DashboardCustomizeOutlinedIcon from "@mui/icons-material/DashboardCustomizeOutlined";
-import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import { AIIcon, AIIconWrapper } from "@/components/ui/AIIcon";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
 import SecurityOutlinedIcon from "@mui/icons-material/SecurityOutlined";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
@@ -26,8 +26,9 @@ import AttachMoneyOutlinedIcon from "@mui/icons-material/AttachMoneyOutlined";
 import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import type { SvgIconComponent } from "@mui/icons-material";
+import GitHubIcon from "@mui/icons-material/GitHub";
 import { TopBar } from "@/components/layout/TopBar";
-import { policyApi, systemPoliciesApi, systemsApi } from "@/lib/api";
+import { policyApi, systemPoliciesApi, systemsApi, scanPoliciesApi } from "@/lib/api";
 import type {
     AISystem,
     Policy,
@@ -36,16 +37,18 @@ import type {
     PolicyTemplate as TPolicyTemplate,
     PolicyCreate,
     PolicyStatus,
+    ScanPolicy,
 } from "@/types";
 
 
-type Tab = "view_all" | "manual" | "template" | "ai_generate";
+type Tab = "view_all" | "manual" | "template" | "ai_generate" | "github_checks";
 
 const TABS: { id: Tab; label: string; icon: SvgIconComponent }[] = [
     { id: "view_all", label: "View All", icon: ListOutlinedIcon },
     { id: "manual", label: "Manual", icon: EditOutlinedIcon },
     { id: "template", label: "Template", icon: DashboardCustomizeOutlinedIcon },
-    { id: "ai_generate", label: "AI Generate", icon: AutoAwesomeOutlinedIcon },
+    { id: "ai_generate", label: "AI Generate", icon: AIIconWrapper as any },
+    { id: "github_checks", label: "GitHub Checks", icon: GitHubIcon },
 ];
 
 
@@ -137,6 +140,17 @@ export default function PoliciesPage() {
         [queryClient]
     );
 
+    const { data: scanPolicies = [], refetch: refetchScanPolicies } = useQuery({
+        queryKey: ["scan-policies"],
+        queryFn: scanPoliciesApi.list,
+        retry: false,
+    });
+
+    const handleToggleScanPolicy = useCallback(async (checkId: string, enabled: boolean) => {
+        await scanPoliciesApi.toggle(checkId, enabled);
+        await refetchScanPolicies();
+    }, [refetchScanPolicies]);
+
     const loading = systemsLoading || policiesLoading;
 
     return (
@@ -202,6 +216,12 @@ export default function PoliciesPage() {
                         {activeTab === "ai_generate" && (
                             <AIGenerateTab
                                 onCreate={(data, systemId) => handleCreate(data, systemId)}
+                            />
+                        )}
+                        {activeTab === "github_checks" && (
+                            <GitHubChecksTab
+                                policies={scanPolicies}
+                                onToggle={handleToggleScanPolicy}
                             />
                         )}
                     </div>
@@ -660,7 +680,7 @@ function AIGenerateTab({
                 {messages.length === 0 ? (
                     <div className="chat__empty">
                         <div className="chat__empty-icon">
-                            <AutoAwesomeOutlinedIcon sx={{ fontSize: 28 }} />
+                            <AIIcon size={28} />
                         </div>
                         <div className="chat__empty-title">AI Policy Generator</div>
                         <div className="chat__empty-desc">
@@ -680,7 +700,7 @@ function AIGenerateTab({
                             <div key={msg.id} className={`chat__msg chat__msg--${msg.role}`}>
                                 {msg.role === "ai" && (
                                     <div className="chat__avatar chat__avatar--ai">
-                                        <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />
+                                        <AIIcon size={16} />
                                     </div>
                                 )}
                                 <div className={`chat__bubble chat__bubble--${msg.role}`}>
@@ -743,7 +763,7 @@ function AIGenerateTab({
                         {isTyping && (
                             <div className="chat__msg chat__msg--ai">
                                 <div className="chat__avatar chat__avatar--ai">
-                                    <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />
+                                    <AIIcon size={16} />
                                 </div>
                                 <div className="chat__typing">
                                     <div className="chat__typing-dot" />
@@ -983,6 +1003,127 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
         },
         rules: { policy_name: "custom_governance", enforcement: "advisory", monitoring: true, review_cycle_days: 30, requires_approval: true },
     };
+}
+
+function GitHubChecksTab({
+    policies,
+    onToggle,
+}: {
+    policies: ScanPolicy[];
+    onToggle: (checkId: string, enabled: boolean) => Promise<void>;
+}) {
+    const [toggling, setToggling] = useState<string | null>(null);
+    const enabledCount = policies.filter(p => p.enabled).length;
+
+    const handleToggle = async (p: ScanPolicy) => {
+        setToggling(p.check_id);
+        try {
+            await onToggle(p.check_id, !p.enabled);
+        } finally {
+            setToggling(null);
+        }
+    };
+
+    const personalChecks = policies.filter(p => p.tier !== "enterprise");
+    const enterpriseChecks = policies.filter(p => p.tier === "enterprise");
+
+    const renderCheck = (p: ScanPolicy) => (
+        <div
+            key={p.check_id}
+            style={{
+                padding: "var(--s-4)",
+                borderRadius: "var(--r-md)",
+                border: `1px solid ${p.enabled ? "var(--c-border)" : "rgba(255,255,255,0.05)"}`,
+                background: p.enabled ? "var(--c-surface-elevated)" : "rgba(255,255,255,0.02)",
+                opacity: p.enabled ? 1 : 0.6,
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "var(--s-4)",
+                transition: "opacity 0.15s",
+            }}
+        >
+            <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--s-2)", marginBottom: "var(--s-2)", flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: "var(--fw-semibold)", fontSize: "var(--fs-13)" }}>{p.name}</span>
+                    <span className={`badge badge--${p.severity === "high" ? "danger" : p.severity === "medium" ? "warning" : "neutral"}`} style={{ fontSize: "var(--fs-11)" }}>
+                        {p.severity}
+                    </span>
+                    {p.tier === "enterprise" && (
+                        <span className="badge badge--info" style={{ fontSize: "var(--fs-11)" }}>Enterprise</span>
+                    )}
+                    {p.enabled
+                        ? <span className="badge badge--live" style={{ fontSize: "var(--fs-11)" }}>Active</span>
+                        : <span className="badge badge--neutral" style={{ fontSize: "var(--fs-11)" }}>Disabled</span>}
+                </div>
+                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-secondary)", lineHeight: 1.6, margin: 0 }}>
+                    {p.description}
+                </p>
+            </div>
+            <button
+                type="button"
+                className={`btn btn--sm ${p.enabled ? "btn--secondary" : "btn--ghost"}`}
+                disabled={toggling === p.check_id}
+                onClick={() => void handleToggle(p)}
+                style={{ flexShrink: 0, marginTop: 2 }}
+            >
+                {toggling === p.check_id
+                    ? "…"
+                    : p.enabled
+                        ? <><ToggleOnOutlinedIcon sx={{ fontSize: 16 }} /> Enabled</>
+                        : <><ToggleOffOutlinedIcon sx={{ fontSize: 16 }} /> Disabled</>}
+            </button>
+        </div>
+    );
+
+    return (
+        <div style={{ padding: "var(--s-5)", display: "flex", flexDirection: "column", gap: "var(--s-5)" }}>
+            {/* Summary */}
+            <div style={{ display: "flex", gap: "var(--s-4)", alignItems: "center", marginBottom: "var(--s-2)" }}>
+                <div style={{ display: "flex", gap: "var(--s-3)" }}>
+                    <span className="badge badge--live" style={{ padding: "4px 10px" }}>{enabledCount} active</span>
+                    <span className="badge badge--neutral" style={{ padding: "4px 10px" }}>{policies.length - enabledCount} disabled</span>
+                </div>
+                <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginLeft: "auto" }}>
+                    Changes take effect on next scan
+                </span>
+            </div>
+
+            {policies.length === 0 && (
+                <div style={{ padding: "var(--s-10)", textAlign: "center", color: "var(--c-text-muted)", fontSize: "var(--fs-13)" }}>
+                    Loading checks…
+                </div>
+            )}
+
+            {/* Personal / repo-level checks */}
+            {personalChecks.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
+                    <p style={{ fontSize: "var(--fs-11)", fontWeight: "var(--fw-bold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0" }}>
+                        Repository Checks
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
+                        {personalChecks.map(renderCheck)}
+                    </div>
+                </div>
+            )}
+
+            {/* Enterprise Copilot checks */}
+            {enterpriseChecks.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)", marginTop: "var(--s-4)" }}>
+                    <div>
+                        <p style={{ fontSize: "var(--fs-11)", fontWeight: "var(--fw-bold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0" }}>
+                            Enterprise Copilot Checks
+                        </p>
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-1)", lineHeight: 1.5 }}>
+                            Requires GitHub Copilot Business or Enterprise. These checks are automatically skipped on personal accounts.
+                        </p>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
+                        {enterpriseChecks.map(renderCheck)}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 }
 
 function isLikelyRefinement(message: string): boolean {

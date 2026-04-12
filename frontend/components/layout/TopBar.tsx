@@ -6,6 +6,8 @@ interface TopBarProps {
     actions?: React.ReactNode;
 }
 
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
+
 export function TopBar({ title, subtitle, actions }: TopBarProps) {
     return (
         <header className="topbar">
@@ -25,7 +27,10 @@ export function TopBar({ title, subtitle, actions }: TopBarProps) {
                     </span>
                 )}
             </div>
-            {actions && <div className="topbar__right">{actions}</div>}
+            <div className="topbar__right">
+                {actions}
+                <ThemeToggle />
+            </div>
         </header>
     );
 }

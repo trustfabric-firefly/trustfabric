@@ -28,9 +28,12 @@ class Settings(BaseSettings):
 
     claude_api_key: str = ""
     anthropic_model: str = "claude-3-5-sonnet-20241022"
+    openai_api_key: str = ""
+    openai_base_url: str = ""
+    openai_model: str = "z-ai/glm4.7"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
-    copilot_provider: str = "auto"  # auto | gemini | claude
+    copilot_provider: str = "auto"  # auto | openai | gemini | claude
 
     rate_limit_per_minute: int = 60
     cors_origins: list[str] = [
@@ -41,6 +44,12 @@ class Settings(BaseSettings):
 
     # Policy engine
     policies_file: str | None = "policies.yaml"
+
+    # GitHub OAuth
+    github_client_id: str = ""
+    github_client_secret: str = ""
+    github_redirect_uri: str = "http://localhost:8000/api/v1/integrations/github/callback"
+    frontend_url: str = "http://localhost:3000"
 
 
 settings = Settings()

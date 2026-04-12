@@ -5,11 +5,16 @@ import type {
     AISystemUpdate,
     ActivityEvent,
     AuditEvent,
+    ComplianceEvaluationResponse,
     CopilotRecommendation,
     DashboardSummary,
+    FrameworkMeta,
+    GitHubIntegrationStatus,
     Policy,
     PolicyCreate,
     PolicyStatus,
+    ScanPolicy,
+    ScanResult,
 } from "@/types";
 
 const RAW_BASE_URL =
@@ -77,6 +82,28 @@ async function request<T>(
     return res.json() as Promise<T>;
 }
 
+async function requestText(
+    path: string,
+    options: RequestInit = {}
+): Promise<string> {
+    const authHeaders = await getAuthHeaders();
+    const endpoint = new URL(path, `${BASE_URL}/`).toString();
+    const res = await fetch(endpoint, {
+        ...options,
+        headers: {
+            ...authHeaders,
+            ...options.headers,
+        },
+    });
+
+    if (!res.ok) {
+        const error = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(error.detail ?? "Request failed");
+    }
+
+    return res.text();
+}
+
 
 export const systemsApi = {
     list: () => request<AISystem[]>("/api/v1/systems/"),
@@ -86,6 +113,8 @@ export const systemsApi = {
             method: "POST",
             body: JSON.stringify(data),
         }),
+    explainMissing: (id: number) =>
+        request<ExplainMissingResponse>(`/api/v1/systems/${id}/explain-missing`, { method: "POST" }),
     update: (id: number, data: AISystemUpdate) =>
         request<AISystem>(`/api/v1/systems/${id}`, {
             method: "PATCH",
@@ -136,6 +165,83 @@ export const copilotApi = {
             `/api/v1/copilot/systems/${systemId}/recommendations`,
             { method: "POST" }
         ),
+};
+
+export const scanPoliciesApi = {
+    list: () => request<ScanPolicy[]>("/api/v1/scan-policies/"),
+    toggle: (checkId: string, enabled: boolean) =>
+        request<ScanPolicy>(`/api/v1/scan-policies/${checkId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ enabled }),
+        }),
+};
+
+export const scansApi = {
+    trigger: (body: { github_org: string; scope: string }) =>
+        request<ScanResult>("/api/v1/scans/", { method: "POST", body: JSON.stringify(body) }),
+    list: () => request<ScanResult[]>("/api/v1/scans/"),
+    get: (scanId: string) => request<ScanResult>(`/api/v1/scans/${scanId}`),
+    reportUrl: (scanId: string) => `${RESOLVED_API_BASE_URL}/api/v1/scans/${scanId}/report`,
+    getReportHtml: (scanId: string) => requestText(`/api/v1/scans/${scanId}/report`),
+};
+
+export const integrationsApi = {
+    getGitHubConnectUrl: () =>
+        request<{ url: string }>("/api/v1/integrations/github/connect"),
+    getGitHubStatus: () =>
+        request<GitHubIntegrationStatus>("/api/v1/integrations/github/status"),
+    disconnectGitHub: () =>
+        request<{ message: string }>("/api/v1/integrations/github", { method: "DELETE" }),
+};
+
+export type BackendStatus = {
+    app_version: string;
+    app_env: string;
+    llm_provider: string;
+    llm_model: string;
+    openai_model: string;
+    gemini_model: string;
+    openai_api_configured: boolean;
+    claude_api_configured: boolean;
+    gemini_api_configured: boolean;
+    firebase_configured: boolean;
+    github_oauth_configured: boolean;
+    rate_limit_per_minute: number;
+};
+
+export type ExplainMissingResponse = {
+    summary: string;
+    missing_controls: { control: string; why_required: string }[];
+    action_steps: string[];
+    risk_if_ignored: string;
+    nist_functions: string[];
+    system_name: string;
+    risk_tier: string | null;
+    disclaimer: string;
+};
+
+export const settingsApi = {
+    status: () => request<BackendStatus>("/api/v1/settings/status"),
+};
+
+export const complianceApi = {
+    listFrameworks: () => request<FrameworkMeta[]>("/api/v1/compliance/frameworks"),
+    evaluate: (scanId: string) =>
+        request<ComplianceEvaluationResponse>(`/api/v1/compliance/evaluate/${scanId}`),
+    refresh: (scanId: string) =>
+        request<ComplianceEvaluationResponse>(`/api/v1/compliance/evaluate/${scanId}/refresh`),
+    submitAttestation: (body: {
+        framework_id: string;
+        req_id: string;
+        item_index: number;
+        value: boolean;
+    }) =>
+        request<{ ok: boolean }>("/api/v1/compliance/attestations", {
+            method: "POST",
+            body: JSON.stringify(body),
+        }),
+    getAttestations: (frameworkId: string) =>
+        request<Record<string, boolean>>(`/api/v1/compliance/attestations/${frameworkId}`),
 };
 
 export type PolicyRecommendationResponse = {

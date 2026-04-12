@@ -5,12 +5,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
-from google import genai
-from google.genai import types
+from openai import APIError, OpenAI
 
 from app.core.config import settings
-from app.domain.models import DataSensitivity
-from app.domain.models import AISystem, LLMInteractionLog, RiskTier
+from app.domain.models import AISystem, DataSensitivity, LLMInteractionLog, RiskTier
 from app.services.store import store
 
 
@@ -50,21 +48,6 @@ def _parse_json_payload(text: str) -> dict[str, Any] | None:
         return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
         return None
-
-
-def _coerce_parsed_payload(value: Any) -> dict[str, Any] | None:
-    if isinstance(value, dict):
-        return value
-    if hasattr(value, "model_dump"):
-        try:
-            dumped = value.model_dump()
-            return dumped if isinstance(dumped, dict) else None
-        except Exception:
-            return None
-    if hasattr(value, "__dict__"):
-        raw = getattr(value, "__dict__", None)
-        return raw if isinstance(raw, dict) else None
-    return None
 
 
 def _build_fallback_payload(system: AISystem, raw_text: str) -> dict[str, Any]:
@@ -125,6 +108,7 @@ Respond in strict JSON with the following keys:
 - "rationale": string
 - "clarifying_questions": array of strings
 
+Return only JSON.
 Remember: your output is advisory only. Human reviewers make the final decisions.
 """.strip()
 
@@ -167,42 +151,15 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
     if system is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
 
-    if not settings.gemini_api_key:
+    if not settings.openai_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Gemini API key not configured on server",
+            detail="OpenAI-compatible API key not configured on server",
         )
 
     prompt = _build_prompt(system)
     now = datetime.now(timezone.utc)
-
-    client = genai.Client(api_key=settings.gemini_api_key)
-
-    schema: dict[str, Any] = {
-        "type": "object",
-        "required": [
-            "suggested_model_type",
-            "suggested_data_sensitivity",
-            "suggested_risk_tier",
-            "suggested_policies",
-            "rationale",
-            "clarifying_questions",
-        ],
-        "properties": {
-            "suggested_model_type": {"type": "string"},
-            "suggested_data_sensitivity": {"type": "string"},
-            "suggested_risk_tier": {"type": "string"},
-            "suggested_policies": {
-                "type": "array",
-                "items": {"type": "string"},
-            },
-            "rationale": {"type": "string"},
-            "clarifying_questions": {
-                "type": "array",
-                "items": {"type": "string"},
-            },
-        },
-    }
+    client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url or None)
 
     parsed_obj: dict[str, Any] | None = None
     raw = ""
@@ -210,33 +167,21 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
         for attempt in range(2):
             attempt_prompt = prompt
             if attempt == 1:
-                attempt_prompt = (
-                    f"{prompt}\n\nReturn ONLY a valid JSON object matching the schema."
-                )
-            response = client.models.generate_content(
-                model=settings.gemini_model,
-                contents=attempt_prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.2,
-                    max_output_tokens=1200,
-                    response_mime_type="application/json",
-                    response_schema=schema,
-                ),
+                attempt_prompt = f"{prompt}\n\nReturn ONLY a valid JSON object."
+
+            response = client.chat.completions.create(
+                model=settings.openai_model,
+                messages=[{"role": "user", "content": attempt_prompt}],
+                temperature=0.2,
+                max_tokens=1200,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
-
-            # Prefer SDK-parsed JSON when available; avoids partial text payloads.
-            if getattr(response, "parsed", None) is not None:
-                parsed_obj = _coerce_parsed_payload(response.parsed)
-            if parsed_obj is not None:
-                raw = json.dumps(parsed_obj, separators=(",", ":"))
-                break
-
-            raw = (response.text or "").strip()
+            raw = (response.choices[0].message.content or "").strip()
             parsed_obj = _parse_json_payload(raw)
             if parsed_obj is not None:
                 raw = json.dumps(parsed_obj, separators=(",", ":"))
                 break
-    except Exception as exc:  # pragma: no cover - network/provider error handling
+    except APIError as exc:  # pragma: no cover - network/provider error handling
         provider_error = str(exc).strip() or type(exc).__name__
         store.log_llm_interaction(
             LLMInteractionLog(
@@ -244,13 +189,13 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
                 user_id=user_id,
                 system_id=system_id,
                 prompt_template_version=PROMPT_TEMPLATE_VERSION,
-                input_summary=f"Gemini call failed: {type(exc).__name__}",
-                model_name=settings.gemini_model,
+                input_summary=f"OpenAI-compatible call failed: {type(exc).__name__}",
+                model_name=settings.openai_model,
                 response_summary=provider_error,
                 success=False,
             )
         )
-        detail = "Gemini API call failed"
+        detail = "OpenAI-compatible API call failed"
         if settings.app_env.lower() in {"dev", "local", "development"}:
             detail = f"{detail}: {provider_error[:500]}"
         raise HTTPException(
@@ -267,18 +212,14 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
                 user_id=user_id,
                 system_id=system_id,
                 prompt_template_version=PROMPT_TEMPLATE_VERSION,
-                input_summary="Gemini returned invalid JSON payload; fallback used",
-                model_name=settings.gemini_model,
+                input_summary="OpenAI-compatible provider returned invalid JSON payload; fallback used",
+                model_name=settings.openai_model,
                 response_summary=(raw[:500] + "...") if len(raw) > 500 else raw,
                 success=True,
             )
         )
 
-    if len(raw) > 1000:
-        summary = raw[:1000] + "..."
-    else:
-        summary = raw
-
+    summary = raw[:1000] + "..." if len(raw) > 1000 else raw
     store.log_llm_interaction(
         LLMInteractionLog(
             timestamp=now,
@@ -286,7 +227,7 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
             system_id=system_id,
             prompt_template_version=PROMPT_TEMPLATE_VERSION,
             input_summary=f"System {system_id} ({system.name})",
-            model_name=settings.gemini_model,
+            model_name=settings.openai_model,
             response_summary=summary,
             success=True,
         )
@@ -294,8 +235,8 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
 
     return {
         "raw_response": raw,
-        "model": settings.gemini_model,
-        "provider": "gemini",
+        "model": settings.openai_model,
+        "provider": "openai",
         "disclaimer": "AI-generated recommendations for governance only. Human review required before applying.",
         "nist_ai_rmf_functions": ["Govern", "Map", "Measure", "Manage"],
         "system_risk_hint": {
@@ -306,44 +247,16 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
 
 
 def generate_policy_recommendation(prompt: str, user_id: str, history: list[str] | None = None) -> dict:
-    if not settings.gemini_api_key:
+    if not settings.openai_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Gemini API key not configured on server",
+            detail="OpenAI-compatible API key not configured on server",
         )
 
     llm_prompt = _build_policy_prompt(prompt, history)
     user_prompt = prompt.strip()[:MAX_INPUT_CHARS]
     now = datetime.now(timezone.utc)
-    client = genai.Client(api_key=settings.gemini_api_key)
-
-    schema: dict[str, Any] = {
-        "type": "object",
-        "required": ["content", "policy", "rules"],
-        "properties": {
-            "content": {"type": "string"},
-            "policy": {
-                "type": "object",
-                "required": [
-                    "name",
-                    "description",
-                    "category",
-                    "severity",
-                    "applies_to",
-                    "creation_method",
-                ],
-                "properties": {
-                    "name": {"type": "string"},
-                    "description": {"type": "string"},
-                    "category": {"type": "string"},
-                    "severity": {"type": "string"},
-                    "applies_to": {"type": "array", "items": {"type": "string"}},
-                    "creation_method": {"type": "string"},
-                },
-            },
-            "rules": {"type": "object"},
-        },
-    }
+    client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url or None)
 
     parsed_obj: dict[str, Any] | None = None
     raw = ""
@@ -351,29 +264,20 @@ def generate_policy_recommendation(prompt: str, user_id: str, history: list[str]
         for attempt in range(2):
             attempt_prompt = llm_prompt
             if attempt == 1:
-                attempt_prompt = f"{llm_prompt}\n\nReturn ONLY a valid JSON object matching the schema."
-            response = client.models.generate_content(
-                model=settings.gemini_model,
-                contents=attempt_prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.2,
-                    max_output_tokens=1200,
-                    response_mime_type="application/json",
-                    response_schema=schema,
-                ),
+                attempt_prompt = f"{llm_prompt}\n\nReturn ONLY a valid JSON object."
+
+            response = client.chat.completions.create(
+                model=settings.openai_model,
+                messages=[{"role": "user", "content": attempt_prompt}],
+                temperature=0.2,
+                max_tokens=1200,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
-
-            if getattr(response, "parsed", None) is not None:
-                parsed_obj = _coerce_parsed_payload(response.parsed)
-            if parsed_obj is not None:
-                raw = json.dumps(parsed_obj, separators=(",", ":"))
-                break
-
-            raw = (response.text or "").strip()
+            raw = (response.choices[0].message.content or "").strip()
             parsed_obj = _parse_json_payload(raw)
             if parsed_obj is not None:
                 break
-    except Exception as exc:  # pragma: no cover - network/provider error handling
+    except APIError as exc:  # pragma: no cover - network/provider error handling
         provider_error = str(exc).strip() or type(exc).__name__
         store.log_llm_interaction(
             LLMInteractionLog(
@@ -382,12 +286,12 @@ def generate_policy_recommendation(prompt: str, user_id: str, history: list[str]
                 system_id=None,
                 prompt_template_version=POLICY_PROMPT_TEMPLATE_VERSION,
                 input_summary="Policy generation call failed",
-                model_name=settings.gemini_model,
+                model_name=settings.openai_model,
                 response_summary=provider_error[:1000],
                 success=False,
             )
         )
-        detail = "Gemini API call failed"
+        detail = "OpenAI-compatible API call failed"
         if settings.app_env.lower() in {"dev", "local", "development"}:
             detail = f"{detail}: {provider_error[:500]}"
         raise HTTPException(
@@ -398,7 +302,7 @@ def generate_policy_recommendation(prompt: str, user_id: str, history: list[str]
     if parsed_obj is None:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Gemini policy response was not valid JSON",
+            detail="OpenAI-compatible policy response was not valid JSON",
         )
 
     store.log_llm_interaction(
@@ -408,11 +312,11 @@ def generate_policy_recommendation(prompt: str, user_id: str, history: list[str]
             system_id=None,
             prompt_template_version=POLICY_PROMPT_TEMPLATE_VERSION,
             input_summary=user_prompt[:200],
-            model_name=settings.gemini_model,
+            model_name=settings.openai_model,
             response_summary=raw[:1000] + ("..." if len(raw) > 1000 else ""),
             success=True,
         )
     )
-    parsed_obj.setdefault("provider", "gemini")
-    parsed_obj.setdefault("model", settings.gemini_model)
+    parsed_obj.setdefault("provider", "openai")
+    parsed_obj.setdefault("model", settings.openai_model)
     return parsed_obj
