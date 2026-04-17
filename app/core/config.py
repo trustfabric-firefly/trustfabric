@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,10 +13,10 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     app_version: str = "0.0.1"
 
-    admin_token: str = "admin-dev-token"
-    viewer_token: str = "viewer-dev-token"
+    admin_token: str = ""
+    viewer_token: str = ""
 
-    database_url: str = "" # DB connection 
+    database_url: str = ""  # DB connection
 
     # Firebase
     firebase_project_id: str = ""
@@ -41,6 +41,23 @@ class Settings(BaseSettings):
 
     # Policy engine
     policies_file: str | None = "policies.yaml"
+
+    @model_validator(mode="after")
+    def check_production_secrets(self) -> "Settings":
+        if self.app_env == "production":
+            required = {
+                "admin_token": self.admin_token,
+                "viewer_token": self.viewer_token,
+                "database_url": self.database_url,
+            }
+            missing = [k for k, v in required.items() if not v]
+            if missing:
+                raise ValueError(f"Missing required secrets for production: {missing}")
+
+            if "*" in self.cors_origins:
+                raise ValueError("Wildcard CORS origin is not allowed in production")
+
+        return self
 
 
 settings = Settings()

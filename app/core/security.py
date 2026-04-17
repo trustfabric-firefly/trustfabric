@@ -40,18 +40,18 @@ def get_actor(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> 
 
     token = creds.credentials
 
-    # 1) Prototype local tokens (good for quick local testing).
-    if token == settings.admin_token:
+    # Static API tokens (machine-to-machine; only active when explicitly configured in .env)
+    if settings.admin_token and token == settings.admin_token:
         return Actor(user_id="admin", role=Role.admin)
-    if token == settings.viewer_token:
+
+    if settings.viewer_token and token == settings.viewer_token:
         return Actor(user_id="viewer", role=Role.viewer)
 
-    # 2) If configured, try Firebase ID token verification.
+    # Firebase ID token verification — verifies the JWT signature and project audience
     if settings.firebase_project_id:
         claims = verify_firebase_token(token)
         return _actor_from_firebase_claims(claims)
 
-    # 3) Otherwise, reject unknown tokens.
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 
