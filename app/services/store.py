@@ -22,6 +22,8 @@ from app.domain.models import (
     GovernancePolicyCreate,
     GovernancePolicyUpdate,
     LLMInteractionLog,
+    NistCoverage,
+    NistFunctionCoverage,
     PolicyKey,
     RiskTier,
 )
@@ -371,6 +373,65 @@ class FirestoreStore:
             systems_missing_controls=missing_controls,
             total_events=total_events,
             events_per_system=dict(events_per_system_counter),
+        )
+
+    # --- NIST Coverage ---
+
+    # Maps governance policy categories to NIST AI RMF functions.
+    # Each function has a fixed number of controls (cells in the heatmap).
+    _NIST_FUNCTIONS: dict[str, dict] = {
+        "Govern":  {"controls": 6, "categories": {"access_control", "compliance", "security"}},
+        "Map":     {"controls": 5, "categories": {"model_restrictions", "feature_control"}},
+        "Measure": {"controls": 5, "categories": {"quality_control", "data_privacy"}},
+        "Manage":  {"controls": 4, "categories": {"cost_management"}},
+    }
+
+    def nist_coverage(self) -> NistCoverage:
+        """
+        Aggregate governance policies across all systems into NIST AI RMF function coverage.
+        Each policy's category is mapped to a NIST function; active/draft/inactive counts
+        are tallied and missing slots are inferred from the fixed control totals.
+        """
+        systems = self.list_systems()
+
+        # Accumulate policy statuses per NIST function
+        counts: dict[str, dict[str, int]] = {
+            fn: {"active": 0, "draft": 0, "inactive": 0}
+            for fn in self._NIST_FUNCTIONS
+        }
+
+        for system in systems:
+            policies = self.list_system_policies(system.id)
+            for policy in policies:
+                for fn, meta in self._NIST_FUNCTIONS.items():
+                    if policy.category.value in meta["categories"]:
+                        status = policy.status.value  # "active" | "draft" | "inactive"
+                        if status in counts[fn]:
+                            counts[fn][status] += 1
+
+        functions = []
+        total_active = 0
+        total_controls = 0
+
+        for fn, meta in self._NIST_FUNCTIONS.items():
+            c = counts[fn]
+            covered = c["active"] + c["draft"] + c["inactive"]
+            missing = max(0, meta["controls"] - covered)
+            functions.append(NistFunctionCoverage(
+                function=fn,
+                total_controls=meta["controls"],
+                active=c["active"],
+                draft=c["draft"],
+                inactive=c["inactive"],
+                missing=missing,
+            ))
+            total_active += c["active"]
+            total_controls += meta["controls"]
+
+        return NistCoverage(
+            functions=functions,
+            total_controls=total_controls,
+            total_active=total_active,
         )
 
     # --- Helpers ---

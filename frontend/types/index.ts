@@ -76,6 +76,21 @@ export interface DashboardSummary {
   events_per_system: Record<string, number>;
 }
 
+export interface NistFunctionCoverage {
+  function: string;
+  total_controls: number;
+  active: number;
+  draft: number;
+  inactive: number;
+  missing: number;
+}
+
+export interface NistCoverage {
+  functions: NistFunctionCoverage[];
+  total_controls: number;
+  total_active: number;
+}
+
 export interface CopilotRecommendation {
   raw_response: string;
   model: string;
