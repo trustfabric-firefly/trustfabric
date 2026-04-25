@@ -63,6 +63,48 @@ async def notify_scan_completed(user_id: str, scan_record) -> None:
     await slack_integration.send_notification(token, channel, text=text, blocks=blocks)
 
 
+async def notify_aws_scan_completed(user_id: str, scan_record) -> None:
+    pair = _get_slack(user_id)
+    if not pair:
+        return
+    token, channel = pair
+
+    r = scan_record
+    score = r.compliance_score
+    passed = r.passed_checks
+    failed = r.failed_checks
+
+    score_emoji = ":white_check_mark:" if score >= 80 else ":warning:" if score >= 50 else ":x:"
+    blocks = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": "AWS Compliance Scan Completed"},
+        },
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*Account:*\n{r.account_id}"},
+                {"type": "mrkdwn", "text": f"*Region:*\n{r.region}"},
+                {"type": "mrkdwn", "text": f"*Score:*\n{score_emoji} {score}%"},
+                {"type": "mrkdwn", "text": f"*Checks:*\n{passed} passed, {failed} failed"},
+            ],
+        },
+    ]
+
+    if failed > 0:
+        top = [c for c in r.checks if not c.passed][:3]
+        details = "\n".join(f"• *{c.check_name}* ({c.severity.value})" for c in top)
+        if failed > 3:
+            details += f"\n_…and {failed - 3} more_"
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*Top failures:*\n{details}"},
+        })
+
+    text = f"AWS scan completed for {r.account_id} — score {score}%, {failed} failed check(s)"
+    await slack_integration.send_notification(token, channel, text=text, blocks=blocks)
+
+
 async def notify_system_change(user_id: str, system, action: str) -> None:
     pair = _get_slack(user_id)
     if not pair:

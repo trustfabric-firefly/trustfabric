@@ -779,6 +779,74 @@ class FirestoreStore:
         if doc_ref.get().exists:
             doc_ref.update(fields_to_remove)
 
+    # --- AWS Integration ---
+
+    def save_aws_connection(
+        self,
+        user_id: str,
+        role_arn: str,
+        account_id: str,
+        account_alias: str,
+        region: str,
+    ) -> None:
+        doc = {
+            "aws_role_arn": role_arn,
+            "aws_account_id": account_id,
+            "aws_account_alias": account_alias,
+            "aws_region": region,
+            "aws_connected_at": datetime.utcnow().isoformat(),
+        }
+        self._client().collection(self._integrations_collection).document(user_id).set(doc, merge=True)
+
+    def get_aws_connection(self, user_id: str) -> Optional[dict]:
+        doc = self._client().collection(self._integrations_collection).document(user_id).get()
+        if not doc.exists:
+            return None
+        data = doc.to_dict() or {}
+        if not data.get("aws_role_arn"):
+            return None
+        return data
+
+    def delete_aws_connection(self, user_id: str) -> None:
+        fields_to_remove = {
+            "aws_role_arn": firestore.DELETE_FIELD,
+            "aws_account_id": firestore.DELETE_FIELD,
+            "aws_account_alias": firestore.DELETE_FIELD,
+            "aws_region": firestore.DELETE_FIELD,
+            "aws_connected_at": firestore.DELETE_FIELD,
+        }
+        doc_ref = self._client().collection(self._integrations_collection).document(user_id)
+        if doc_ref.get().exists:
+            doc_ref.update(fields_to_remove)
+
+    def save_aws_scan(self, user_id: str, record) -> None:
+        from app.domain.models import AwsScanRecord
+        doc = record.model_dump(mode="json")
+        doc["user_id"] = user_id
+        self._client().collection("aws_scans").document(record.scan_id).set(doc)
+
+    def list_aws_scans(self, user_id: str) -> list:
+        from app.domain.models import AwsScanRecord
+        results = []
+        docs = (
+            self._client()
+            .collection("aws_scans")
+            .where("user_id", "==", user_id)
+            .limit(50)
+            .stream()
+        )
+        for doc in docs:
+            results.append(AwsScanRecord.model_validate(doc.to_dict()))
+        results.sort(key=lambda r: r.timestamp, reverse=True)
+        return results
+
+    def get_aws_scan(self, scan_id: str):
+        from app.domain.models import AwsScanRecord
+        doc = self._client().collection("aws_scans").document(scan_id).get()
+        if not doc.exists:
+            return None
+        return AwsScanRecord.model_validate(doc.to_dict())
+
     # --- Helpers ---
     @staticmethod
     def _derive_policies(risk_tier: Optional[RiskTier]) -> List[PolicyKey]:

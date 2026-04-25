@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 
 from app.core.security import Actor, get_actor
-from app.domain.models import ScanRecord, ScanTriggerRequest
+from app.domain.models import AwsScanRecord, ScanRecord, ScanTriggerRequest
 from app.services.scan import run_scan
 from app.services.store import store
 
@@ -39,6 +39,41 @@ async def trigger_scan(body: ScanTriggerRequest, actor: Actor = Depends(get_acto
 def list_scans(actor: Actor = Depends(get_actor)) -> List[ScanRecord]:
     """Return scan history for the current user."""
     return store.list_scans(actor.user_id)
+
+
+# ── AWS Scans (must be registered before `/{scan_id}` or "aws" is captured as a GitHub scan id) ─
+
+@router.post("/aws", response_model=AwsScanRecord)
+async def trigger_aws_scan(actor: Actor = Depends(get_actor)) -> AwsScanRecord:
+    """Run a compliance scan against the connected AWS account."""
+    from app.services.aws_scan import run_aws_scan
+    from app.services.notifications import notify_aws_scan_completed
+
+    try:
+        record = run_aws_scan(user_id=actor.user_id, triggered_by=actor.user_id)
+        try:
+            await notify_aws_scan_completed(actor.user_id, record)
+        except Exception:
+            pass
+        return record
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AWS scan failed: {str(exc)}")
+
+
+@router.get("/aws", response_model=List[AwsScanRecord])
+def list_aws_scans(actor: Actor = Depends(get_actor)) -> List[AwsScanRecord]:
+    """Return AWS scan history for the current user."""
+    return store.list_aws_scans(actor.user_id)
+
+
+@router.get("/aws/{scan_id}", response_model=AwsScanRecord)
+def get_aws_scan(scan_id: str, actor: Actor = Depends(get_actor)) -> AwsScanRecord:
+    record = store.get_aws_scan(scan_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="AWS scan not found")
+    return record
 
 
 @router.get("/{scan_id}", response_model=ScanRecord)

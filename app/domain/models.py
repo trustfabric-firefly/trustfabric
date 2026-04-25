@@ -304,6 +304,53 @@ class SlackIntegrationStatus(BaseModel):
     info: Optional[SlackConnectionInfo] = None
 
 
+# --- AWS Integration ---
+
+
+class AwsConnectionInfo(BaseModel):
+    account_id: str
+    account_alias: str = ""
+    role_arn: str
+    region: str = "us-east-1"
+    connected_at: datetime
+
+
+class AwsIntegrationStatus(BaseModel):
+    connected: bool
+    info: Optional[AwsConnectionInfo] = None
+
+
+class AwsConnectRequest(BaseModel):
+    role_arn: str = Field(..., min_length=20)
+    region: str = Field(default="us-east-1")
+
+
+class AwsCheckResult(BaseModel):
+    check_id: str
+    check_name: str
+    severity: GovernancePolicySeverity
+    passed: bool
+    evidence: str
+    recommendation: str = ""
+    risk_score: int = 0
+    affected_resources: List[str] = Field(default_factory=list)
+
+
+class AwsScanRecord(BaseModel):
+    scan_id: str
+    account_id: str
+    region: str
+    timestamp: datetime
+    compliance_score: int
+    total_checks: int
+    passed_checks: int
+    failed_checks: int
+    checks: List[AwsCheckResult]
+    duration_seconds: float
+    triggered_by: str
+    status: ScanStatus
+
+
 # --- Compliance Framework Evaluation ---
 
 

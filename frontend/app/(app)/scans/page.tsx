@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { scansApi, integrationsApi } from "@/lib/api";
+import { scansApi, awsScansApi, integrationsApi } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
 import DocumentScannerOutlinedIcon from "@mui/icons-material/DocumentScannerOutlined";
 import PlayArrowOutlinedIcon from "@mui/icons-material/PlayArrowOutlined";
@@ -23,6 +23,7 @@ import FilterListOutlinedIcon from "@mui/icons-material/FilterListOutlined";
 import BarChartOutlinedIcon from "@mui/icons-material/BarChartOutlined";
 import TipsAndUpdatesOutlinedIcon from "@mui/icons-material/TipsAndUpdatesOutlined";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import CloudOutlinedIcon from "@mui/icons-material/CloudOutlined";
 import { TopBar } from "@/components/layout/TopBar";
 import type {
     ScanResult,
@@ -30,6 +31,8 @@ import type {
     ScanViolation,
     PolicySeverity,
     ScanScope,
+    AwsScanResult,
+    AwsCheckResult,
 } from "@/types";
 
 
@@ -157,11 +160,40 @@ export default function ScansPage() {
         retry: false,
     });
 
+    const { data: awsStatus } = useQuery({
+        queryKey: ["aws-status"],
+        queryFn: integrationsApi.getAwsStatus,
+        retry: false,
+    });
+
     const { data: scanHistory = [] } = useQuery({
         queryKey: ["scans"],
         queryFn: scansApi.list,
         retry: false,
     });
+
+    const { data: awsScanHistory = [], refetch: refetchAwsScans } = useQuery({
+        queryKey: ["aws-scans"],
+        queryFn: awsScansApi.list,
+        retry: false,
+    });
+
+    const [awsScanning, setAwsScanning] = useState(false);
+    const [awsScanError, setAwsScanError] = useState<string | null>(null);
+    const [selectedAwsScan, setSelectedAwsScan] = useState<AwsScanResult | null>(null);
+
+    const handleAwsScan = useCallback(async () => {
+        setAwsScanning(true);
+        setAwsScanError(null);
+        try {
+            const result = await awsScansApi.trigger();
+            void refetchAwsScans();
+            setSelectedAwsScan(result);
+        } catch (err) {
+            setAwsScanError(err instanceof Error ? err.message : "AWS scan failed");
+        }
+        setAwsScanning(false);
+    }, [refetchAwsScans]);
 
     const githubLogin = githubStatus?.user?.login ?? "";
 
@@ -358,6 +390,21 @@ export default function ScansPage() {
                     <TrendsView
                         scanHistory={scanHistory}
                         onBack={handleBackFromTrends}
+                    />
+                )}
+
+                {view === "main" && (
+                    <AwsScanSection
+                        awsConnected={awsStatus?.connected ?? false}
+                        accountId={awsStatus?.info?.account_id}
+                        region={awsStatus?.info?.region}
+                        scanning={awsScanning}
+                        scanError={awsScanError}
+                        scanHistory={awsScanHistory}
+                        selectedScan={selectedAwsScan}
+                        onTrigger={handleAwsScan}
+                        onSelectScan={setSelectedAwsScan}
+                        onClearScan={() => setSelectedAwsScan(null)}
                     />
                 )}
             </main>
@@ -1321,4 +1368,288 @@ function formatShortDate(iso: string): string {
         month: "short",
         day: "numeric",
     }).format(new Date(iso));
+}
+
+
+// ─── AWS Scan Section ───────────────────────────────────────────────────────
+
+function AwsScanSection({
+    awsConnected,
+    accountId,
+    region,
+    scanning,
+    scanError,
+    scanHistory,
+    selectedScan,
+    onTrigger,
+    onSelectScan,
+    onClearScan,
+}: {
+    awsConnected: boolean;
+    accountId?: string;
+    region?: string;
+    scanning: boolean;
+    scanError: string | null;
+    scanHistory: AwsScanResult[];
+    selectedScan: AwsScanResult | null;
+    onTrigger: () => void;
+    onSelectScan: (scan: AwsScanResult) => void;
+    onClearScan: () => void;
+}) {
+    if (selectedScan) {
+        return <AwsScanResultsView scan={selectedScan} onBack={onClearScan} />;
+    }
+
+    return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)", marginTop: "var(--s-4)" }}>
+            <div className="panel">
+                <div className="panel__header">
+                    <span className="panel__title" style={{ display: "flex", alignItems: "center", gap: "var(--s-2)" }}>
+                        <CloudOutlinedIcon sx={{ fontSize: 18 }} />
+                        AWS Infrastructure Scans
+                    </span>
+                    {awsConnected && (
+                        <button
+                            className="btn btn--primary btn--sm"
+                            disabled={scanning}
+                            onClick={onTrigger}
+                        >
+                            <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} />
+                            {scanning ? "Scanning…" : "Run AWS Scan"}
+                        </button>
+                    )}
+                </div>
+
+                {scanError && (
+                    <div style={{ padding: "var(--s-3) var(--s-4)", background: "rgba(239,68,68,0.08)", borderBottom: "1px solid var(--c-border)", fontSize: "var(--fs-12)", color: "var(--c-critical)" }}>
+                        {scanError}
+                    </div>
+                )}
+
+                <div className="panel__body--flush">
+                    {!awsConnected ? (
+                        <div className="empty-state" style={{ padding: "var(--s-6)" }}>
+                            <div style={{ marginBottom: "var(--s-3)" }}>
+                                <CloudOutlinedIcon sx={{ fontSize: 32, color: "var(--c-text-muted)" }} />
+                            </div>
+                            <p className="empty-state__title">AWS Not Connected</p>
+                            <p className="empty-state__desc">
+                                Go to Settings to connect your AWS account via IAM Role ARN, then run infrastructure compliance scans here.
+                            </p>
+                        </div>
+                    ) : scanHistory.length === 0 && !scanning ? (
+                        <div className="empty-state" style={{ padding: "var(--s-6)" }}>
+                            <div style={{ marginBottom: "var(--s-3)" }}>
+                                <DocumentScannerOutlinedIcon sx={{ fontSize: 32, color: "var(--c-text-muted)" }} />
+                            </div>
+                            <p className="empty-state__title">No AWS Scans Yet</p>
+                            <p className="empty-state__desc">
+                                Run your first AWS compliance scan to audit IAM, S3, CloudTrail, AWS Config, and Security Hub against NIST 800-53 controls.
+                            </p>
+                            <div style={{ marginTop: "var(--s-3)", fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                                Account: {accountId} &middot; Region: {region}
+                            </div>
+                        </div>
+                    ) : scanning ? (
+                        <div className="empty-state" style={{ padding: "var(--s-6)" }}>
+                            <div className="spinner spinner--lg" style={{ marginBottom: "var(--s-3)" }} />
+                            <p className="empty-state__title">Running AWS Compliance Scan</p>
+                            <p className="empty-state__desc">Auditing IAM, S3, CloudTrail, Config, and Security Hub…</p>
+                        </div>
+                    ) : (
+                        <div className="scan-history">
+                            {scanHistory.map((scan) => (
+                                <div
+                                    key={scan.scan_id}
+                                    className="scan-history-item"
+                                    onClick={() => onSelectScan(scan)}
+                                >
+                                    <div className="scan-history-item__icon">
+                                        <CloudOutlinedIcon sx={{ fontSize: 18 }} />
+                                    </div>
+                                    <div className="scan-history-item__content">
+                                        <div className="scan-history-item__date">{formatDateTime(scan.timestamp)}</div>
+                                        <div className="scan-history-item__summary">
+                                            {scan.failed_checks > 0
+                                                ? `${scan.failed_checks} failed check${scan.failed_checks > 1 ? "s" : ""} out of ${scan.total_checks}`
+                                                : `All ${scan.total_checks} checks passed`}
+                                        </div>
+                                        <div className="scan-history-item__meta">
+                                            <span>Account: {scan.account_id}</span>
+                                            <span>Region: {scan.region}</span>
+                                            <span>Duration: {scan.duration_seconds}s</span>
+                                        </div>
+                                    </div>
+                                    <div className="scan-history-item__score">
+                                        <span className={`scan-history-item__score-value ${scan.compliance_score === 100 ? "scan-history-item__score-value--perfect" : scan.compliance_score >= 70 ? "" : "scan-history-item__score-value--low"}`}>
+                                            {scan.compliance_score}%
+                                        </span>
+                                        <span className="scan-history-item__score-label">Compliant</span>
+                                    </div>
+                                    <div className="scan-history-item__actions">
+                                        <button className="btn btn--ghost btn--sm" onClick={(e) => { e.stopPropagation(); onSelectScan(scan); }}>View Results</button>
+                                    </div>
+                                    <ChevronRightOutlinedIcon sx={{ fontSize: 18, color: "var(--c-text-muted)", flexShrink: 0 }} />
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+
+function AwsScanResultsView({ scan, onBack }: { scan: AwsScanResult; onBack: () => void }) {
+    const failedChecks = scan.checks.filter(c => !c.passed);
+    const passedChecks = scan.checks.filter(c => c.passed);
+    const highFails = failedChecks.filter(c => c.severity === "high");
+    const medFails = failedChecks.filter(c => c.severity === "medium");
+    const lowFails = failedChecks.filter(c => c.severity === "low");
+
+    return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)", marginTop: "var(--s-4)" }}>
+            <button className="btn btn--ghost btn--sm" onClick={onBack} style={{ alignSelf: "flex-start", gap: 4 }}>
+                <ChevronRightOutlinedIcon sx={{ fontSize: 14, transform: "rotate(180deg)" }} /> Back to Scans
+            </button>
+
+            {/* Header */}
+            <div className="panel">
+                <div className="panel__header">
+                    <span className="panel__title" style={{ display: "flex", alignItems: "center", gap: "var(--s-2)" }}>
+                        <CloudOutlinedIcon sx={{ fontSize: 18 }} />
+                        AWS Scan Results — {formatDateTime(scan.timestamp)}
+                    </span>
+                </div>
+                <div className="panel__body">
+                    <div className={`scan-result-header ${failedChecks.length > 0 ? "scan-result-header--violations" : "scan-result-header--compliant"}`}>
+                        <div className="scan-result-header__icon">
+                            {failedChecks.length > 0 ? <WarningAmberOutlinedIcon sx={{ fontSize: 28 }} /> : <CheckCircleOutlinedIcon sx={{ fontSize: 28 }} />}
+                        </div>
+                        <div className="scan-result-header__content">
+                            <h2 className="scan-result-header__title">
+                                {failedChecks.length > 0 ? "Compliance Issues Found" : "All Checks Passed!"}
+                            </h2>
+                            <p className="scan-result-header__subtitle">
+                                {failedChecks.length > 0
+                                    ? `${failedChecks.length} failed check${failedChecks.length > 1 ? "s" : ""} (${highFails.length} High, ${medFails.length} Medium, ${lowFails.length} Low)`
+                                    : `All ${scan.total_checks} NIST-aligned checks passed.`}
+                            </p>
+                        </div>
+                        <div className="scan-result-header__score">
+                            <ComplianceGauge score={scan.compliance_score} />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Failed Checks */}
+            {failedChecks.length > 0 && (
+                <div className="panel">
+                    <div className="panel__header">
+                        <span className="panel__title">Failed Checks ({failedChecks.length})</span>
+                    </div>
+                    <div className="panel__body--flush">
+                        {failedChecks.map((check) => (
+                            <AwsCheckCard key={check.check_id} check={check} />
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Passed Checks */}
+            {passedChecks.length > 0 && (
+                <div className="panel">
+                    <div className="panel__header">
+                        <span className="panel__title" style={{ display: "flex", alignItems: "center", gap: "var(--s-2)" }}>
+                            <CheckCircleOutlinedIcon sx={{ fontSize: 16 }} />
+                            Passed Checks ({passedChecks.length})
+                        </span>
+                    </div>
+                    <div className="panel__body--flush">
+                        {passedChecks.map((check) => (
+                            <div key={check.check_id} className="scan-compliant-item">
+                                <div className="scan-compliant-item__icon">
+                                    <CheckCircleOutlinedIcon sx={{ fontSize: 16 }} />
+                                </div>
+                                <div className="scan-compliant-item__content">
+                                    <span className="scan-compliant-item__name">{check.check_name}</span>
+                                    <span className="scan-compliant-item__evidence">{check.evidence}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Scan Details */}
+            <div className="panel">
+                <div className="panel__header">
+                    <span className="panel__title">Scan Details</span>
+                </div>
+                <div className="panel__body">
+                    <div className="scan-details">
+                        <div className="scan-details__item">
+                            <span className="scan-details__label">Account ID</span>
+                            <span className="scan-details__value font-mono">{scan.account_id}</span>
+                        </div>
+                        <div className="scan-details__item">
+                            <span className="scan-details__label">Region</span>
+                            <span className="scan-details__value">{scan.region}</span>
+                        </div>
+                        <div className="scan-details__item">
+                            <span className="scan-details__label">Total Checks</span>
+                            <span className="scan-details__value">{scan.total_checks}</span>
+                        </div>
+                        <div className="scan-details__item">
+                            <span className="scan-details__label">Duration</span>
+                            <span className="scan-details__value">{scan.duration_seconds} seconds</span>
+                        </div>
+                        <div className="scan-details__item">
+                            <span className="scan-details__label">Scan ID</span>
+                            <span className="scan-details__value font-mono">{scan.scan_id}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+
+function AwsCheckCard({ check }: { check: AwsCheckResult }) {
+    const sevColor = check.severity === "high" ? "var(--c-critical)" : check.severity === "medium" ? "var(--c-medium, #f59e0b)" : "var(--c-text-muted)";
+
+    return (
+        <div style={{ padding: "var(--s-4)", borderBottom: "1px solid var(--c-border)" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--s-3)", marginBottom: "var(--s-2)" }}>
+                <CancelOutlinedIcon sx={{ fontSize: 16, color: sevColor, marginTop: "2px", flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "var(--s-2)", marginBottom: 4 }}>
+                        <span style={{ fontWeight: "var(--fw-semibold)", fontSize: "var(--fs-13)" }}>{check.check_name}</span>
+                        <span className={`badge badge--${check.severity === "high" ? "danger" : check.severity === "medium" ? "warning" : "neutral"}`} style={{ fontSize: "var(--fs-11)" }}>
+                            {check.severity}
+                        </span>
+                    </div>
+                    <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-secondary)", lineHeight: 1.5, marginBottom: "var(--s-2)" }}>
+                        {check.evidence}
+                    </p>
+                    {check.recommendation && (
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: "var(--s-2)", padding: "var(--s-2) var(--s-3)", borderRadius: "var(--r-sm)", background: "rgba(255,255,255,0.03)", border: "1px solid var(--c-border)", fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                            <TipsAndUpdatesOutlinedIcon sx={{ fontSize: 14, flexShrink: 0, marginTop: "1px" }} />
+                            {check.recommendation}
+                        </div>
+                    )}
+                    {check.affected_resources.length > 0 && (
+                        <div style={{ marginTop: "var(--s-2)", display: "flex", flexWrap: "wrap", gap: "var(--s-1)" }}>
+                            {check.affected_resources.map((r, i) => (
+                                <span key={i} className="badge badge--info" style={{ fontSize: "var(--fs-11)" }}>{r}</span>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
 }

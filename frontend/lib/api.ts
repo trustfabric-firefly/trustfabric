@@ -5,6 +5,8 @@ import type {
     AISystemUpdate,
     ActivityEvent,
     AuditEvent,
+    AwsIntegrationStatus,
+    AwsScanResult,
     ComplianceEvaluationResponse,
     CopilotRecommendation,
     DashboardSummary,
@@ -189,6 +191,13 @@ export const scansApi = {
     getReportHtml: (scanId: string) => requestText(`/api/v1/scans/${scanId}/report`),
 };
 
+export const awsScansApi = {
+    trigger: () =>
+        request<AwsScanResult>("/api/v1/scans/aws", { method: "POST" }),
+    list: () => request<AwsScanResult[]>("/api/v1/scans/aws"),
+    get: (scanId: string) => request<AwsScanResult>(`/api/v1/scans/aws/${scanId}`),
+};
+
 export const integrationsApi = {
     getGitHubConnectUrl: () =>
         request<{ url: string }>("/api/v1/integrations/github/connect"),
@@ -211,6 +220,17 @@ export const integrationsApi = {
             method: "PATCH",
             body: JSON.stringify({ channel_id, channel_name }),
         }),
+    connectAws: (role_arn: string, region: string) =>
+        request<AwsIntegrationStatus>("/api/v1/integrations/aws/connect", {
+            method: "POST",
+            body: JSON.stringify({ role_arn, region }),
+        }),
+    getAwsStatus: () =>
+        request<AwsIntegrationStatus>("/api/v1/integrations/aws/status"),
+    testAws: () =>
+        request<{ message: string }>("/api/v1/integrations/aws/test", { method: "POST" }),
+    disconnectAws: () =>
+        request<{ message: string }>("/api/v1/integrations/aws", { method: "DELETE" }),
 };
 
 export type BackendStatus = {
@@ -226,6 +246,7 @@ export type BackendStatus = {
     firebase_configured: boolean;
     github_oauth_configured: boolean;
     slack_oauth_configured: boolean;
+    aws_configured: boolean;
     rate_limit_per_minute: number;
 };
 

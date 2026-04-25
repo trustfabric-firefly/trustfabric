@@ -223,6 +223,47 @@ export interface SlackChannel {
   name: string;
 }
 
+// ─── AWS Integration ─────────────────────────────────────────────────────────
+
+export interface AwsConnectionInfo {
+  account_id: string;
+  account_alias: string;
+  role_arn: string;
+  region: string;
+  connected_at: string;
+}
+
+export interface AwsIntegrationStatus {
+  connected: boolean;
+  info: AwsConnectionInfo | null;
+}
+
+export interface AwsCheckResult {
+  check_id: string;
+  check_name: string;
+  severity: PolicySeverity;
+  passed: boolean;
+  evidence: string;
+  recommendation: string;
+  risk_score: number;
+  affected_resources: string[];
+}
+
+export interface AwsScanResult {
+  scan_id: string;
+  account_id: string;
+  region: string;
+  timestamp: string;
+  compliance_score: number;
+  total_checks: number;
+  passed_checks: number;
+  failed_checks: number;
+  checks: AwsCheckResult[];
+  duration_seconds: number;
+  triggered_by: string;
+  status: ScanStatus;
+}
+
 // ─── Compliance Scans Domain ─────────────────────────────────────────────────
 
 export type ScanStatus = "pending" | "running" | "completed" | "failed";

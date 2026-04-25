@@ -10,6 +10,9 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.core.security import Actor, get_actor
 from app.domain.models import (
+    AwsConnectionInfo,
+    AwsConnectRequest,
+    AwsIntegrationStatus,
     GitHubIntegrationStatus,
     GitHubUserInfo,
     SlackConnectionInfo,
@@ -23,6 +26,7 @@ from app.integrations.github import (
     get_user_info,
     get_user_orgs,
 )
+from app.integrations import aws as aws_integration
 from app.integrations import slack as slack_integration
 from app.services.store import store
 
@@ -205,3 +209,77 @@ async def slack_disconnect(actor: Actor = Depends(get_actor)) -> dict:
     """Remove the stored Slack token for the authenticated user."""
     store.delete_slack_connection(actor.user_id)
     return {"message": "Slack disconnected"}
+
+
+# ── AWS ──────────────────────────────────────────────────────────────────────
+
+
+@router.post("/aws/connect", response_model=AwsIntegrationStatus)
+async def aws_connect(body: AwsConnectRequest, actor: Actor = Depends(get_actor)) -> AwsIntegrationStatus:
+    """Validate the IAM Role ARN via STS AssumeRole and save the connection."""
+    try:
+        account_info = aws_integration.validate_connection(body.role_arn, body.region)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to assume role: {str(exc)[:200]}",
+        )
+
+    store.save_aws_connection(
+        user_id=actor.user_id,
+        role_arn=body.role_arn,
+        account_id=account_info["account_id"],
+        account_alias=account_info.get("account_alias", ""),
+        region=body.region,
+    )
+    return AwsIntegrationStatus(
+        connected=True,
+        info=AwsConnectionInfo(
+            account_id=account_info["account_id"],
+            account_alias=account_info.get("account_alias", ""),
+            role_arn=body.role_arn,
+            region=body.region,
+            connected_at=datetime.utcnow(),
+        ),
+    )
+
+
+@router.get("/aws/status", response_model=AwsIntegrationStatus)
+async def aws_status(actor: Actor = Depends(get_actor)) -> AwsIntegrationStatus:
+    """Check whether AWS is connected for the authenticated user."""
+    conn = store.get_aws_connection(actor.user_id)
+    if not conn or not conn.get("aws_role_arn"):
+        return AwsIntegrationStatus(connected=False)
+    return AwsIntegrationStatus(
+        connected=True,
+        info=AwsConnectionInfo(
+            account_id=conn.get("aws_account_id", ""),
+            account_alias=conn.get("aws_account_alias", ""),
+            role_arn=conn["aws_role_arn"],
+            region=conn.get("aws_region", "us-east-1"),
+            connected_at=datetime.fromisoformat(conn["aws_connected_at"]),
+        ),
+    )
+
+
+@router.post("/aws/test")
+async def aws_test(actor: Actor = Depends(get_actor)) -> dict:
+    """Verify the stored AWS credentials still work."""
+    conn = store.get_aws_connection(actor.user_id)
+    if not conn or not conn.get("aws_role_arn"):
+        raise HTTPException(status_code=400, detail="AWS not connected")
+    try:
+        aws_integration.validate_connection(
+            conn["aws_role_arn"],
+            conn.get("aws_region", "us-east-1"),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Connection test failed: {str(exc)[:200]}")
+    return {"message": "AWS connection is valid"}
+
+
+@router.delete("/aws")
+async def aws_disconnect(actor: Actor = Depends(get_actor)) -> dict:
+    """Remove the stored AWS connection for the authenticated user."""
+    store.delete_aws_connection(actor.user_id)
+    return {"message": "AWS disconnected"}
