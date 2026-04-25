@@ -144,6 +144,22 @@ class DashboardSummary(BaseModel):
     events_per_system: Dict[int, int]
 
 
+class NistFunctionCoverage(BaseModel):
+    """Coverage counts for one NIST AI RMF function (Govern / Map / Measure / Manage)."""
+    function: str           # "Govern" | "Map" | "Measure" | "Manage"
+    total_controls: int     # fixed number of controls for this function
+    active: int             # policies with status=active mapped to this function
+    draft: int              # policies with status=draft
+    inactive: int           # policies with status=inactive
+    missing: int            # controls with no policy at all
+
+
+class NistCoverage(BaseModel):
+    functions: List[NistFunctionCoverage]
+    total_controls: int
+    total_active: int
+
+
 # --- UI governance policies (stored under Firestore: systems/{id}/policies/{policyDocId}) ---
 
 

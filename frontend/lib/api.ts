@@ -10,6 +10,7 @@ import type {
     DashboardSummary,
     FrameworkMeta,
     GitHubIntegrationStatus,
+    NistCoverage,
     Policy,
     PolicyCreate,
     PolicyStatus,
@@ -151,6 +152,7 @@ export const eventsApi = {
 
 export const dashboardApi = {
     summary: () => request<DashboardSummary>("/api/v1/dashboard"),
+    nistCoverage: () => request<NistCoverage>("/api/v1/dashboard/nist-coverage"),
 };
 
 

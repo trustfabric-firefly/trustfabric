@@ -17,9 +17,7 @@ import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import CloudOutlinedIcon from "@mui/icons-material/CloudOutlined";
 import StorageOutlinedIcon from "@mui/icons-material/StorageOutlined";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
 import BoltOutlinedIcon from "@mui/icons-material/BoltOutlined";
-import MonitorOutlinedIcon from "@mui/icons-material/MonitorOutlined";
 import ChevronRightOutlinedIcon from "@mui/icons-material/ChevronRightOutlined";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
@@ -33,7 +31,7 @@ import type { SvgIconComponent } from "@mui/icons-material";
 
 const TIER_ORDER: RiskTier[] = ["Tier 3", "Tier 2", "Tier 1"];
 
-/* framework heatmap configs */
+/* framework heatmap configs — nist_rmf uses real backend data; others are placeholders */
 const FRAMEWORK_CONFIGS = {
     nist_rmf: {
         label: "NIST AI RMF",
@@ -108,6 +106,12 @@ export default function DashboardPage() {
         queryFn: auditApi.list,
     });
 
+    const { data: nistCoverage } = useQuery({
+        queryKey: ["nist-coverage"],
+        queryFn: dashboardApi.nistCoverage,
+        refetchInterval: 60_000,
+    });
+
     const missingControls = systems.filter((s) => s.missing_required_controls);
     const compliantSystems = systems.filter((s) => !s.missing_required_controls);
     const total = summary?.total_systems ?? 0;
@@ -124,14 +128,24 @@ export default function DashboardPage() {
     const [selectedFramework, setSelectedFramework] = useState<FrameworkKey>("nist_rmf");
     const activeFramework = FRAMEWORK_CONFIGS[selectedFramework];
 
-    // Generate deterministic heatmap data from systems state
-    const heatmapData = useMemo(
-        () => generateHeatmap(systems.length, missingControls.length, activeFramework.categories as unknown as { id: string; name: string; controls: number }[]),
-        [systems.length, missingControls.length, selectedFramework], // eslint-disable-line react-hooks/exhaustive-deps
-    );
+    // For NIST RMF: use real backend coverage data. For other frameworks: deterministic placeholder.
+    const heatmapData = useMemo(() => {
+        if (selectedFramework === "nist_rmf" && nistCoverage) {
+            return activeFramework.categories.map((cat) => {
+                const fn = nistCoverage.functions.find((f) => f.function === cat.name);
+                if (!fn) return Array(cat.controls).fill(0) as number[];
+                const cells: number[] = [];
+                for (let i = 0; i < fn.active; i++) cells.push(3);
+                for (let i = 0; i < fn.draft; i++) cells.push(2);
+                for (let i = 0; i < fn.inactive; i++) cells.push(1);
+                for (let i = 0; i < fn.missing; i++) cells.push(0);
+                return cells.slice(0, cat.controls);
+            });
+        }
+        return generateHeatmap(systems.length, missingControls.length, activeFramework.categories as unknown as { id: string; name: string; controls: number }[]);
+    }, [selectedFramework, nistCoverage, systems.length, missingControls.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Total controls
-    const totalControls = activeFramework.categories.reduce((n, c) => n + c.controls, 0);
+    const totalControls = activeFramework.categories.reduce((n: number, c: { controls: number }) => n + c.controls, 0);
     const passingControls = heatmapData.flat().filter((v) => v >= 3).length;
 
     // Recently viewed items synthesized from audit events + systems
@@ -145,7 +159,7 @@ export default function DashboardPage() {
     const latestScan = latestScans[0] ?? null;
     const scanScore = latestScan?.results.compliance_score ?? null;
 
-    const { data: githubStatus, refetch: refetchGitHub } = useQuery({
+    const { data: githubStatus } = useQuery({
         queryKey: ["github-status"],
         queryFn: integrationsApi.getGitHubStatus,
         retry: false,
@@ -734,20 +748,15 @@ function IntegrationSummaryPill({ count, label }: { count: number; label: string
     );
 }
 
-// data generators
-
 function generateHeatmap(systemCount: number, missingCount: number, categories: { id: string; name: string; controls: number }[]): number[][] {
-    // Each category gets rows of "control cells".
-    // Levels: 0=not evaluated, 1-4=passing intensity, -1=failing
     return categories.map((cat) => {
         const cells: number[] = [];
         for (let i = 0; i < cat.controls; i++) {
             if (systemCount === 0) {
-                cells.push(0); // nothing registered
+                cells.push(0);
             } else if (missingCount > 0 && i % 3 === 0 && cells.filter((c) => c < 0).length < missingCount) {
-                cells.push(-1); // failing
+                cells.push(-1);
             } else {
-                // deterministic "passing" level based on position
                 cells.push(((i + cat.controls) % 4) + 1);
             }
         }
@@ -763,42 +772,34 @@ type RecentItem = {
     icon: SvgIconComponent;
 };
 
+const AUDIT_EVENT_META: Record<string, { type: string; badge: string; badgeClass: string; icon: SvgIconComponent }> = {
+    system_created:        { type: "System",  badge: "Created",      badgeClass: "badge--live",    icon: MemoryOutlinedIcon },
+    system_updated:        { type: "System",  badge: "Updated",      badgeClass: "badge--info",    icon: MemoryOutlinedIcon },
+    system_deleted:        { type: "System",  badge: "Deleted",      badgeClass: "badge--danger",  icon: MemoryOutlinedIcon },
+    risk_tier_changed:     { type: "Risk",    badge: "Tier Changed", badgeClass: "badge--warning", icon: GppMaybeOutlinedIcon },
+    policy_mapping_changed:{ type: "Policy",  badge: "Updated",      badgeClass: "badge--info",    icon: DescriptionOutlinedIcon },
+};
+
 function buildRecentlyViewed(
     systems: { name: string; status: string; risk_tier: string | null }[],
     auditEvents: { event_type: string; summary: string; timestamp: string }[],
 ): RecentItem[] {
     const items: RecentItem[] = [];
 
-    // Static governance items always present
-    items.push(
-        {
-            type: "Control", title: "Audit log storage maintained", badge: "Passing", badgeClass: "badge--live",
-            icon: VerifiedUserOutlinedIcon,
-        },
-        {
-            type: "Policy", title: "AI Ethics & Responsible Use", badge: "Published", badgeClass: "badge--info",
-            icon: DescriptionOutlinedIcon,
-        },
-        {
-            type: "Control", title: "Human review for high-risk", badge: "Needs changes", badgeClass: "badge--warning",
-            icon: WarningAmberOutlinedIcon,
-        },
-        {
-            type: "Integration", title: "GitHub code scanning", badge: "Connected", badgeClass: "badge--live",
-            icon: GitHubIcon,
-        },
-        {
-            type: "Policy", title: "Data Privacy & PII Handling", badge: "Draft", badgeClass: "badge--neutral",
-            icon: LockOutlinedIcon,
-        },
-        {
-            type: "Monitor", title: "Model drift detection", badge: "Succeeded", badgeClass: "badge--live",
-            icon: MonitorOutlinedIcon,
-        },
+    // Build from real audit events (most recent first)
+    const sorted = [...auditEvents].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
 
-    // Add systems if any exist
-    systems.slice(0, 2).forEach((s) => {
+    sorted.forEach((ev) => {
+        const meta = AUDIT_EVENT_META[ev.event_type];
+        if (meta && ev.summary) {
+            items.push({ type: meta.type, title: ev.summary, badge: meta.badge, badgeClass: meta.badgeClass, icon: meta.icon });
+        }
+    });
+
+    // Fill remaining slots with registered systems
+    systems.forEach((s) => {
         items.push({
             type: "System",
             title: s.name,
