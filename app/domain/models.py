@@ -424,3 +424,23 @@ class GovernancePolicy(BaseModel):
     updated_at: datetime
     version: int = 1
 
+
+class AIChatMessageRole(str, Enum):
+    user = "user"
+    ai = "ai"
+
+
+class AIChatMessageCreate(BaseModel):
+    role: AIChatMessageRole
+    content: str = Field(..., min_length=1, max_length=12000)
+    policy: Optional[GovernancePolicyCreate] = None
+    rules: Optional[Dict[str, Any]] = None
+    provider: Optional[str] = Field(default=None, max_length=100)
+    model: Optional[str] = Field(default=None, max_length=200)
+
+
+class AIChatMessage(AIChatMessageCreate):
+    id: str
+    system_id: int
+    user_id: str
+    created_at: datetime

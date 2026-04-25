@@ -10,6 +10,8 @@ from firebase_admin import credentials, firestore
 
 from app.core.config import settings
 from app.domain.models import (
+    AIChatMessage,
+    AIChatMessageCreate,
     AISystem,
     AISystemCreate,
     AISystemUpdate,
@@ -174,6 +176,7 @@ class FirestoreStore:
         system = self.get_system(system_id)
         if system is None:
             return False
+        self._delete_system_chat_subcollection(system_id)
         self._delete_system_policies_subcollection(system_id)
         self._client().collection(self._systems_collection).document(str(system_id)).delete()
         self._record_audit(
@@ -286,6 +289,63 @@ class FirestoreStore:
             if key in out and out[key] is not None:
                 out[key] = self._coerce_policy_datetime(out[key])
         return out
+
+    # --- Persistent AI chat history (systems/{system_id}/copilot_chat) ---
+    def _system_chat_collection(self, system_id: int) -> Any:
+        return (
+            self._client()
+            .collection(self._systems_collection)
+            .document(str(system_id))
+            .collection("copilot_chat")
+        )
+
+    def _delete_system_chat_subcollection(self, system_id: int) -> None:
+        for doc in self._system_chat_collection(system_id).stream():
+            doc.reference.delete()
+
+    def _normalize_chat_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        out = dict(payload)
+        if "created_at" in out and out["created_at"] is not None:
+            out["created_at"] = self._coerce_policy_datetime(out["created_at"])
+        return out
+
+    def list_system_chat_messages(
+        self,
+        system_id: int,
+        user_id: str,
+    ) -> Optional[List[AIChatMessage]]:
+        if self.get_system(system_id) is None:
+            return None
+
+        messages: List[AIChatMessage] = []
+        docs = self._system_chat_collection(system_id).where("user_id", "==", user_id).stream()
+        for doc in docs:
+            raw = doc.to_dict() or {}
+            raw["id"] = doc.id
+            raw["system_id"] = system_id
+            messages.append(AIChatMessage.model_validate(self._normalize_chat_payload(raw)))
+        return sorted(messages, key=lambda message: message.created_at)
+
+    def create_system_chat_message(
+        self,
+        system_id: int,
+        user_id: str,
+        data: AIChatMessageCreate,
+    ) -> Optional[AIChatMessage]:
+        if self.get_system(system_id) is None:
+            return None
+
+        now = datetime.utcnow()
+        ref = self._system_chat_collection(system_id).document()
+        message = AIChatMessage(
+            id=ref.id,
+            system_id=system_id,
+            user_id=user_id,
+            created_at=now,
+            **data.model_dump(),
+        )
+        ref.set(message.model_dump(mode="json"))
+        return message
 
     def list_system_policies(self, system_id: int) -> Optional[List[GovernancePolicy]]:
         if self.get_system(system_id) is None:
@@ -874,4 +934,3 @@ class FirestoreStore:
 
 
 store = FirestoreStore()
-

@@ -2,43 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
-import MemoryOutlinedIcon from "@mui/icons-material/MemoryOutlined";
-import PolicyOutlinedIcon from "@mui/icons-material/PolicyOutlined";
-import DocumentScannerOutlinedIcon from "@mui/icons-material/DocumentScannerOutlined";
-import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
-import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import LogoutOutlinedIcon from "@mui/icons-material/LogoutOutlined";
-import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
-import { useAuth } from "@/providers/AuthProvider";
-
 import { motion } from "motion/react";
-
-const NAV = [
-    {
-        section: "General", items: [
-            { label: "Dashboard", href: "/dashboard", icon: DashboardOutlinedIcon },
-        ]
-    },
-    {
-        section: "Governance", items: [
-            { label: "AI Systems", href: "/systems", icon: MemoryOutlinedIcon },
-            { label: "Policies", href: "/policies", icon: PolicyOutlinedIcon },
-            { label: "Scans", href: "/scans", icon: DocumentScannerOutlinedIcon },
-            { label: "Compliance", href: "/compliance", icon: VerifiedUserOutlinedIcon },
-            { label: "Audit", href: "/audit", icon: HistoryOutlinedIcon },
-        ]
-    },
-    {
-        section: "Others", items: [
-            { label: "Settings", href: "/settings", icon: SettingsOutlinedIcon },
-        ]
-    },
-];
+import { useAuth } from "@/providers/AuthProvider";
+import { APP_MAIN_NAV } from "@/lib/navigation";
+import { usePrefetchAppRoutes } from "@/hooks/usePrefetchAppRoutes";
 
 export function Sidebar() {
     const pathname = usePathname();
-    const { user, logOut, isDevMode } = useAuth();
+    const { user, logOut } = useAuth();
+    usePrefetchAppRoutes();
 
     const initials = user?.email
         ? user.email.slice(0, 2).toUpperCase()
@@ -46,15 +19,13 @@ export function Sidebar() {
 
     return (
         <aside className="sidebar">
-            {/* Logo */}
             <div className="sidebar__logo" style={{ gap: "12px" }}>
                 <img src="/logo.svg" alt="TrustFabric Logo" width={34} height={34} />
                 <span className="sidebar__logo-text">TrustFabric</span>
             </div>
 
-            {/* Navigation */}
             <nav className="sidebar__nav">
-                {NAV.map(({ section, items }) => (
+                {APP_MAIN_NAV.map(({ section, items }) => (
                     <div key={section}>
                         <span className="sidebar__section-label">{section}</span>
                         {items.map(({ label, href, icon: Icon }) => {
@@ -63,7 +34,7 @@ export function Sidebar() {
                                 <Link
                                     key={href}
                                     href={href}
-                                    prefetch={true}
+                                    prefetch
                                     className={`sidebar__link${isActive ? " active" : ""}`}
                                 >
                                     {isActive && (
@@ -98,7 +69,6 @@ export function Sidebar() {
                 ))}
             </nav>
 
-            {/* User footer */}
             <div className="sidebar__footer">
                 <div
                     className="sidebar__user"

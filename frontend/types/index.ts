@@ -53,7 +53,7 @@ export interface AISystemCreate {
   risk_justification?: string | null;
 }
 
-export interface AISystemUpdate extends Partial<AISystemCreate> { }
+export type AISystemUpdate = Partial<AISystemCreate>;
 
 export interface ActivityEvent {
   id: number;
@@ -172,6 +172,21 @@ export interface PolicyTemplate {
   used_by: number;
   default_rules: Record<string, unknown>;
   customizable_fields: string[];
+}
+
+export type AIChatMessageRole = "user" | "ai";
+
+export interface AIChatMessage {
+  id: string;
+  system_id: number;
+  user_id: string;
+  role: AIChatMessageRole;
+  content: string;
+  policy?: PolicyCreate | null;
+  rules?: Record<string, unknown> | null;
+  provider?: string | null;
+  model?: string | null;
+  created_at: string;
 }
 
 // ─── Scan Policies ───────────────────────────────────────────────────────────

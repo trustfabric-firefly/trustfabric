@@ -1,5 +1,6 @@
 import { auth } from "./firebase";
 import type {
+    AIChatMessage,
     AISystem,
     AISystemCreate,
     AISystemUpdate,
@@ -289,6 +290,8 @@ export type PolicyRecommendationResponse = {
     content: string;
     policy: PolicyCreate;
     rules?: Record<string, unknown>;
+    provider?: string;
+    model?: string;
 };
 
 export const policyApi = {
@@ -296,5 +299,30 @@ export const policyApi = {
         request<PolicyRecommendationResponse>("/api/v1/copilot/policies/recommendations", {
             method: "POST",
             body: JSON.stringify({ prompt, history }),
+        }),
+    listChatHistory: (systemId: number) =>
+        request<AIChatMessage[]>(`/api/v1/copilot/systems/${systemId}/policy-chat`),
+    saveChatMessage: (
+        systemId: number,
+        body: {
+            role: "user" | "ai";
+            content: string;
+            policy?: PolicyCreate;
+            rules?: Record<string, unknown>;
+            provider?: string;
+            model?: string;
+        }
+    ) =>
+        request<AIChatMessage>(`/api/v1/copilot/systems/${systemId}/policy-chat/messages`, {
+            method: "POST",
+            body: JSON.stringify(body),
+        }),
+    generateForSystemChat: (systemId: number, prompt: string) =>
+        request<PolicyRecommendationResponse & {
+            user_message: AIChatMessage;
+            assistant_message: AIChatMessage;
+        }>(`/api/v1/copilot/systems/${systemId}/policy-chat/generate`, {
+            method: "POST",
+            body: JSON.stringify({ prompt }),
         }),
 };
