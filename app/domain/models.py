@@ -289,6 +289,21 @@ class GitHubIntegrationStatus(BaseModel):
     user: Optional[GitHubUserInfo] = None
 
 
+# --- Slack Integration ---
+
+
+class SlackConnectionInfo(BaseModel):
+    team_name: str
+    channel_id: str
+    channel_name: str
+    connected_at: datetime
+
+
+class SlackIntegrationStatus(BaseModel):
+    connected: bool
+    info: Optional[SlackConnectionInfo] = None
+
+
 # --- Compliance Framework Evaluation ---
 
 

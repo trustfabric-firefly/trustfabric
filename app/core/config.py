@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     github_redirect_uri: str = "http://localhost:8000/api/v1/integrations/github/callback"
     frontend_url: str = "http://localhost:3000"
 
+    # Slack OAuth
+    slack_client_id: str = ""
+    slack_client_secret: str = ""
+    slack_redirect_uri: str = "http://localhost:8000/api/v1/integrations/slack/callback"
+
     @model_validator(mode="after")
     def check_production_secrets(self) -> "Settings":
         if self.app_env == "production":

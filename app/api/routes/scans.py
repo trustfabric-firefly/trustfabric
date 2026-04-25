@@ -17,11 +17,18 @@ router = APIRouter()
 async def trigger_scan(body: ScanTriggerRequest, actor: Actor = Depends(get_actor)) -> ScanRecord:
     """Run a compliance scan against the connected GitHub account."""
     try:
-        return await run_scan(
+        record = await run_scan(
             user_id=actor.user_id,
             github_org=body.github_org,
             triggered_by=actor.user_id,
         )
+        # Fire-and-forget Slack notification
+        from app.services.notifications import notify_scan_completed
+        try:
+            await notify_scan_completed(actor.user_id, record)
+        except Exception:
+            pass  # never fail a scan due to notification error
+        return record
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:

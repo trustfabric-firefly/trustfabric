@@ -70,12 +70,51 @@ Open `http://localhost:3000`. See **`frontend/.env.local.example`** for variable
 
 | File | Purpose |
 |------|---------|
-| **`.env`** (root) | Backend: tokens, `SERVICE_FIREBASE`, `FIREBASE_PROJECT_ID`, optional `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `CLAUDE_API_KEY`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `COPILOT_PROVIDER`, `POLICIES_FILE` |
+| **`.env`** (root) | Backend: tokens, `SERVICE_FIREBASE`, `FIREBASE_PROJECT_ID`, optional `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `CLAUDE_API_KEY`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `COPILOT_PROVIDER`, `POLICIES_FILE`, GitHub/Slack OAuth vars |
 | **`frontend/.env.local`** | UI: `NEXT_PUBLIC_API_BASE_URL` (or `NEXT_PUBLIC_API_URL`), optional `NEXT_PUBLIC_FIREBASE_*`, optional `NEXT_PUBLIC_DEV_ADMIN_TOKEN` |
 
 Do not commit real secrets (`.env`, `.env.local`, `service-firebase.json`).
 
 **Copilot routing (`COPILOT_PROVIDER`):** `openai` · `gemini` · `claude` · `auto` (try OpenAI-compatible first, then Gemini, then Claude on upstream/config errors).
+
+---
+
+### 6. GitHub Integration (optional)
+
+Connect GitHub to scan Copilot configuration, branch protection, vulnerability alerts, and Actions permissions.
+
+1. Go to **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**
+2. Set the **Authorization callback URL** to `http://localhost:8000/api/v1/integrations/github/callback`
+3. Add the following to your `.env`:
+
+```bash
+GITHUB_CLIENT_ID=your_client_id
+GITHUB_CLIENT_SECRET=your_client_secret
+GITHUB_REDIRECT_URI=http://localhost:8000/api/v1/integrations/github/callback
+FRONTEND_URL=http://localhost:3000
+```
+
+4. Restart the backend and click **"Connect GitHub"** in Settings
+
+---
+
+### 7. Slack Integration (optional)
+
+Connect Slack to receive notifications when scans complete, violations are found, or AI systems change.
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) and create a new Slack App
+2. Under **OAuth & Permissions**, add bot token scopes: `chat:write`, `channels:read`
+3. Under **OAuth & Permissions → Redirect URLs**, add `http://localhost:8000/api/v1/integrations/slack/callback`
+4. Add the following to your `.env`:
+
+```bash
+SLACK_CLIENT_ID=your_client_id
+SLACK_CLIENT_SECRET=your_client_secret
+SLACK_REDIRECT_URI=http://localhost:8000/api/v1/integrations/slack/callback
+```
+
+5. Restart the backend and click **"Connect Slack"** in Settings
+6. After authorizing, choose a notification channel from the dropdown and use **"Test Notification"** to verify
 
 ---
 

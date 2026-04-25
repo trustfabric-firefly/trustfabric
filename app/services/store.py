@@ -731,6 +731,54 @@ class FirestoreStore:
         if doc_ref.get().exists:
             doc_ref.update(fields_to_remove)
 
+    # --- Slack Integration ---
+
+    def save_slack_connection(
+        self,
+        user_id: str,
+        bot_token: str,
+        team_name: str,
+        channel_id: str,
+        channel_name: str,
+    ) -> None:
+        doc = {
+            "slack_bot_token": bot_token,
+            "slack_team_name": team_name,
+            "slack_channel_id": channel_id,
+            "slack_channel_name": channel_name,
+            "slack_connected_at": datetime.utcnow().isoformat(),
+        }
+        self._client().collection(self._integrations_collection).document(user_id).set(doc, merge=True)
+
+    def get_slack_connection(self, user_id: str) -> Optional[dict]:
+        doc = self._client().collection(self._integrations_collection).document(user_id).get()
+        if not doc.exists:
+            return None
+        data = doc.to_dict() or {}
+        if not data.get("slack_bot_token"):
+            return None
+        return data
+
+    def update_slack_channel(self, user_id: str, channel_id: str, channel_name: str) -> None:
+        doc_ref = self._client().collection(self._integrations_collection).document(user_id)
+        if doc_ref.get().exists:
+            doc_ref.update({
+                "slack_channel_id": channel_id,
+                "slack_channel_name": channel_name,
+            })
+
+    def delete_slack_connection(self, user_id: str) -> None:
+        fields_to_remove = {
+            "slack_bot_token": firestore.DELETE_FIELD,
+            "slack_team_name": firestore.DELETE_FIELD,
+            "slack_channel_id": firestore.DELETE_FIELD,
+            "slack_channel_name": firestore.DELETE_FIELD,
+            "slack_connected_at": firestore.DELETE_FIELD,
+        }
+        doc_ref = self._client().collection(self._integrations_collection).document(user_id)
+        if doc_ref.get().exists:
+            doc_ref.update(fields_to_remove)
+
     # --- Helpers ---
     @staticmethod
     def _derive_policies(risk_tier: Optional[RiskTier]) -> List[PolicyKey]:

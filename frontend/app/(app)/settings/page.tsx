@@ -17,9 +17,12 @@ import NotificationsOutlinedIcon from "@mui/icons-material/NotificationsOutlined
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
+import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
+import TagOutlinedIcon from "@mui/icons-material/TagOutlined";
 import { TopBar } from "@/components/layout/TopBar";
 import { useAuth } from "@/providers/AuthProvider";
 import { RESOLVED_API_BASE_URL, integrationsApi, settingsApi } from "@/lib/api";
+import type { SlackChannel } from "@/types";
 import { isFirebaseConfigured } from "@/lib/firebase";
 
 // ─── Local storage keys ────────────────────────────────────────────────────────
@@ -159,10 +162,26 @@ export default function SettingsPage() {
         }
     }, [githubParam, queryClient]);
 
+    // Slack OAuth redirect notice
+    const slackParam = searchParams.get("slack");
+    const [slackNotice, setSlackNotice] = useState<"connected" | "error" | null>(
+        slackParam === "connected" ? "connected" : slackParam === "error" ? "error" : null
+    );
+    useEffect(() => {
+        if (slackParam === "connected") {
+            void queryClient.invalidateQueries({ queryKey: ["slack-status"] });
+        }
+    }, [slackParam, queryClient]);
+
     // Remote data
     const { data: githubStatus, isLoading: githubLoading, refetch: refetchGitHub } = useQuery({
         queryKey: ["github-status"],
         queryFn: integrationsApi.getGitHubStatus,
+        retry: false,
+    });
+    const { data: slackStatus, isLoading: slackLoading, refetch: refetchSlack } = useQuery({
+        queryKey: ["slack-status"],
+        queryFn: integrationsApi.getSlackStatus,
         retry: false,
     });
     const { data: backendStatus, isLoading: statusLoading } = useQuery({
@@ -213,6 +232,61 @@ export default function SettingsPage() {
             setGithubNotice(null);
         } catch { /* ignore */ }
     };
+
+    // Slack actions
+    const [slackChannels, setSlackChannels] = useState<SlackChannel[]>([]);
+    const [slackChannelsLoading, setSlackChannelsLoading] = useState(false);
+    const [slackTestSending, setSlackTestSending] = useState(false);
+    const [slackTestResult, setSlackTestResult] = useState<"ok" | "error" | null>(null);
+
+    const connectSlack = async () => {
+        try {
+            const { url } = await integrationsApi.getSlackConnectUrl();
+            window.location.href = url;
+        } catch {
+            setSlackNotice("error");
+        }
+    };
+    const disconnectSlack = async () => {
+        try {
+            await integrationsApi.disconnectSlack();
+            await refetchSlack();
+            setSlackNotice(null);
+        } catch { /* ignore */ }
+    };
+    const loadSlackChannels = async () => {
+        setSlackChannelsLoading(true);
+        try {
+            const channels = await integrationsApi.getSlackChannels();
+            setSlackChannels(channels);
+        } catch { /* ignore */ }
+        setSlackChannelsLoading(false);
+    };
+    const changeSlackChannel = async (channelId: string) => {
+        const ch = slackChannels.find(c => c.id === channelId);
+        if (!ch) return;
+        try {
+            await integrationsApi.updateSlackChannel(ch.id, ch.name);
+            await refetchSlack();
+        } catch { /* ignore */ }
+    };
+    const testSlack = async () => {
+        setSlackTestSending(true);
+        setSlackTestResult(null);
+        try {
+            await integrationsApi.testSlack();
+            setSlackTestResult("ok");
+        } catch {
+            setSlackTestResult("error");
+        }
+        setSlackTestSending(false);
+        setTimeout(() => setSlackTestResult(null), 3000);
+    };
+
+    useEffect(() => {
+        if (slackStatus?.connected) void loadSlackChannels();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [slackStatus?.connected]);
 
     const copyApiUrl = useCallback(() => {
         void navigator.clipboard.writeText(RESOLVED_API_BASE_URL).then(() => {
@@ -270,6 +344,32 @@ export default function SettingsPage() {
                         type="button"
                         style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: "var(--fs-12)" }}
                         onClick={() => setGithubNotice(null)}
+                    >✕</button>
+                </div>
+            )}
+
+            {/* Slack OAuth notice banner */}
+            {slackNotice && (
+                <div style={{
+                    marginTop: "var(--s-4)",
+                    padding: "var(--s-3) var(--s-4)",
+                    borderRadius: "var(--r-md)",
+                    border: `1px solid ${slackNotice === "connected" ? "var(--c-live)" : "var(--c-critical)"}`,
+                    background: slackNotice === "connected" ? "rgba(57,255,20,0.06)" : "rgba(239,68,68,0.06)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--s-2)",
+                    fontSize: "var(--fs-13)",
+                    color: slackNotice === "connected" ? "var(--c-live)" : "var(--c-critical)",
+                    maxWidth: 680,
+                }}>
+                    {slackNotice === "connected"
+                        ? <><CheckCircleOutlinedIcon sx={{ fontSize: 16 }} /> Slack connected successfully — notifications will be sent to your channel</>
+                        : <><LinkOffOutlinedIcon sx={{ fontSize: 16 }} /> Slack connection failed — try again</>}
+                    <button
+                        type="button"
+                        style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: "var(--fs-12)" }}
+                        onClick={() => setSlackNotice(null)}
                     >✕</button>
                 </div>
             )}
@@ -411,6 +511,107 @@ export default function SettingsPage() {
                             >
                                 <GitHubIcon sx={{ fontSize: 18 }} />
                                 Connect GitHub
+                            </button>
+                        </>
+                    )}
+                </SectionCard>
+
+                {/* ── 3b. Slack Integration ────────────────────────────────── */}
+                <SectionCard>
+                    <SectionHeader
+                        icon={<TagOutlinedIcon sx={{ fontSize: 24 }} />}
+                        title="Slack Integration"
+                        subtitle="Receive notifications for scan results, violations, and system changes"
+                        badge={
+                            slackStatus?.connected
+                                ? <span className="badge badge--live">Connected</span>
+                                : <span className="badge badge--neutral">Not connected</span>
+                        }
+                    />
+
+                    {slackLoading && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>Checking status…</p>
+                    )}
+
+                    {!slackLoading && slackStatus?.connected && slackStatus.info && (
+                        <>
+                            <SettingRow label="Workspace" value={slackStatus.info.team_name} />
+                            <SettingRow label="Connected at" value={new Date(slackStatus.info.connected_at).toLocaleString()} />
+
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">Notification channel</label>
+                                <select
+                                    className="input"
+                                    value={slackStatus.info.channel_id}
+                                    onChange={e => void changeSlackChannel(e.target.value)}
+                                    disabled={slackChannelsLoading}
+                                    style={{ cursor: "pointer" }}
+                                >
+                                    {slackChannelsLoading && <option>Loading channels…</option>}
+                                    {!slackChannelsLoading && slackChannels.length === 0 && (
+                                        <option value={slackStatus.info.channel_id}>#{slackStatus.info.channel_name}</option>
+                                    )}
+                                    {slackChannels.map(ch => (
+                                        <option key={ch.id} value={ch.id}>#{ch.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <Divider />
+
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
+                                TrustFabric will post notifications to the selected channel when compliance scans complete, violations are found, or AI systems are created, updated, or deleted.
+                            </p>
+
+                            <div style={{ display: "flex", gap: "var(--s-2)" }}>
+                                <button
+                                    type="button"
+                                    className="btn btn--secondary btn--sm"
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                    disabled={slackTestSending}
+                                    onClick={() => void testSlack()}
+                                >
+                                    <SendOutlinedIcon sx={{ fontSize: 16 }} />
+                                    {slackTestSending ? "Sending…" : slackTestResult === "ok" ? "Sent!" : slackTestResult === "error" ? "Failed" : "Test Notification"}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn--secondary btn--sm"
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                    onClick={() => void disconnectSlack()}
+                                >
+                                    <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
+                                    Disconnect Slack
+                                </button>
+                            </div>
+                        </>
+                    )}
+
+                    {!slackLoading && !slackStatus?.connected && (
+                        <>
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
+                                Connect your Slack workspace to receive real-time notifications when compliance scans complete, violations are detected, or AI systems change.
+                            </p>
+                            {!backendStatus?.slack_oauth_configured && (
+                                <div style={{
+                                    display: "flex", alignItems: "center", gap: "var(--s-2)",
+                                    padding: "var(--s-3)", borderRadius: "var(--r-sm)",
+                                    background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)",
+                                    fontSize: "var(--fs-12)", color: "var(--c-warning, #f59e0b)", marginBottom: "var(--s-3)",
+                                }}>
+                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
+                                    Slack OAuth not configured on the server. Set <code style={{ fontFamily: "monospace", margin: "0 4px" }}>SLACK_CLIENT_ID</code> and <code style={{ fontFamily: "monospace", margin: "0 4px" }}>SLACK_CLIENT_SECRET</code> in your backend <code style={{ fontFamily: "monospace" }}>.env</code>.
+                                </div>
+                            )}
+                            <button
+                                type="button"
+                                className="btn btn--primary"
+                                style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                                disabled={!backendStatus?.slack_oauth_configured}
+                                onClick={() => void connectSlack()}
+                            >
+                                <TagOutlinedIcon sx={{ fontSize: 18 }} />
+                                Connect Slack
                             </button>
                         </>
                     )}

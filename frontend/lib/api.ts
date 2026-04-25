@@ -16,6 +16,8 @@ import type {
     PolicyStatus,
     ScanPolicy,
     ScanResult,
+    SlackChannel,
+    SlackIntegrationStatus,
 } from "@/types";
 
 const RAW_BASE_URL =
@@ -194,6 +196,21 @@ export const integrationsApi = {
         request<GitHubIntegrationStatus>("/api/v1/integrations/github/status"),
     disconnectGitHub: () =>
         request<{ message: string }>("/api/v1/integrations/github", { method: "DELETE" }),
+    getSlackConnectUrl: () =>
+        request<{ url: string }>("/api/v1/integrations/slack/connect"),
+    getSlackStatus: () =>
+        request<SlackIntegrationStatus>("/api/v1/integrations/slack/status"),
+    disconnectSlack: () =>
+        request<{ message: string }>("/api/v1/integrations/slack", { method: "DELETE" }),
+    testSlack: () =>
+        request<{ message: string }>("/api/v1/integrations/slack/test", { method: "POST" }),
+    getSlackChannels: () =>
+        request<SlackChannel[]>("/api/v1/integrations/slack/channels"),
+    updateSlackChannel: (channel_id: string, channel_name: string) =>
+        request<{ message: string }>("/api/v1/integrations/slack/channel", {
+            method: "PATCH",
+            body: JSON.stringify({ channel_id, channel_name }),
+        }),
 };
 
 export type BackendStatus = {
@@ -208,6 +225,7 @@ export type BackendStatus = {
     gemini_api_configured: boolean;
     firebase_configured: boolean;
     github_oauth_configured: boolean;
+    slack_oauth_configured: boolean;
     rate_limit_per_minute: number;
 };
 

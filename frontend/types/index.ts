@@ -204,6 +204,25 @@ export interface GitHubIntegrationStatus {
   user: GitHubUserInfo | null;
 }
 
+// ─── Slack Integration ────────────────────────────────────────────────────────
+
+export interface SlackConnectionInfo {
+  team_name: string;
+  channel_id: string;
+  channel_name: string;
+  connected_at: string;
+}
+
+export interface SlackIntegrationStatus {
+  connected: boolean;
+  info: SlackConnectionInfo | null;
+}
+
+export interface SlackChannel {
+  id: string;
+  name: string;
+}
+
 // ─── Compliance Scans Domain ─────────────────────────────────────────────────
 
 export type ScanStatus = "pending" | "running" | "completed" | "failed";

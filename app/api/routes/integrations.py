@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.security import Actor, get_actor
-from app.domain.models import GitHubIntegrationStatus, GitHubUserInfo
+from app.domain.models import (
+    GitHubIntegrationStatus,
+    GitHubUserInfo,
+    SlackConnectionInfo,
+    SlackIntegrationStatus,
+)
 from app.integrations.github import (
     build_oauth_url,
     decode_state,
@@ -16,9 +23,13 @@ from app.integrations.github import (
     get_user_info,
     get_user_orgs,
 )
+from app.integrations import slack as slack_integration
 from app.services.store import store
 
 router = APIRouter()
+
+
+# ── GitHub ────────────────────────────────────────────────────────────────────
 
 
 @router.get("/github/connect")
@@ -71,3 +82,126 @@ async def github_disconnect(actor: Actor = Depends(get_actor)) -> dict:
     """Remove the stored GitHub token for the authenticated user."""
     store.delete_github_connection(actor.user_id)
     return {"message": "GitHub disconnected"}
+
+
+# ── Slack ─────────────────────────────────────────────────────────────────────
+
+
+class SlackChannelUpdate(BaseModel):
+    channel_id: str
+    channel_name: str
+
+
+@router.get("/slack/connect")
+async def slack_connect(actor: Actor = Depends(get_actor)) -> dict:
+    """Return the Slack OAuth URL. Frontend navigates the browser to this URL."""
+    if not settings.slack_client_id:
+        raise HTTPException(status_code=501, detail="Slack OAuth not configured — set SLACK_CLIENT_ID in .env")
+    state = slack_integration.encode_state(actor.user_id)
+    return {"url": slack_integration.build_oauth_url(state)}
+
+
+@router.get("/slack/callback")
+async def slack_callback(
+    code: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+):
+    """Slack OAuth callback. Slack redirects here after user authorises the app."""
+    frontend = settings.frontend_url
+    if error:
+        return RedirectResponse(url=f"{frontend}/settings?slack=error&detail={error}")
+    if not code or not state:
+        return RedirectResponse(url=f"{frontend}/settings?slack=error&detail=missing+code+or+state")
+    try:
+        user_id = slack_integration.decode_state(state)
+        data = await slack_integration.exchange_code_for_token(code)
+
+        bot_token = data["access_token"]
+        team_name = data.get("team", {}).get("name", "Unknown workspace")
+
+        # Pick the first channel the bot can see as the default
+        channels = await slack_integration.list_channels(bot_token)
+        if channels:
+            channel_id = channels[0]["id"]
+            channel_name = channels[0]["name"]
+        else:
+            channel_id = ""
+            channel_name = ""
+
+        store.save_slack_connection(
+            user_id=user_id,
+            bot_token=bot_token,
+            team_name=team_name,
+            channel_id=channel_id,
+            channel_name=channel_name,
+        )
+        return RedirectResponse(url=f"{frontend}/settings?slack=connected")
+    except Exception as exc:
+        safe = str(exc)[:120].replace("&", "and")
+        return RedirectResponse(url=f"{frontend}/settings?slack=error&detail={safe}")
+
+
+@router.get("/slack/status", response_model=SlackIntegrationStatus)
+async def slack_status(actor: Actor = Depends(get_actor)) -> SlackIntegrationStatus:
+    """Check whether Slack is connected for the authenticated user."""
+    conn = store.get_slack_connection(actor.user_id)
+    if not conn:
+        return SlackIntegrationStatus(connected=False)
+    return SlackIntegrationStatus(
+        connected=True,
+        info=SlackConnectionInfo(
+            team_name=conn.get("slack_team_name", ""),
+            channel_id=conn.get("slack_channel_id", ""),
+            channel_name=conn.get("slack_channel_name", ""),
+            connected_at=datetime.fromisoformat(conn["slack_connected_at"]),
+        ),
+    )
+
+
+@router.get("/slack/channels")
+async def slack_channels(actor: Actor = Depends(get_actor)) -> List[dict]:
+    """List channels the Slack bot can post to."""
+    conn = store.get_slack_connection(actor.user_id)
+    if not conn:
+        raise HTTPException(status_code=400, detail="Slack not connected")
+    return await slack_integration.list_channels(conn["slack_bot_token"])
+
+
+@router.patch("/slack/channel")
+async def slack_update_channel(
+    body: SlackChannelUpdate,
+    actor: Actor = Depends(get_actor),
+) -> dict:
+    """Update the notification channel for the connected Slack workspace."""
+    conn = store.get_slack_connection(actor.user_id)
+    if not conn:
+        raise HTTPException(status_code=400, detail="Slack not connected")
+    store.update_slack_channel(actor.user_id, body.channel_id, body.channel_name)
+    return {"message": f"Channel updated to #{body.channel_name}"}
+
+
+@router.post("/slack/test")
+async def slack_test(actor: Actor = Depends(get_actor)) -> dict:
+    """Send a test notification to the configured Slack channel."""
+    conn = store.get_slack_connection(actor.user_id)
+    if not conn:
+        raise HTTPException(status_code=400, detail="Slack not connected")
+    channel_id = conn.get("slack_channel_id")
+    if not channel_id:
+        raise HTTPException(status_code=400, detail="No channel configured")
+    ok = await slack_integration.send_notification(
+        token=conn["slack_bot_token"],
+        channel_id=channel_id,
+        text="TrustFabric test notification — Slack integration is working!",
+    )
+    if not ok:
+        raise HTTPException(status_code=502, detail="Failed to post message to Slack")
+    return {"message": "Test notification sent"}
+
+
+@router.delete("/slack")
+async def slack_disconnect(actor: Actor = Depends(get_actor)) -> dict:
+    """Remove the stored Slack token for the authenticated user."""
+    store.delete_slack_connection(actor.user_id)
+    return {"message": "Slack disconnected"}
