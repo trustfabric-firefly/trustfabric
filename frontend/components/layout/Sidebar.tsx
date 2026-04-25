@@ -9,6 +9,7 @@ import DocumentScannerOutlinedIcon from "@mui/icons-material/DocumentScannerOutl
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
 import LogoutOutlinedIcon from "@mui/icons-material/LogoutOutlined";
+import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
 import { useAuth } from "@/providers/AuthProvider";
 
 import { motion } from "motion/react";
@@ -24,6 +25,7 @@ const NAV = [
             { label: "AI Systems", href: "/systems", icon: MemoryOutlinedIcon },
             { label: "Policies", href: "/policies", icon: PolicyOutlinedIcon },
             { label: "Scans", href: "/scans", icon: DocumentScannerOutlinedIcon },
+            { label: "Compliance", href: "/compliance", icon: VerifiedUserOutlinedIcon },
             { label: "Audit", href: "/audit", icon: HistoryOutlinedIcon },
         ]
     },
@@ -98,34 +100,17 @@ export function Sidebar() {
 
             {/* User footer */}
             <div className="sidebar__footer">
-                {isDevMode && (
-                    <div
-                        style={{
-                            padding: "4px var(--s-2)",
-                            marginBottom: "var(--s-2)",
-                            background: "var(--c-accent-subtle)",
-                            border: "1px solid rgba(251,191,36,0.15)",
-                            borderRadius: "var(--r-sm)",
-                            fontSize: "var(--fs-11)",
-                            color: "var(--c-accent-text)",
-                            fontWeight: "var(--fw-medium)",
-                            textAlign: "center",
-                        }}
-                    >
-                        Dev Mode
-                    </div>
-                )}
                 <div
                     className="sidebar__user"
-                    onClick={isDevMode ? undefined : logOut}
-                    title={isDevMode ? "Dev mode" : "Sign out"}
+                    onClick={logOut}
+                    title="Sign out"
                 >
                     <div className="sidebar__avatar">{initials}</div>
                     <div className="sidebar__user-info">
                         <div className="sidebar__user-name">{user?.email ?? "Local dev"}</div>
-                        <div className="sidebar__user-role">{isDevMode ? "Developer" : "Sign out"}</div>
+                        <div className="sidebar__user-role">Sign out</div>
                     </div>
-                    {!isDevMode && <LogoutOutlinedIcon sx={{ fontSize: 14, color: "var(--c-text-muted)" }} />}
+                    <LogoutOutlinedIcon sx={{ fontSize: 14, color: "var(--c-text-muted)" }} />
                 </div>
             </div>
         </aside>

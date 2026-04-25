@@ -77,6 +77,11 @@ class AISystem(AISystemBase):
     risk_justification: Optional[str] = None
     required_policies: List[PolicyKey] = Field(default_factory=list)
     missing_required_controls: bool = False
+    # Populated when a compliance scan runs against this system
+    last_scan_id: Optional[str] = None
+    last_scan_date: Optional[datetime] = None
+    compliance_score: Optional[int] = None
+    active_violations: Optional[int] = None
 
 
 class RiskTierChange(BaseModel):
@@ -185,6 +190,145 @@ class GovernancePolicyStatus(str, Enum):
     active = "active"
     inactive = "inactive"
     draft = "draft"
+
+
+# --- Compliance Scans ---
+
+
+class ScanStatus(str, Enum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
+
+class ViolationStatus(str, Enum):
+    violation = "violation"
+    compliant = "compliant"
+
+
+class ScanViolation(BaseModel):
+    policy_id: str
+    policy_name: str
+    status: ViolationStatus
+    severity: GovernancePolicySeverity
+    evidence: str
+    recommendation: str
+    risk_score: int
+    affected_repositories: List[str] = Field(default_factory=list)
+
+
+class ScanConfig(BaseModel):
+    scope: str
+    github_org: str
+    policies_checked: List[str]
+
+
+class GitHubScannedConfig(BaseModel):
+    enabled_models: List[str] = Field(default_factory=list)
+    cli_enabled: bool = False
+    ide_features: Dict[str, Any] = Field(default_factory=dict)
+    secret_scanning_enabled: bool = False
+    code_review_required: bool = False
+
+
+class ScanResults(BaseModel):
+    compliance_score: int
+    total_policies: int
+    violations: List[ScanViolation]
+    compliant: List[ScanViolation]
+    scanned_repositories: List[str] = Field(default_factory=list)
+
+
+class ScanRecord(BaseModel):
+    scan_id: str
+    organization: str
+    timestamp: datetime
+    config: ScanConfig
+    github_config: GitHubScannedConfig
+    results: ScanResults
+    duration_seconds: float
+    triggered_by: str
+    status: ScanStatus
+
+
+class ScanTriggerRequest(BaseModel):
+    github_org: str
+    scope: str = "repositories"
+
+
+# --- Scan Policies (user-scoped, drive which checks run) ---
+
+
+class ScanPolicy(BaseModel):
+    check_id: str
+    name: str
+    description: str
+    severity: GovernancePolicySeverity
+    enabled: bool = True
+    tier: str = "personal"   # "personal" | "enterprise"
+    user_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+# --- GitHub Integration ---
+
+
+class GitHubUserInfo(BaseModel):
+    login: str
+    name: Optional[str] = None
+    avatar_url: str
+    public_repos: int = 0
+    orgs: List[str] = Field(default_factory=list)
+    connected_at: datetime
+
+
+class GitHubIntegrationStatus(BaseModel):
+    connected: bool
+    user: Optional[GitHubUserInfo] = None
+
+
+# --- Compliance Framework Evaluation ---
+
+
+class FrameworkRequirementStatus(str, Enum):
+    passed = "passed"
+    failed = "failed"
+    partial = "partial"
+    manual = "manual"  # not auto-evaluable, awaiting attestation
+
+
+class FrameworkRequirementResult(BaseModel):
+    id: str
+    article: str
+    title: str
+    description: str
+    status: FrameworkRequirementStatus
+    score: float  # 0.0–1.0
+    auto_evaluable: bool
+    evidence: List[str]
+    gaps: List[str]
+    checklist: List[str] = Field(default_factory=list)
+    checklist_done: List[bool] = Field(default_factory=list)
+
+
+class FrameworkResult(BaseModel):
+    framework_id: str
+    framework_name: str
+    framework_short_name: str
+    framework_version: str
+    scan_id: str
+    evaluated_at: datetime
+    overall_score: int       # 0–100, partial counts 0.5
+    auto_score: int          # 0–100, auto-only requirements
+    total_requirements: int
+    auto_requirements: int
+    manual_requirements: int
+    passed_requirements: int
+    partial_requirements: int
+    failed_requirements: int
+    requirements: List[FrameworkRequirementResult]
 
 
 class GovernancePolicyCreate(BaseModel):

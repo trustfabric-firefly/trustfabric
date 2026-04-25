@@ -33,6 +33,11 @@ export interface AISystem {
   missing_required_controls: boolean;
   created_at: string;
   updated_at: string;
+  // Populated after a compliance scan runs against this system
+  last_scan_id?: string | null;
+  last_scan_date?: string | null;
+  compliance_score?: number | null;
+  active_violations?: number | null;
 }
 
 export interface AISystemCreate {
@@ -169,6 +174,36 @@ export interface PolicyTemplate {
   customizable_fields: string[];
 }
 
+// ─── Scan Policies ───────────────────────────────────────────────────────────
+
+export interface ScanPolicy {
+  check_id: string;
+  name: string;
+  description: string;
+  severity: PolicySeverity;
+  enabled: boolean;
+  tier: "personal" | "enterprise";
+  user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── GitHub Integration ───────────────────────────────────────────────────────
+
+export interface GitHubUserInfo {
+  login: string;
+  name: string | null;
+  avatar_url: string;
+  public_repos: number;
+  orgs: string[];
+  connected_at: string;
+}
+
+export interface GitHubIntegrationStatus {
+  connected: boolean;
+  user: GitHubUserInfo | null;
+}
+
 // ─── Compliance Scans Domain ─────────────────────────────────────────────────
 
 export type ScanStatus = "pending" | "running" | "completed" | "failed";
@@ -183,6 +218,7 @@ export interface ScanViolation {
   evidence: string;
   recommendation: string;
   risk_score: number;
+  affected_repositories?: string[];
 }
 
 export interface ScanConfig {
@@ -212,6 +248,7 @@ export interface ScanResult {
     total_policies: number;
     violations: ScanViolation[];
     compliant: ScanViolation[];
+    scanned_repositories?: string[];
   };
   duration_seconds: number;
   triggered_by: string;
@@ -380,4 +417,55 @@ export interface AuditLogEntry {
 
   // Metadata
   metadata?: Record<string, unknown>;
+}
+
+// ─── Compliance Frameworks ───────────────────────────────────────────────────
+
+export type FrameworkRequirementStatus = "passed" | "failed" | "partial" | "manual";
+
+export interface FrameworkRequirementResult {
+  id: string;
+  article: string;
+  title: string;
+  description: string;
+  status: FrameworkRequirementStatus;
+  score: number; // 0.0–1.0
+  auto_evaluable: boolean;
+  evidence: string[];
+  gaps: string[];
+  checklist: string[];
+  checklist_done: boolean[];
+}
+
+export interface FrameworkResult {
+  framework_id: string;
+  framework_name: string;
+  framework_short_name: string;
+  framework_version: string;
+  scan_id: string;
+  evaluated_at: string;
+  overall_score: number; // 0–100
+  auto_score: number;    // 0–100 (auto-only)
+  total_requirements: number;
+  auto_requirements: number;
+  manual_requirements: number;
+  passed_requirements: number;
+  partial_requirements: number;
+  failed_requirements: number;
+  requirements: FrameworkRequirementResult[];
+}
+
+export interface FrameworkMeta {
+  id: string;
+  name: string;
+  short_name: string;
+  version: string;
+  scope: string;
+  total_requirements: number;
+  auto_requirements: number;
+}
+
+export interface ComplianceEvaluationResponse {
+  scan_id: string;
+  frameworks: FrameworkResult[];
 }

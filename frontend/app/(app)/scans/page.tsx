@@ -1,6 +1,10 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { scansApi, integrationsApi } from "@/lib/api";
+import { Modal } from "@/components/ui/Modal";
 import DocumentScannerOutlinedIcon from "@mui/icons-material/DocumentScannerOutlined";
 import PlayArrowOutlinedIcon from "@mui/icons-material/PlayArrowOutlined";
 import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
@@ -137,30 +141,80 @@ const MOCK_SCAN_HISTORY: ScanResult[] = [
 type PageView = "main" | "config" | "scanning" | "results" | "trends";
 
 export default function ScansPage() {
+    const queryClient = useQueryClient();
+    const searchParams = useSearchParams();
     const [view, setView] = useState<PageView>("main");
-    const [scanHistory, setScanHistory] = useState<ScanResult[]>(MOCK_SCAN_HISTORY);
     const [currentScan, setCurrentScan] = useState<ScanResult | null>(null);
     const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
     const [selectedScan, setSelectedScan] = useState<ScanResult | null>(null);
+    const [scanError, setScanError] = useState<string | null>(null);
+    const [trendSourceScanId, setTrendSourceScanId] = useState<string | null>(null);
+    const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    const { data: githubStatus } = useQuery({
+        queryKey: ["github-status"],
+        queryFn: integrationsApi.getGitHubStatus,
+        retry: false,
+    });
+
+    const { data: scanHistory = [] } = useQuery({
+        queryKey: ["scans"],
+        queryFn: scansApi.list,
+        retry: false,
+    });
+
+    const githubLogin = githubStatus?.user?.login ?? "";
 
     // Configuration state
-    const [configOrg, setConfigOrg] = useState(MOCK_ORGS[0].id);
-    const [configScope, setConfigScope] = useState<ScanScope>("organization");
-    const [configPolicies, setConfigPolicies] = useState<string[]>(MOCK_POLICIES.map(p => p.id));
+    const [configOrg, setConfigOrg] = useState("");
+    const [configScope, setConfigScope] = useState<ScanScope>("repositories");
+    const [configPolicies, setConfigPolicies] = useState<string[]>(["chk_branch_protection", "chk_pr_reviews", "chk_vulnerability_alerts", "chk_actions_restricted"]);
 
     const hasScans = scanHistory.length > 0;
     const latestScan = scanHistory[0] ?? null;
+    const requestedScanId = searchParams.get("scanId");
+    const requestedStart = searchParams.get("start");
 
+    useEffect(() => {
+        if (requestedStart === "config") {
+            setView("config");
+            if (!configOrg) {
+                const saved = localStorage.getItem("tf_default_github_org");
+                setConfigOrg(saved || githubLogin);
+            }
+        }
+    }, [requestedStart, configOrg, githubLogin]);
+
+    useEffect(() => {
+        if (!requestedScanId || scanHistory.length === 0) return;
+        const match = scanHistory.find((scan) => scan.scan_id === requestedScanId);
+        if (!match) return;
+        setSelectedScan(match);
+        setCurrentScan(match);
+        setView("results");
+    }, [requestedScanId, scanHistory]);
+
+    // Pre-fill org: saved default → GitHub login → empty
     const handleStartConfig = useCallback(() => {
+        if (!configOrg) {
+            const saved = localStorage.getItem("tf_default_github_org");
+            setConfigOrg(saved || githubLogin);
+        }
         setView("config");
-    }, []);
+    }, [configOrg, githubLogin]);
 
     const handleCancelConfig = useCallback(() => {
         setView("main");
     }, []);
 
-    const handleStartScan = useCallback(() => {
+    const handleStartScan = useCallback(async () => {
+        const org = configOrg || githubLogin;
+        if (!org) return;
+        setScanError(null);
         setView("scanning");
+
+        // Animate progress steps while the real API call runs in parallel
+        let stepIndex = 0;
         setScanProgress({
             step: SCAN_STEPS[0],
             percentage: 0,
@@ -168,76 +222,30 @@ export default function ScansPage() {
             current_step: SCAN_STEPS[0],
             pending_steps: SCAN_STEPS.slice(1),
         });
+        intervalRef.current = setInterval(() => {
+            stepIndex = Math.min(stepIndex + 1, SCAN_STEPS.length - 1);
+            setScanProgress({
+                step: SCAN_STEPS[stepIndex],
+                percentage: Math.round((stepIndex / (SCAN_STEPS.length - 1)) * 90),
+                completed_steps: SCAN_STEPS.slice(0, stepIndex),
+                current_step: SCAN_STEPS[stepIndex],
+                pending_steps: SCAN_STEPS.slice(stepIndex + 1),
+            });
+        }, 1200);
 
-        // Simulate scan progress
-        let stepIndex = 0;
-        const interval = setInterval(() => {
-            stepIndex++;
-            if (stepIndex < SCAN_STEPS.length) {
-                setScanProgress({
-                    step: SCAN_STEPS[stepIndex],
-                    percentage: Math.round((stepIndex / SCAN_STEPS.length) * 100),
-                    completed_steps: SCAN_STEPS.slice(0, stepIndex),
-                    current_step: SCAN_STEPS[stepIndex],
-                    pending_steps: SCAN_STEPS.slice(stepIndex + 1),
-                });
-            } else {
-                clearInterval(interval);
-                // Generate mock result
-                const hasViolations = Math.random() > 0.3;
-                const newScan: ScanResult = {
-                    scan_id: `scan_${Date.now()}`,
-                    organization: configOrg,
-                    timestamp: new Date().toISOString(),
-                    config: {
-                        scope: configScope,
-                        policies_checked: configPolicies,
-                        github_org: configOrg,
-                    },
-                    github_config: {
-                        enabled_models: hasViolations ? ["gpt-4", "claude-sonnet-3.5"] : ["claude-sonnet-3.5"],
-                        cli_enabled: hasViolations,
-                        ide_features: { suggestions: true },
-                        secret_scanning_enabled: true,
-                        code_review_required: true,
-                    },
-                    results: hasViolations ? {
-                        compliance_score: 67,
-                        total_policies: configPolicies.length,
-                        violations: [
-                            { policy_id: "pol_001", policy_name: "Restrict AI Models", status: "violation", severity: "high", evidence: "GPT-4 found in enabled_models", recommendation: "Remove GPT-4 from org settings under Copilot configuration.", risk_score: 85 },
-                            { policy_id: "pol_002", policy_name: "Disable Copilot CLI", status: "violation", severity: "medium", evidence: "cli_enabled: true", recommendation: "Disable Copilot CLI in organization settings.", risk_score: 60 },
-                        ],
-                        compliant: [
-                            { policy_id: "pol_003", policy_name: "Require Code Review for AI Code", status: "compliant", severity: "medium", evidence: "All repos have required reviewers configured", recommendation: "", risk_score: 0 },
-                        ],
-                    } : {
-                        compliance_score: 100,
-                        total_policies: configPolicies.length,
-                        violations: [],
-                        compliant: MOCK_POLICIES.map(p => ({
-                            policy_id: p.id,
-                            policy_name: p.name,
-                            status: "compliant" as const,
-                            severity: p.severity,
-                            evidence: "Configuration compliant with policy requirements",
-                            recommendation: "",
-                            risk_score: 0,
-                        })),
-                    },
-                    duration_seconds: Math.floor(Math.random() * 10) + 25,
-                    triggered_by: "dev@local",
-                    status: "completed",
-                };
-
-                setCurrentScan(newScan);
-                setScanHistory(prev => [newScan, ...prev]);
-                setView("results");
-            }
-        }, 800);
-
-        return () => clearInterval(interval);
-    }, [configOrg, configScope, configPolicies]);
+        try {
+            const result = await scansApi.trigger({ github_org: org, scope: configScope });
+            if (intervalRef.current) clearInterval(intervalRef.current);
+            setScanProgress({ step: "Done", percentage: 100, completed_steps: SCAN_STEPS, current_step: "Done", pending_steps: [] });
+            setCurrentScan(result);
+            void queryClient.invalidateQueries({ queryKey: ["scans"] });
+            setView("results");
+        } catch (err) {
+            if (intervalRef.current) clearInterval(intervalRef.current);
+            setScanError(err instanceof Error ? err.message : "Scan failed");
+            setView("config");
+        }
+    }, [configOrg, configScope, githubLogin, queryClient]);
 
     const handleViewResults = useCallback((scan: ScanResult) => {
         setSelectedScan(scan);
@@ -246,13 +254,43 @@ export default function ScansPage() {
     }, []);
 
     const handleViewTrends = useCallback(() => {
+        setTrendSourceScanId(currentScan?.scan_id ?? null);
         setView("trends");
-    }, []);
+    }, [currentScan]);
 
     const handleBackToMain = useCallback(() => {
         setView("main");
         setSelectedScan(null);
         setCurrentScan(null);
+        setTrendSourceScanId(null);
+    }, []);
+
+    const handleBackFromTrends = useCallback(() => {
+        if (trendSourceScanId) {
+            const match = scanHistory.find((scan) => scan.scan_id === trendSourceScanId);
+            if (match) {
+                setSelectedScan(match);
+                setCurrentScan(match);
+                setView("results");
+                return;
+            }
+        }
+        setView("main");
+    }, [scanHistory, trendSourceScanId]);
+
+    const handleExportReport = useCallback(async (scanId: string) => {
+        const html = await scansApi.getReportHtml(scanId);
+        const popup = window.open("", "_blank", "noopener,noreferrer");
+        if (!popup) {
+            throw new Error("Popup blocked while opening the report preview.");
+        }
+        popup.document.open();
+        popup.document.write(html);
+        popup.document.close();
+        popup.focus();
+        window.setTimeout(() => {
+            popup.print();
+        }, 300);
     }, []);
 
     return (
@@ -283,6 +321,7 @@ export default function ScansPage() {
                         onStartConfig={handleStartConfig}
                         onViewResults={handleViewResults}
                         onViewTrends={handleViewTrends}
+                        onExportReport={handleExportReport}
                     />
                 )}
 
@@ -295,7 +334,9 @@ export default function ScansPage() {
                         configPolicies={configPolicies}
                         setConfigPolicies={setConfigPolicies}
                         onCancel={handleCancelConfig}
-                        onStart={handleStartScan}
+                        onStart={() => void handleStartScan()}
+                        githubLogin={githubLogin}
+                        scanError={scanError}
                     />
                 )}
 
@@ -309,13 +350,14 @@ export default function ScansPage() {
                         onRunAnother={handleStartConfig}
                         onViewTrends={handleViewTrends}
                         onBack={handleBackToMain}
+                        onExportReport={handleExportReport}
                     />
                 )}
 
                 {view === "trends" && (
                     <TrendsView
                         scanHistory={scanHistory}
-                        onBack={handleBackToMain}
+                        onBack={handleBackFromTrends}
                     />
                 )}
             </main>
@@ -330,6 +372,7 @@ function MainView({
     scanHistory,
     onStartConfig,
     onViewResults,
+    onExportReport,
 }: {
     hasScans: boolean;
     latestScan: ScanResult | null;
@@ -337,6 +380,7 @@ function MainView({
     onStartConfig: () => void;
     onViewResults: (scan: ScanResult) => void;
     onViewTrends: () => void;
+    onExportReport: (scanId: string) => Promise<void>;
 }) {
     const [historyFilter, setHistoryFilter] = useState<"all" | "violations" | "compliant">("all");
 
@@ -429,6 +473,7 @@ function MainView({
                                     key={scan.scan_id}
                                     scan={scan}
                                     onViewResults={() => onViewResults(scan)}
+                                    onExportReport={onExportReport}
                                 />
                             ))}
                         </div>
@@ -443,6 +488,13 @@ function MainView({
 }
 
 
+const BUILT_IN_CHECKS = [
+    { id: "chk_branch_protection", name: "Branch Protection on Default Branch", severity: "high" as const },
+    { id: "chk_pr_reviews", name: "Pull Request Reviews Required", severity: "medium" as const },
+    { id: "chk_vulnerability_alerts", name: "Vulnerability Alerts Enabled", severity: "high" as const },
+    { id: "chk_actions_restricted", name: "GitHub Actions Restricted to Trusted Sources", severity: "medium" as const },
+];
+
 function ConfigView({
     configOrg,
     setConfigOrg,
@@ -452,6 +504,8 @@ function ConfigView({
     setConfigPolicies,
     onCancel,
     onStart,
+    githubLogin,
+    scanError,
 }: {
     configOrg: string;
     setConfigOrg: (v: string) => void;
@@ -461,8 +515,10 @@ function ConfigView({
     setConfigPolicies: (v: string[]) => void;
     onCancel: () => void;
     onStart: () => void;
+    githubLogin: string;
+    scanError: string | null;
 }) {
-    const selectedPolicies = MOCK_POLICIES.filter(p => configPolicies.includes(p.id));
+    const effectiveOrg = configOrg || githubLogin;
 
     return (
         <div className="panel" style={{ maxWidth: 640 }}>
@@ -471,34 +527,40 @@ function ConfigView({
             </div>
             <div className="panel__body" style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
                 <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", lineHeight: 1.5 }}>
-                    Select what to scan and which policies to check against.
+                    Scan your GitHub repositories against the built-in governance checks.
                 </p>
 
+                {scanError && (
+                    <div style={{ padding: "var(--s-3)", borderRadius: "var(--r-md)", background: "rgba(239,68,68,0.08)", border: "1px solid var(--c-critical)", fontSize: "var(--fs-13)", color: "var(--c-critical)" }}>
+                        {scanError}
+                    </div>
+                )}
+
                 <div className="form-group">
-                    <label className="form-label">GitHub Organization *</label>
-                    <select className="input" value={configOrg} onChange={(e) => setConfigOrg(e.target.value)}>
-                        {MOCK_ORGS.map(org => (
-                            <option key={org.id} value={org.id}>{org.name}</option>
-                        ))}
-                    </select>
+                    <label className="form-label">GitHub Username / Organization *</label>
+                    <input
+                        className="input"
+                        placeholder={githubLogin || "your-github-username"}
+                        value={configOrg}
+                        onChange={(e) => setConfigOrg(e.target.value)}
+                    />
+                    {githubLogin && !configOrg && (
+                        <p style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: 4 }}>
+                            Defaults to connected account: @{githubLogin}
+                        </p>
+                    )}
                 </div>
 
                 <div className="form-group">
-                    <label className="form-label">Policies to Check</label>
+                    <label className="form-label">Checks to Run</label>
                     <div className="scan-config__policies">
                         <label className="scan-config__policy-option">
                             <input
                                 type="checkbox"
-                                checked={configPolicies.length === MOCK_POLICIES.length}
-                                onChange={(e) => {
-                                    if (e.target.checked) {
-                                        setConfigPolicies(MOCK_POLICIES.map(p => p.id));
-                                    } else {
-                                        setConfigPolicies([]);
-                                    }
-                                }}
+                                checked={configPolicies.length === BUILT_IN_CHECKS.length}
+                                onChange={(e) => setConfigPolicies(e.target.checked ? BUILT_IN_CHECKS.map(c => c.id) : [])}
                             />
-                            <span>All Active Policies ({MOCK_POLICIES.length})</span>
+                            <span>All checks ({BUILT_IN_CHECKS.length})</span>
                         </label>
                     </div>
                 </div>
@@ -526,15 +588,15 @@ function ConfigView({
                 <div className="scan-config__preview">
                     <h4 style={{ fontSize: "var(--fs-13)", fontWeight: "var(--fw-semibold)", color: "var(--c-text)", marginBottom: "var(--s-2)", display: "flex", alignItems: "center", gap: "var(--s-2)" }}>
                         <DescriptionOutlinedIcon sx={{ fontSize: 16 }} />
-                        Active Policies to be Checked:
+                        Checks that will run:
                     </h4>
                     <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
-                        {selectedPolicies.map((p) => (
-                            <li key={p.id} style={{ display: "flex", alignItems: "center", gap: "var(--s-2)", fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
+                        {BUILT_IN_CHECKS.map((c) => (
+                            <li key={c.id} style={{ display: "flex", alignItems: "center", gap: "var(--s-2)", fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
                                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--c-text-muted)", flexShrink: 0 }} />
-                                {p.name}
-                                <span className="badge badge--neutral" style={{ fontSize: "var(--fs-11)" }}>
-                                    {p.severity}
+                                {c.name}
+                                <span className={`badge badge--${c.severity === "high" ? "danger" : "warning"}`} style={{ fontSize: "var(--fs-11)" }}>
+                                    {c.severity}
                                 </span>
                             </li>
                         ))}
@@ -619,16 +681,51 @@ function ResultsView({
     onRunAnother,
     onViewTrends,
     onBack,
+    onExportReport,
 }: {
     scan: ScanResult;
     onRunAnother: () => void;
     onViewTrends: () => void;
     onBack: () => void;
+    onExportReport: (scanId: string) => Promise<void>;
 }) {
     const hasViolations = scan.results.violations.length > 0;
     const highRisk = scan.results.violations.filter(v => v.severity === "high");
     const mediumRisk = scan.results.violations.filter(v => v.severity === "medium");
     const lowRisk = scan.results.violations.filter(v => v.severity === "low");
+    const scannedRepositories = scan.results.scanned_repositories ?? [];
+    const [selectedViolation, setSelectedViolation] = useState<ScanViolation | null>(null);
+    const [acknowledgedPolicies, setAcknowledgedPolicies] = useState<string[]>([]);
+    const [exportError, setExportError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const key = `tf_scan_ack_${scan.scan_id}`;
+        const saved = window.localStorage.getItem(key);
+        setAcknowledgedPolicies(saved ? JSON.parse(saved) as string[] : []);
+        setSelectedViolation(null);
+        setExportError(null);
+    }, [scan.scan_id]);
+
+    const acknowledgedSet = useMemo(() => new Set(acknowledgedPolicies), [acknowledgedPolicies]);
+
+    const toggleAcknowledged = useCallback((policyId: string) => {
+        setAcknowledgedPolicies((current) => {
+            const next = current.includes(policyId)
+                ? current.filter((id) => id !== policyId)
+                : [...current, policyId];
+            window.localStorage.setItem(`tf_scan_ack_${scan.scan_id}`, JSON.stringify(next));
+            return next;
+        });
+    }, [scan.scan_id]);
+
+    const handleExportClick = useCallback(async () => {
+        setExportError(null);
+        try {
+            await onExportReport(scan.scan_id);
+        } catch (error) {
+            setExportError(error instanceof Error ? error.message : "Failed to export report");
+        }
+    }, [onExportReport, scan.scan_id]);
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
@@ -675,13 +772,31 @@ function ResultsView({
                     </div>
                     <div className="panel__body--flush">
                         {highRisk.length > 0 && (
-                            <ViolationSection severity="high" violations={highRisk} />
+                            <ViolationSection
+                                severity="high"
+                                violations={highRisk}
+                                acknowledgedPolicies={acknowledgedSet}
+                                onViewDetails={setSelectedViolation}
+                                onToggleAcknowledged={toggleAcknowledged}
+                            />
                         )}
                         {mediumRisk.length > 0 && (
-                            <ViolationSection severity="medium" violations={mediumRisk} />
+                            <ViolationSection
+                                severity="medium"
+                                violations={mediumRisk}
+                                acknowledgedPolicies={acknowledgedSet}
+                                onViewDetails={setSelectedViolation}
+                                onToggleAcknowledged={toggleAcknowledged}
+                            />
                         )}
                         {lowRisk.length > 0 && (
-                            <ViolationSection severity="low" violations={lowRisk} />
+                            <ViolationSection
+                                severity="low"
+                                violations={lowRisk}
+                                acknowledgedPolicies={acknowledgedSet}
+                                onViewDetails={setSelectedViolation}
+                                onToggleAcknowledged={toggleAcknowledged}
+                            />
                         )}
                     </div>
                 </div>
@@ -703,7 +818,14 @@ function ResultsView({
                                     <CheckCircleOutlinedIcon sx={{ fontSize: 16 }} />
                                 </div>
                                 <div className="scan-compliant-item__content">
-                                    <span className="scan-compliant-item__name">{policy.policy_name}</span>
+                                    <span className="scan-compliant-item__name">
+                                        {policy.policy_name}
+                                        {!policy.policy_id.startsWith("chk_") && (
+                                            <span className="badge badge--info" style={{ fontSize: "var(--fs-11)", marginLeft: "var(--s-2)", verticalAlign: "middle" }}>
+                                                AI Evaluated
+                                            </span>
+                                        )}
+                                    </span>
                                     <span className="scan-compliant-item__evidence">{policy.evidence}</span>
                                 </div>
                             </div>
@@ -728,6 +850,10 @@ function ResultsView({
                             <span className="scan-details__value">{scan.results.total_policies}</span>
                         </div>
                         <div className="scan-details__item">
+                            <span className="scan-details__label">Repositories Analyzed</span>
+                            <span className="scan-details__value">{scannedRepositories.length}</span>
+                        </div>
+                        <div className="scan-details__item">
                             <span className="scan-details__label">Duration</span>
                             <span className="scan-details__value">{scan.duration_seconds} seconds</span>
                         </div>
@@ -736,12 +862,35 @@ function ResultsView({
                             <span className="scan-details__value font-mono">{scan.scan_id}</span>
                         </div>
                     </div>
+                    {scannedRepositories.length > 0 && (
+                        <>
+                            <div className="divider" />
+                            <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
+                                <span className="scan-details__label">Repository Names</span>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s-2)" }}>
+                                    {scannedRepositories.map((repo) => (
+                                        <span
+                                            key={repo}
+                                            className="badge badge--info"
+                                            style={{ fontSize: "var(--fs-11)" }}
+                                        >
+                                            {repo}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        </>
+                    )}
                 </div>
             </div>
 
             {/* Actions */}
             <div style={{ display: "flex", gap: "var(--s-2)", justifyContent: "flex-end" }}>
-                <button className="btn btn--secondary">
+                <button
+                    className="btn btn--secondary"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                    onClick={() => void handleExportClick()}
+                >
                     <FileDownloadOutlinedIcon sx={{ fontSize: 16 }} /> Export Report (PDF)
                 </button>
                 <button className="btn btn--secondary" onClick={onViewTrends}>
@@ -751,6 +900,65 @@ function ResultsView({
                     <RefreshOutlinedIcon sx={{ fontSize: 16 }} /> Run Another Scan
                 </button>
             </div>
+
+            {exportError && (
+                <div className="panel">
+                    <div className="panel__body">
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-critical-text)" }}>{exportError}</p>
+                    </div>
+                </div>
+            )}
+
+            <Modal
+                open={selectedViolation !== null}
+                onClose={() => setSelectedViolation(null)}
+                title={selectedViolation?.policy_name ?? "Violation Details"}
+                subtitle={selectedViolation ? `${selectedViolation.severity.toUpperCase()} severity` : undefined}
+                footer={
+                    selectedViolation ? (
+                        <>
+                            <button
+                                className="btn btn--secondary"
+                                onClick={() => toggleAcknowledged(selectedViolation.policy_id)}
+                            >
+                                {acknowledgedSet.has(selectedViolation.policy_id) ? "Remove Acknowledgement" : "Mark as Acknowledged"}
+                            </button>
+                            <button className="btn btn--primary" onClick={() => setSelectedViolation(null)}>
+                                Close
+                            </button>
+                        </>
+                    ) : undefined
+                }
+            >
+                {selectedViolation && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
+                        <div>
+                            <strong>Issue</strong>
+                            <p style={{ marginTop: "var(--s-1)", color: "var(--c-text-secondary)" }}>{selectedViolation.evidence}</p>
+                        </div>
+                        <div>
+                            <strong>Risk Score</strong>
+                            <p style={{ marginTop: "var(--s-1)", color: "var(--c-text-secondary)" }}>{selectedViolation.risk_score}</p>
+                        </div>
+                        <div>
+                            <strong>Recommended Fix</strong>
+                            <p style={{ marginTop: "var(--s-1)", color: "var(--c-text-secondary)" }}>{selectedViolation.recommendation}</p>
+                        </div>
+                        {selectedViolation.affected_repositories && selectedViolation.affected_repositories.length > 0 && (
+                            <div>
+                                <strong>Affected Repositories</strong>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s-2)", marginTop: "var(--s-2)" }}>
+                                    {selectedViolation.affected_repositories.map((repo) => (
+                                        <span key={`${selectedViolation.policy_id}-${repo}-badge`} className="badge badge--info">
+                                            {repo}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </Modal>
         </div>
     );
 }
@@ -919,7 +1127,15 @@ function LatestScanCard({ scan, onViewDetails }: { scan: ScanResult; onViewDetai
     );
 }
 
-function ScanHistoryItem({ scan, onViewResults }: { scan: ScanResult; onViewResults: () => void }) {
+function ScanHistoryItem({
+    scan,
+    onViewResults,
+    onExportReport,
+}: {
+    scan: ScanResult;
+    onViewResults: () => void;
+    onExportReport: (scanId: string) => Promise<void>;
+}) {
     const hasViolations = scan.results.violations.length > 0;
     const highCount = scan.results.violations.filter(v => v.severity === "high").length;
     const mediumCount = scan.results.violations.filter(v => v.severity === "medium").length;
@@ -951,14 +1167,32 @@ function ScanHistoryItem({ scan, onViewResults }: { scan: ScanResult; onViewResu
             </div>
             <div className="scan-history-item__actions">
                 <button className="btn btn--ghost btn--sm" onClick={(e) => { e.stopPropagation(); onViewResults(); }}>View Results</button>
-                <button className="btn btn--ghost btn--sm" onClick={(e) => e.stopPropagation()}>Export PDF</button>
+                <button
+                    className="btn btn--ghost btn--sm"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        void onExportReport(scan.scan_id);
+                    }}
+                >Export PDF</button>
             </div>
             <ChevronRightOutlinedIcon sx={{ fontSize: 18, color: "var(--c-text-muted)", flexShrink: 0 }} />
         </div>
     );
 }
 
-function ViolationSection({ severity, violations }: { severity: PolicySeverity; violations: ScanViolation[] }) {
+function ViolationSection({
+    severity,
+    violations,
+    acknowledgedPolicies,
+    onViewDetails,
+    onToggleAcknowledged,
+}: {
+    severity: PolicySeverity;
+    violations: ScanViolation[];
+    acknowledgedPolicies: Set<string>;
+    onViewDetails: (violation: ScanViolation) => void;
+    onToggleAcknowledged: (policyId: string) => void;
+}) {
     const severityConfig = {
         high: { label: "HIGH RISK", icon: CancelOutlinedIcon },
         medium: { label: "MEDIUM RISK", icon: WarningAmberOutlinedIcon },
@@ -981,7 +1215,14 @@ function ViolationSection({ severity, violations }: { severity: PolicySeverity; 
                             <DescriptionOutlinedIcon sx={{ fontSize: 16 }} />
                         </div>
                         <div className="violation-card__title">
-                            <span className="violation-card__policy">Policy: {v.policy_name}</span>
+                            <span className="violation-card__policy">
+                                Policy: {v.policy_name}
+                                {!v.policy_id.startsWith("chk_") && (
+                                    <span className="badge badge--info" style={{ fontSize: "var(--fs-11)", marginLeft: "var(--s-2)", verticalAlign: "middle" }}>
+                                        AI Evaluated
+                                    </span>
+                                )}
+                            </span>
                             <span className="violation-card__status">
                                 <CancelOutlinedIcon sx={{ fontSize: 14 }} /> VIOLATION
                             </span>
@@ -996,6 +1237,16 @@ function ViolationSection({ severity, violations }: { severity: PolicySeverity; 
                             <li>{v.evidence}</li>
                         </ul>
                     </div>
+                    {v.affected_repositories && v.affected_repositories.length > 0 && (
+                        <div className="violation-card__evidence">
+                            <strong>Affected Repositories:</strong>
+                            <ul>
+                                {v.affected_repositories.map((repo) => (
+                                    <li key={`${v.policy_id}-${repo}`}>{repo}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
                     <div className="violation-card__recommendation">
                         <TipsAndUpdatesOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
                         <div>
@@ -1004,8 +1255,10 @@ function ViolationSection({ severity, violations }: { severity: PolicySeverity; 
                         </div>
                     </div>
                     <div className="violation-card__actions">
-                        <button className="btn btn--ghost btn--sm">View Details</button>
-                        <button className="btn btn--ghost btn--sm">Mark as Acknowledged</button>
+                        <button className="btn btn--ghost btn--sm" onClick={() => onViewDetails(v)}>View Details</button>
+                        <button className="btn btn--ghost btn--sm" onClick={() => onToggleAcknowledged(v.policy_id)}>
+                            {acknowledgedPolicies.has(v.policy_id) ? "Acknowledged" : "Mark as Acknowledged"}
+                        </button>
                     </div>
                 </div>
             ))}

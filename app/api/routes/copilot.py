@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, Request
 
 from app.core.rate_limit import rate_limit
 from app.core.security import Actor, get_actor  # auth model
-from app.services.claude import generate_policy_recommendation
-from app.services.copilot import generate_recommendations_for_system
+from app.services.copilot import (
+    generate_policy_recommendation,
+    generate_recommendations_for_system,
+)
 
 router = APIRouter()
 
@@ -36,7 +38,7 @@ def generate_system_recommendations(
     "/policies/recommendations",
     summary="Generate AI governance policy recommendations",
 )
-def generate_policy_with_claude(
+def generate_policy_with_provider(
     payload: PolicyGenerateRequest,
     request: Request,
     actor: Actor = Depends(get_actor),

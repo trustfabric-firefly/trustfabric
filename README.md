@@ -2,7 +2,7 @@
 
 FastAPI + Next.js app for AI **system inventory**, risk tiers, audit/events, and governance copilot features (NIST AI RMF–aligned). Data lives in **Firestore**. The API accepts **dev bearer tokens** and/or **Firebase ID tokens** when configured.
 
-**System recommendations** (`POST /api/v1/copilot/systems/{id}/recommendations`) can use **Gemini**, **Claude**, or **auto** (Gemini first, then Claude), controlled by `COPILOT_PROVIDER` in `.env`. **Policy text generation** in the Policies UI uses **Claude** via `POST /api/v1/copilot/policies/recommendations`.
+**System recommendations** (`POST /api/v1/copilot/systems/{id}/recommendations`) and **policy text generation** (`POST /api/v1/copilot/policies/recommendations`) can use an **OpenAI-compatible** endpoint, **Gemini**, **Claude**, or **auto** (OpenAI-compatible first, then Gemini, then Claude), controlled by `COPILOT_PROVIDER` in `.env`.
 
 **More detail:** see the **[docs/](docs/)** folder ([index](docs/README.md)) for architecture, Firestore, copilot/LLM behavior, and authentication.
 
@@ -27,7 +27,7 @@ python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
-# Edit .env: ADMIN_TOKEN, VIEWER_TOKEN, SERVICE_FIREBASE, FIREBASE_PROJECT_ID, CLAUDE_API_KEY, optional COPILOT_PROVIDER / GEMINI_* …
+# Edit .env: ADMIN_TOKEN, VIEWER_TOKEN, SERVICE_FIREBASE, FIREBASE_PROJECT_ID, optional OPENAI_* / CLAUDE_API_KEY / GEMINI_* / COPILOT_PROVIDER …
 ```
 
 ```bash
@@ -70,12 +70,12 @@ Open `http://localhost:3000`. See **`frontend/.env.local.example`** for variable
 
 | File | Purpose |
 |------|---------|
-| **`.env`** (root) | Backend: tokens, `SERVICE_FIREBASE`, `FIREBASE_PROJECT_ID`, `CLAUDE_API_KEY`, optional `COPILOT_PROVIDER`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `POLICIES_FILE` |
+| **`.env`** (root) | Backend: tokens, `SERVICE_FIREBASE`, `FIREBASE_PROJECT_ID`, optional `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `CLAUDE_API_KEY`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `COPILOT_PROVIDER`, `POLICIES_FILE` |
 | **`frontend/.env.local`** | UI: `NEXT_PUBLIC_API_BASE_URL` (or `NEXT_PUBLIC_API_URL`), optional `NEXT_PUBLIC_FIREBASE_*`, optional `NEXT_PUBLIC_DEV_ADMIN_TOKEN` |
 
 Do not commit real secrets (`.env`, `.env.local`, `service-firebase.json`).
 
-**Copilot routing (`COPILOT_PROVIDER`):** `gemini` · `claude` · `auto` (try Gemini, then Claude on upstream/config errors).
+**Copilot routing (`COPILOT_PROVIDER`):** `openai` · `gemini` · `claude` · `auto` (try OpenAI-compatible first, then Gemini, then Claude on upstream/config errors).
 
 ---
 

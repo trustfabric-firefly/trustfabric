@@ -1,0 +1,130 @@
+id: nist_csf
+name: "NIST Cybersecurity Framework"
+version: "1.1"
+short_name: "NIST CSF"
+scope: >
+  Cybersecurity Framework subcategories relevant to securing AI tools and
+  AI-integrated development environments.
+
+requirements:
+  - id: id_am_asset_management
+    article: "ID.AM"
+    title: "Asset Management"
+    description: >
+      Assets (data, personnel, devices, systems, facilities) associated with
+      AI systems are identified and managed consistent with their importance.
+    auto_evaluable: false
+    manual_checklist:
+      - "All AI tools are registered as assets in TrustFabric"
+      - "Asset owners are assigned for each AI system"
+      - "AI tools are included in the organization's asset inventory"
+
+  - id: id_ra_risk_assessment
+    article: "ID.RA"
+    title: "Risk Assessment"
+    description: >
+      The organization understands the cybersecurity risk to organizational
+      operations, assets, and individuals posed by AI systems.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_vulnerability_alerts
+        weight: 2
+        rationale: "Automated vulnerability scanning is a key risk assessment control"
+    policy_categories: [security, compliance]
+    pass_threshold: 0.5
+
+  - id: pr_ac_access_control
+    article: "PR.AC"
+    title: "Identity Management and Access Control"
+    description: >
+      Access to AI systems and associated assets is managed consistent with
+      the assessed risk of unauthorized access.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_org_two_factor
+        weight: 3
+        rationale: "2FA is the primary identity control for AI platform access"
+      - check_id: chk_seat_management
+        weight: 2
+        rationale: "Selective seat assignment enforces least-privilege for AI access"
+      - check_id: chk_inactive_seats
+        weight: 1
+        rationale: "Inactive seat cleanup maintains access hygiene"
+    pass_threshold: 0.6
+
+  - id: pr_ds_data_security
+    article: "PR.DS"
+    title: "Data Security"
+    description: >
+      Information and records (data) are managed consistent with the
+      organization's risk strategy to protect the confidentiality, integrity,
+      and availability of information.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_public_code_blocked
+        weight: 3
+        rationale: "Blocking public code prevents proprietary code leakage through AI"
+      - check_id: chk_secret_scanning
+        weight: 3
+        rationale: "Secret scanning detects hardcoded credentials that would expose sensitive data"
+      - check_id: chk_secret_push_protection
+        weight: 2
+        rationale: "Push protection prevents secrets from ever entering the repository"
+    policy_categories: [data_privacy]
+    pass_threshold: 0.6
+
+  - id: pr_ip_protect_processes
+    article: "PR.IP"
+    title: "Protective Technology and Change Control"
+    description: >
+      Security policies, processes, and procedures are maintained and used to
+      manage protection of AI-integrated systems and assets.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_branch_protection
+        weight: 2
+        rationale: "Branch protection is a protective technology for code integrity"
+      - check_id: chk_pr_reviews
+        weight: 2
+        rationale: "PR reviews enforce change control processes"
+      - check_id: chk_actions_restricted
+        weight: 1
+        rationale: "Restricting Actions prevents unauthorized pipeline execution"
+    pass_threshold: 0.6
+
+  - id: de_cm_continuous_monitoring
+    article: "DE.CM"
+    title: "Continuous Security Monitoring"
+    description: >
+      The information system and assets are monitored to identify cybersecurity
+      events and verify the effectiveness of protective measures.
+    auto_evaluable: true
+    checks:
+      - check_id: chk_vulnerability_alerts
+        weight: 2
+        rationale: "Dependabot provides continuous dependency vulnerability monitoring"
+    policy_categories: [security]
+    pass_threshold: 0.5
+
+  - id: rs_rp_response_planning
+    article: "RS.RP"
+    title: "Response Planning"
+    description: >
+      Response processes and procedures are executed and maintained to ensure
+      response to detected cybersecurity incidents.
+    auto_evaluable: false
+    manual_checklist:
+      - "An incident response procedure exists for AI tool security incidents"
+      - "Responsible parties for AI incident response are identified"
+      - "Communication plan for AI-related security events is documented"
+
+  - id: rc_rp_recovery
+    article: "RC.RP"
+    title: "Recovery Planning"
+    description: >
+      Recovery processes and procedures are executed and maintained to ensure
+      restoration of systems or assets affected by cybersecurity incidents.
+    auto_evaluable: false
+    manual_checklist:
+      - "Business continuity plan covers AI tool unavailability"
+      - "Alternative workflows exist if primary AI tools are compromised"
