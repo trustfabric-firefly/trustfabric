@@ -289,6 +289,68 @@ class GitHubIntegrationStatus(BaseModel):
     user: Optional[GitHubUserInfo] = None
 
 
+# --- Slack Integration ---
+
+
+class SlackConnectionInfo(BaseModel):
+    team_name: str
+    channel_id: str
+    channel_name: str
+    connected_at: datetime
+
+
+class SlackIntegrationStatus(BaseModel):
+    connected: bool
+    info: Optional[SlackConnectionInfo] = None
+
+
+# --- AWS Integration ---
+
+
+class AwsConnectionInfo(BaseModel):
+    account_id: str
+    account_alias: str = ""
+    role_arn: str
+    region: str = "us-east-1"
+    connected_at: datetime
+
+
+class AwsIntegrationStatus(BaseModel):
+    connected: bool
+    info: Optional[AwsConnectionInfo] = None
+
+
+class AwsConnectRequest(BaseModel):
+    role_arn: str = Field(..., min_length=20)
+    region: str = Field(default="us-east-1")
+
+
+class AwsCheckResult(BaseModel):
+    check_id: str
+    check_name: str
+    severity: GovernancePolicySeverity
+    passed: bool
+    evidence: str
+    recommendation: str = ""
+    risk_score: int = 0
+    affected_resources: List[str] = Field(default_factory=list)
+
+
+class AwsScanRecord(BaseModel):
+    scan_id: str
+    account_id: str
+    region: str
+    timestamp: datetime
+    compliance_score: int
+    total_checks: int
+    passed_checks: int
+    failed_checks: int
+    checks: List[AwsCheckResult]
+    duration_seconds: float
+    triggered_by: str
+    status: ScanStatus
+
+
 # --- Compliance Framework Evaluation ---
 
 
@@ -362,3 +424,23 @@ class GovernancePolicy(BaseModel):
     updated_at: datetime
     version: int = 1
 
+
+class AIChatMessageRole(str, Enum):
+    user = "user"
+    ai = "ai"
+
+
+class AIChatMessageCreate(BaseModel):
+    role: AIChatMessageRole
+    content: str = Field(..., min_length=1, max_length=12000)
+    policy: Optional[GovernancePolicyCreate] = None
+    rules: Optional[Dict[str, Any]] = None
+    provider: Optional[str] = Field(default=None, max_length=100)
+    model: Optional[str] = Field(default=None, max_length=200)
+
+
+class AIChatMessage(AIChatMessageCreate):
+    id: str
+    system_id: int
+    user_id: str
+    created_at: datetime

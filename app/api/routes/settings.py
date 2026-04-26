@@ -23,5 +23,7 @@ async def get_settings_status(actor: Actor = Depends(get_actor)):
         "gemini_api_configured": bool(settings.gemini_api_key),
         "firebase_configured": bool(settings.firebase_project_id),
         "github_oauth_configured": bool(settings.github_client_id),
+        "slack_oauth_configured": bool(settings.slack_client_id),
+        "aws_configured": bool(settings.aws_external_id),
         "rate_limit_per_minute": settings.rate_limit_per_minute,
     }

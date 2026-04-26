@@ -25,6 +25,7 @@ import Link from "next/link";
 import { TopBar } from "@/components/layout/TopBar";
 import { RiskTierBadge } from "@/components/ui/Badge";
 import { GlowingEffect } from "@/components/ui/glowing-effect";
+import TagOutlinedIcon from "@mui/icons-material/TagOutlined";
 import { dashboardApi, systemsApi, auditApi, integrationsApi, scansApi } from "@/lib/api";
 import type { RiskTier } from "@/types";
 import type { SvgIconComponent } from "@mui/icons-material";
@@ -79,7 +80,7 @@ type FrameworkKey = keyof typeof FRAMEWORK_CONFIGS;
 
 const INTEGRATIONS = [
     { name: "GitHub", desc: "Code scanning & PR reviews", icon: GitHubIcon, status: "connected" as const },
-    { name: "Slack", desc: "Alerts & notifications", icon: ForumOutlinedIcon, status: "needs_setup" as const },
+    { name: "Slack", desc: "Alerts & notifications", icon: TagOutlinedIcon, status: "needs_setup" as const },
     { name: "AWS", desc: "Cloud infrastructure audit", icon: CloudOutlinedIcon, status: "needs_setup" as const },
     { name: "Azure", desc: "Identity & access management", icon: StorageOutlinedIcon, status: "needs_setup" as const },
     { name: "Google Cloud", desc: "Vertex AI model monitoring", icon: CloudOutlinedIcon, status: "disconnected" as const },
@@ -165,6 +166,18 @@ export default function DashboardPage() {
         retry: false,
     });
 
+    const { data: slackStatus } = useQuery({
+        queryKey: ["slack-status"],
+        queryFn: integrationsApi.getSlackStatus,
+        retry: false,
+    });
+
+    const { data: awsStatus } = useQuery({
+        queryKey: ["aws-status"],
+        queryFn: integrationsApi.getAwsStatus,
+        retry: false,
+    });
+
     const connectGitHub = async () => {
         try {
             const { url } = await integrationsApi.getGitHubConnectUrl();
@@ -174,10 +187,22 @@ export default function DashboardPage() {
         }
     };
 
-    // Connected / failed integrations (GitHub status comes from API; rest are static placeholders)
+    const connectSlack = async () => {
+        try {
+            const { url } = await integrationsApi.getSlackConnectUrl();
+            window.location.href = url;
+        } catch {
+            // silently ignore
+        }
+    };
+
+    // Connected / failed integrations (GitHub + Slack + AWS status comes from API; rest are static placeholders)
     const githubConnected = githubStatus?.connected ?? false;
-    const connectedCount = INTEGRATIONS.filter((i) => i.name !== "GitHub" && i.status === "connected").length + (githubConnected ? 1 : 0);
-    const needsSetupCount = INTEGRATIONS.filter((i) => i.name !== "GitHub" && i.status === "needs_setup").length + (!githubConnected ? 1 : 0);
+    const slackConnected = slackStatus?.connected ?? false;
+    const awsConnected = awsStatus?.connected ?? false;
+    const dynamicNames = new Set(["GitHub", "Slack", "AWS"]);
+    const connectedCount = INTEGRATIONS.filter((i) => !dynamicNames.has(i.name) && i.status === "connected").length + (githubConnected ? 1 : 0) + (slackConnected ? 1 : 0) + (awsConnected ? 1 : 0);
+    const needsSetupCount = INTEGRATIONS.filter((i) => !dynamicNames.has(i.name) && i.status === "needs_setup").length + (!githubConnected ? 1 : 0) + (!slackConnected ? 1 : 0) + (!awsConnected ? 1 : 0);
 
     return (
         <>
@@ -483,12 +508,24 @@ export default function DashboardPage() {
                             {INTEGRATIONS.map((integ) => {
                                 const Icon = integ.icon;
                                 const isGitHub = integ.name === "GitHub";
+                                const isSlack = integ.name === "Slack";
+                                const isAws = integ.name === "AWS";
                                 const effectiveStatus = isGitHub
                                     ? (githubConnected ? "connected" as const : "needs_setup" as const)
-                                    : integ.status;
+                                    : isSlack
+                                        ? (slackConnected ? "connected" as const : "needs_setup" as const)
+                                        : isAws
+                                            ? (awsConnected ? "connected" as const : "needs_setup" as const)
+                                            : integ.status;
                                 const desc = isGitHub && githubConnected && githubStatus?.user
                                     ? `@${githubStatus.user.login}${githubStatus.user.orgs.length ? ` · ${githubStatus.user.orgs.length} org(s)` : ""}`
-                                    : integ.desc;
+                                    : isSlack && slackConnected && slackStatus?.info
+                                        ? `${slackStatus.info.team_name} · #${slackStatus.info.channel_name}`
+                                        : isAws && awsConnected && awsStatus?.info
+                                            ? `Account ${awsStatus.info.account_id} · ${awsStatus.info.region}`
+                                            : integ.desc;
+                                const showConnect = (isGitHub && !githubConnected) || (isSlack && !slackConnected);
+                                const showSetup = isAws && !awsConnected;
                                 return (
                                     <div key={integ.name} className="integration">
                                         <div className="integration__logo">
@@ -498,15 +535,23 @@ export default function DashboardPage() {
                                             <div className="integration__name">{integ.name}</div>
                                             <div className="integration__desc">{desc}</div>
                                         </div>
-                                        {isGitHub && !githubConnected ? (
+                                        {showConnect ? (
                                             <button
                                                 type="button"
                                                 className="btn btn--secondary btn--sm"
                                                 style={{ borderRadius: "var(--r-pill)", fontSize: "var(--fs-11)", padding: "2px 10px" }}
-                                                onClick={() => void connectGitHub()}
+                                                onClick={() => void (isGitHub ? connectGitHub() : connectSlack())}
                                             >
                                                 Connect
                                             </button>
+                                        ) : showSetup ? (
+                                            <Link
+                                                href="/settings"
+                                                className="btn btn--secondary btn--sm"
+                                                style={{ borderRadius: "var(--r-pill)", fontSize: "var(--fs-11)", padding: "2px 10px", textDecoration: "none" }}
+                                            >
+                                                Setup
+                                            </Link>
                                         ) : (
                                             <span className={`badge ${STATUS_BADGE[effectiveStatus]}`}>
                                                 {STATUS_LABELS[effectiveStatus]}

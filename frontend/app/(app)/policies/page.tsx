@@ -1,6 +1,14 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import {
+    useState,
+    useCallback,
+    useRef,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    type ElementType,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ListOutlinedIcon from "@mui/icons-material/ListOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
@@ -25,11 +33,13 @@ import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
 import AttachMoneyOutlinedIcon from "@mui/icons-material/AttachMoneyOutlined";
 import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import type { SvgIconComponent } from "@mui/icons-material";
 import GitHubIcon from "@mui/icons-material/GitHub";
 import { TopBar } from "@/components/layout/TopBar";
 import { policyApi, systemPoliciesApi, systemsApi, scanPoliciesApi } from "@/lib/api";
 import type {
+    AIChatMessage as StoredChatMessage,
     AISystem,
     Policy,
     PolicySeverity,
@@ -43,14 +53,29 @@ import type {
 
 type Tab = "view_all" | "manual" | "template" | "ai_generate" | "github_checks";
 
-const TABS: { id: Tab; label: string; icon: SvgIconComponent }[] = [
+type TabIcon = ElementType<{ sx?: { fontSize?: number | string } }>;
+
+const TABS: { id: Tab; label: string; icon: TabIcon }[] = [
     { id: "view_all", label: "View All", icon: ListOutlinedIcon },
     { id: "manual", label: "Manual", icon: EditOutlinedIcon },
     { id: "template", label: "Template", icon: DashboardCustomizeOutlinedIcon },
-    { id: "ai_generate", label: "AI Generate", icon: AIIconWrapper as any },
+    { id: "ai_generate", label: "AI Generate", icon: AIIconWrapper },
     { id: "github_checks", label: "GitHub Checks", icon: GitHubIcon },
 ];
 
+/** When the user has not chosen a system, default to the first in the list, else `""`. */
+function resolveSystemIdOrEmpty(
+    selected: number | "",
+    firstSystem: AISystem | undefined
+): number | "" {
+    if (selected !== "") {
+        return selected;
+    }
+    if (firstSystem != null) {
+        return firstSystem.id;
+    }
+    return "";
+}
 
 const CATEGORY_LABELS: Record<PolicyCategory, string> = {
     model_restrictions: "Model Restrictions",
@@ -115,10 +140,7 @@ export default function PoliciesPage() {
         },
     });
 
-    useEffect(() => {
-        if (systems.length === 0) return;
-        setContextSystemId((prev) => (prev === "" ? systems[0].id : prev));
-    }, [systems]);
+    const resolvedContextSystemId = resolveSystemIdOrEmpty(contextSystemId, systems[0]);
 
     const handleCreate = useCallback(
         async (data: PolicyCreate, systemId: number, opts?: { asDraft?: boolean }) => {
@@ -152,6 +174,8 @@ export default function PoliciesPage() {
     }, [refetchScanPolicies]);
 
     const loading = systemsLoading || policiesLoading;
+    const useTabColumnScroll =
+        activeTab === "view_all" || activeTab === "github_checks" || activeTab === "ai_generate";
 
     return (
         <>
@@ -165,9 +189,12 @@ export default function PoliciesPage() {
                 }
             />
 
-            <main className={`page${activeTab === "ai_generate" ? " page--flex" : ""}`}>
+            <main className={`page${useTabColumnScroll ? " page--flex" : ""}`}>
                 {/* Tab bar panel */}
-                <div className={`panel${activeTab === "ai_generate" ? " panel--flex" : ""}`} style={{ marginBottom: activeTab === "ai_generate" ? 0 : "var(--s-4)" }}>
+                <div
+                    className={`panel${useTabColumnScroll ? " panel--flex" : ""}`}
+                    style={{ marginBottom: useTabColumnScroll ? 0 : "var(--s-4)" }}
+                >
                     <div className="tabs">
                         {TABS.map(({ id, label, icon: Icon }) => (
                             <button
@@ -192,24 +219,24 @@ export default function PoliciesPage() {
                         {activeTab === "manual" && (
                             <ManualTab
                                 systems={systems}
-                                systemId={contextSystemId}
+                                systemId={resolvedContextSystemId}
                                 onSystemIdChange={setContextSystemId}
                                 systemsLoading={systemsLoading}
                                 onCreate={(data, opts) => {
-                                    if (contextSystemId === "") return;
-                                    return handleCreate(data, contextSystemId, opts);
+                                    if (resolvedContextSystemId === "") return;
+                                    return handleCreate(data, resolvedContextSystemId, opts);
                                 }}
                             />
                         )}
                         {activeTab === "template" && (
                             <TemplateTab
                                 systems={systems}
-                                systemId={contextSystemId}
+                                systemId={resolvedContextSystemId}
                                 onSystemIdChange={setContextSystemId}
                                 systemsLoading={systemsLoading}
                                 onCreate={(data) => {
-                                    if (contextSystemId === "") return;
-                                    return handleCreate(data, contextSystemId);
+                                    if (resolvedContextSystemId === "") return;
+                                    return handleCreate(data, resolvedContextSystemId);
                                 }}
                             />
                         )}
@@ -257,71 +284,72 @@ function ViewAllTab({
         .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase()));
 
     return (
-        <div style={{ padding: "var(--s-4)" }}>
-            {/* Search + Filter bar */}
-            <div style={{ display: "flex", gap: "var(--s-3)", marginBottom: "var(--s-4)", alignItems: "center" }}>
-                <div className="search-bar" style={{ flex: 1 }}>
-                    <span className="search-bar__icon"><SearchOutlinedIcon sx={{ fontSize: 16 }} /></span>
-                    <input className="input" placeholder="Search policies..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div className="policies-tab-panel">
+            <div className="policies-tab-panel__header">
+                <div style={{ display: "flex", gap: "var(--s-3)", alignItems: "center" }}>
+                    <div className="search-bar" style={{ flex: 1 }}>
+                        <span className="search-bar__icon"><SearchOutlinedIcon sx={{ fontSize: 16 }} /></span>
+                        <input className="input" placeholder="Search policies..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                    </div>
+                    <select className="input" style={{ width: 140 }} value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
+                        <option value="all">All Status</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="draft">Draft</option>
+                    </select>
                 </div>
-                <select className="input" style={{ width: 140 }} value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
-                    <option value="all">All Status</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="draft">Draft</option>
-                </select>
             </div>
-
-            {/* Policy list */}
-            {filtered.length === 0 ? (
-                <div className="empty-state" style={{ padding: "var(--s-8)" }}>
-                    <div className="empty-state__icon"><DescriptionOutlinedIcon sx={{ fontSize: 20 }} /></div>
-                    <p className="empty-state__title">No policies found</p>
-                    <p className="empty-state__desc">{search ? "Try adjusting your search." : "Create your first policy to get started."}</p>
-                </div>
-            ) : (
-                <div>
-                    {filtered.map((p) => {
-                        const CatIcon = CATEGORY_ICONS[p.category] ?? DescriptionOutlinedIcon;
-                        return (
-                            <div key={p.id} className="policy-item">
-                                <div className="policy-item__icon">
-                                    <CatIcon sx={{ fontSize: 18 }} />
-                                </div>
-                                <div className="policy-item__body">
-                                    <div className="policy-item__name">{p.name}</div>
-                                    {p.system_name ? (
-                                        <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginBottom: "var(--s-1)" }}>
-                                            System: {p.system_name}
+            <div className="policies-tab-panel__body">
+                {filtered.length === 0 ? (
+                    <div className="empty-state" style={{ padding: "var(--s-8)" }}>
+                        <div className="empty-state__icon"><DescriptionOutlinedIcon sx={{ fontSize: 20 }} /></div>
+                        <p className="empty-state__title">No policies found</p>
+                        <p className="empty-state__desc">{search ? "Try adjusting your search." : "Create your first policy to get started."}</p>
+                    </div>
+                ) : (
+                    <div>
+                        {filtered.map((p) => {
+                            const CatIcon = CATEGORY_ICONS[p.category] ?? DescriptionOutlinedIcon;
+                            return (
+                                <div key={p.id} className="policy-item">
+                                    <div className="policy-item__icon">
+                                        <CatIcon sx={{ fontSize: 18 }} />
+                                    </div>
+                                    <div className="policy-item__body">
+                                        <div className="policy-item__name">{p.name}</div>
+                                        {p.system_name ? (
+                                            <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginBottom: "var(--s-1)" }}>
+                                                System: {p.system_name}
+                                            </div>
+                                        ) : null}
+                                        <div className="policy-item__desc">{p.description}</div>
+                                        <div className="policy-item__meta">
+                                            <span className={`badge badge--${p.status === "active" ? "live" : p.status === "draft" ? "neutral" : "warning"}`}>
+                                                {p.status}
+                                            </span>
+                                            <span>{CATEGORY_LABELS[p.category]}</span>
+                                            <span>Created {fmtDate(p.created_at)}</span>
+                                            {p.updated_at !== p.created_at && <span>Updated {fmtDate(p.updated_at)}</span>}
+                                            <span>v{p.version}</span>
+                                            <span className="badge badge--neutral" style={{ fontSize: "var(--fs-11)" }}>{p.creation_method.replace("_", " ")}</span>
                                         </div>
-                                    ) : null}
-                                    <div className="policy-item__desc">{p.description}</div>
-                                    <div className="policy-item__meta">
-                                        <span className={`badge badge--${p.status === "active" ? "live" : p.status === "draft" ? "neutral" : "warning"}`}>
-                                            {p.status}
-                                        </span>
-                                        <span>{CATEGORY_LABELS[p.category]}</span>
-                                        <span>Created {fmtDate(p.created_at)}</span>
-                                        {p.updated_at !== p.created_at && <span>Updated {fmtDate(p.updated_at)}</span>}
-                                        <span>v{p.version}</span>
-                                        <span className="badge badge--neutral" style={{ fontSize: "var(--fs-11)" }}>{p.creation_method.replace("_", " ")}</span>
+                                    </div>
+                                    <div className="policy-item__actions">
+                                        <button className="btn btn--ghost btn--sm" title="Edit"><ModeEditOutlineOutlinedIcon sx={{ fontSize: 15 }} /></button>
+                                        <button className="btn btn--ghost btn--sm" title="View details"><VisibilityOutlinedIcon sx={{ fontSize: 15 }} /></button>
+                                        <button className="btn btn--ghost btn--sm" title={p.status === "active" ? "Disable" : "Enable"} onClick={() => onToggle(p)}>
+                                            {p.status === "active" ? <ToggleOnOutlinedIcon sx={{ fontSize: 15 }} /> : <ToggleOffOutlinedIcon sx={{ fontSize: 15 }} />}
+                                        </button>
                                     </div>
                                 </div>
-                                <div className="policy-item__actions">
-                                    <button className="btn btn--ghost btn--sm" title="Edit"><ModeEditOutlineOutlinedIcon sx={{ fontSize: 15 }} /></button>
-                                    <button className="btn btn--ghost btn--sm" title="View details"><VisibilityOutlinedIcon sx={{ fontSize: 15 }} /></button>
-                                    <button className="btn btn--ghost btn--sm" title={p.status === "active" ? "Disable" : "Enable"} onClick={() => onToggle(p)}>
-                                        {p.status === "active" ? <ToggleOnOutlinedIcon sx={{ fontSize: 15 }} /> : <ToggleOffOutlinedIcon sx={{ fontSize: 15 }} />}
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })}
-                    <div style={{ padding: "var(--s-3) var(--s-4)", fontSize: "var(--fs-11)", color: "var(--c-text-muted)" }}>
-                        Showing {filtered.length} of {policies.length} policies
+                            );
+                        })}
+                        <div style={{ padding: "var(--s-3) var(--s-1) 0", fontSize: "var(--fs-11)", color: "var(--c-text-muted)" }}>
+                            Showing {filtered.length} of {policies.length} policies
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
         </div>
     );
 }
@@ -563,7 +591,16 @@ type ChatMessage = {
     content: string;
     policy?: PolicyCreate;
     rules?: Record<string, unknown>;
+    provider?: string;
+    model?: string;
 };
+
+function newChatMessageId(): string {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return `msg_${crypto.randomUUID()}`;
+    }
+    return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+}
 
 const AI_SUGGESTIONS = [
     "Restrict developers from using GPT-4 models",
@@ -572,17 +609,32 @@ const AI_SUGGESTIONS = [
     "Set API rate limits for AI model usage",
 ];
 
+const CHAT_STICKY_BOTTOM_PX = 100;
+
+function resolveScrollBehavior(requested: ScrollBehavior): ScrollBehavior {
+    if (typeof window === "undefined") return "auto";
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : requested;
+}
+
 function AIGenerateTab({
     onCreate,
 }: {
     onCreate: (data: PolicyCreate, systemId: number) => void | Promise<void>;
 }) {
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const queryClient = useQueryClient();
+    const [pendingMessages, setPendingMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState("");
     const [isTyping, setIsTyping] = useState(false);
     const [selectedSystemId, setSelectedSystemId] = useState<number | "">("");
-    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const messagesContainerRef = useRef<HTMLDivElement>(null);
+    const messageListContentRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const shouldAutoScrollRef = useRef(true);
+    const prevIsLoadingHistoryRef = useRef(false);
+    /** Last message id when the user was following the bottom (used to detect new AI replies off-screen). */
+    const tailMessageIdWhenAtBottomRef = useRef<string | null>(null);
+    const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
+    const [unseenAssistantReply, setUnseenAssistantReply] = useState(false);
     const {
         data: systems = [],
         isLoading: isLoadingSystems,
@@ -593,26 +645,150 @@ function AIGenerateTab({
         queryFn: systemsApi.list,
         refetchOnMount: "always",
     });
+    const resolvedSelectedSystemId = resolveSystemIdOrEmpty(selectedSystemId, systems[0]);
+
+    const {
+        data: persistedMessages = [],
+        isLoading: isLoadingHistory,
+        isError: isHistoryError,
+        error: historyError,
+    } = useQuery({
+        queryKey: ["policy-chat-history", resolvedSelectedSystemId],
+        queryFn: () => policyApi.listChatHistory(resolvedSelectedSystemId as number),
+        enabled: resolvedSelectedSystemId !== "",
+        refetchOnMount: "always",
+    });
+    const messages = useMemo(
+        () => (
+            resolvedSelectedSystemId === ""
+                ? []
+                : [...persistedMessages.map(mapStoredChatMessage), ...pendingMessages]
+        ),
+        [pendingMessages, persistedMessages, resolvedSelectedSystemId]
+    );
+
+    const scrollToEnd = useCallback((behavior: ScrollBehavior = "smooth") => {
+        const el = messagesContainerRef.current;
+        if (!el) return;
+        const b = resolveScrollBehavior(behavior);
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                el.scrollTo({ top: el.scrollHeight, behavior: b });
+            });
+        });
+    }, []);
+
+    const updateScrollAffinity = useCallback(() => {
+        const el = messagesContainerRef.current;
+        if (!el) return;
+        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        const nearBottom = distanceFromBottom < CHAT_STICKY_BOTTOM_PX;
+        shouldAutoScrollRef.current = nearBottom;
+        setIsPinnedToBottom((prev) => (nearBottom === prev ? prev : nearBottom));
+    }, []);
 
     useEffect(() => {
-        if (selectedSystemId === "" && systems.length > 0) {
-            setSelectedSystemId(systems[0].id);
-        }
-    }, [selectedSystemId, systems]);
+        const el = messagesContainerRef.current;
+        if (!el) return;
+        updateScrollAffinity();
+        const handleScroll = () => updateScrollAffinity();
+        el.addEventListener("scroll", handleScroll, { passive: true });
+        return () => el.removeEventListener("scroll", handleScroll);
+    }, [resolvedSelectedSystemId, updateScrollAffinity]);
 
-    const scrollToBottom = useCallback(() => {
-        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
-    }, []);
+    useEffect(() => {
+        tailMessageIdWhenAtBottomRef.current = null;
+        setUnseenAssistantReply(false);
+    }, [resolvedSelectedSystemId]);
+
+    useEffect(() => {
+        if (isLoadingHistory) return;
+        const last = messages.at(-1);
+        const lastId = last?.id ?? null;
+        if (isPinnedToBottom) {
+            tailMessageIdWhenAtBottomRef.current = lastId;
+            setUnseenAssistantReply(false);
+            return;
+        }
+        if (last?.role === "ai" && tailMessageIdWhenAtBottomRef.current != null && lastId !== tailMessageIdWhenAtBottomRef.current) {
+            setUnseenAssistantReply(true);
+        }
+    }, [messages, isPinnedToBottom, isLoadingHistory]);
+
+    useLayoutEffect(() => {
+        const wasLoading = prevIsLoadingHistoryRef.current;
+        prevIsLoadingHistoryRef.current = isLoadingHistory;
+
+        if (!shouldAutoScrollRef.current) return;
+        if (isLoadingHistory) return;
+        const justFinishedHistoryLoad = wasLoading && !isLoadingHistory;
+        const behavior: ScrollBehavior =
+            justFinishedHistoryLoad || messages.length === 0 ? "auto" : "smooth";
+        scrollToEnd(behavior);
+    }, [messages, isTyping, isLoadingHistory, scrollToEnd]);
+
+    useEffect(() => {
+        const root = messageListContentRef.current;
+        if (!root) return;
+        const ro = new ResizeObserver(() => {
+            if (!shouldAutoScrollRef.current) return;
+            const el = messagesContainerRef.current;
+            if (!el) return;
+            el.scrollTo({
+                top: el.scrollHeight,
+                behavior: resolveScrollBehavior("auto"),
+            });
+        });
+        ro.observe(root);
+        return () => ro.disconnect();
+    }, [resolvedSelectedSystemId, messages.length]);
+
+    const jumpToLatest = useCallback(() => {
+        shouldAutoScrollRef.current = true;
+        setUnseenAssistantReply(false);
+        setIsPinnedToBottom(true);
+        const lastId = messages.at(-1)?.id ?? null;
+        tailMessageIdWhenAtBottomRef.current = lastId;
+        scrollToEnd("smooth");
+    }, [scrollToEnd, messages]);
+
+    const persistConversation = useCallback(async (
+        systemId: number,
+        userMessage: ChatMessage,
+        assistantMessage: ChatMessage
+    ) => {
+        try {
+            await policyApi.saveChatMessage(systemId, {
+                role: "user",
+                content: userMessage.content,
+            });
+            await policyApi.saveChatMessage(systemId, {
+                role: "ai",
+                content: assistantMessage.content,
+                policy: assistantMessage.policy,
+                rules: assistantMessage.rules,
+                provider: assistantMessage.provider,
+                model: assistantMessage.model,
+            });
+            await queryClient.invalidateQueries({ queryKey: ["policy-chat-history", systemId] });
+            setPendingMessages([]);
+        } catch (error) {
+            console.error("Failed to persist chat history", error);
+        }
+    }, [queryClient]);
 
     const handleSend = useCallback(async (text?: string) => {
         const msg = (text ?? input).trim();
-        if (!msg || isTyping) return;
+        if (!msg || isTyping || resolvedSelectedSystemId === "") return;
 
-        const userMsg: ChatMessage = { id: `msg_${Date.now()}`, role: "user", content: msg };
-        setMessages((prev) => [...prev, userMsg]);
+        const systemId = resolvedSelectedSystemId;
+
+        const userMsg: ChatMessage = { id: newChatMessageId(), role: "user", content: msg };
+        setPendingMessages((prev) => [...prev, userMsg]);
         setInput("");
         setIsTyping(true);
-        scrollToBottom();
+        shouldAutoScrollRef.current = true;
+        setIsPinnedToBottom(true);
 
         // Auto-resize textarea back
         if (textareaRef.current) textareaRef.current.style.height = "24px";
@@ -622,35 +798,36 @@ function AIGenerateTab({
 
         if (hasPolicy && isRefinement) {
             const aiResponse = generateAIResponse(msg, messages);
-            setMessages((prev) => [...prev, aiResponse]);
+            setPendingMessages((prev) => [...prev, aiResponse]);
             setIsTyping(false);
-            scrollToBottom();
+            void persistConversation(systemId, userMsg, aiResponse);
             return;
         }
 
-        (async () => {
-            try {
-                const response = await policyApi.generate(
-                    msg,
-                    messages.slice(-6).map((m) => `${m.role}: ${m.content}`)
-                );
-                const aiResponse: ChatMessage = {
-                    id: `msg_${Date.now()}`,
-                    role: "ai",
-                    content: response.content,
-                    policy: response.policy,
-                    rules: response.rules,
-                };
-                setMessages((prev) => [...prev, aiResponse]);
-            } catch {
-                const fallback = generateAIResponse(msg, messages);
-                setMessages((prev) => [...prev, fallback]);
-            } finally {
-                setIsTyping(false);
-                scrollToBottom();
-            }
-        })();
-    }, [input, isTyping, messages, scrollToBottom]);
+        try {
+            const response = await policyApi.generate(
+                msg,
+                messages.slice(-6).map((m) => `${m.role}: ${m.content}`)
+            );
+            const aiResponse: ChatMessage = {
+                id: newChatMessageId(),
+                role: "ai",
+                content: response.content,
+                policy: response.policy,
+                rules: response.rules,
+                provider: response.provider,
+                model: response.model,
+            };
+            setPendingMessages((prev) => [...prev, aiResponse]);
+            void persistConversation(systemId, userMsg, aiResponse);
+        } catch {
+            const fallback = generateAIResponse(msg, messages);
+            setPendingMessages((prev) => [...prev, fallback]);
+            void persistConversation(systemId, userMsg, fallback);
+        } finally {
+            setIsTyping(false);
+        }
+    }, [input, isTyping, messages, persistConversation, resolvedSelectedSystemId]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Enter" && !e.shiftKey) {
@@ -668,16 +845,20 @@ function AIGenerateTab({
     };
 
     const handleSavePolicy = (msg: ChatMessage) => {
-        if (msg.policy && selectedSystemId !== "") {
-            onCreate({ ...msg.policy, rules: msg.rules }, selectedSystemId as number);
+        if (msg.policy && resolvedSelectedSystemId !== "") {
+            onCreate({ ...msg.policy, rules: msg.rules }, resolvedSelectedSystemId as number);
         }
     };
 
     return (
         <div className="chat">
             {/* Message area */}
-            <div className="chat__messages">
-                {messages.length === 0 ? (
+            <div ref={messagesContainerRef} className="chat__messages">
+                {isLoadingHistory && resolvedSelectedSystemId !== "" && messages.length === 0 ? (
+                    <div className="chat__empty">
+                        <div className="chat__empty-title">Loading conversation…</div>
+                    </div>
+                ) : messages.length === 0 ? (
                     <div className="chat__empty">
                         <div className="chat__empty-icon">
                             <AIIcon size={28} />
@@ -695,7 +876,7 @@ function AIGenerateTab({
                         </div>
                     </div>
                 ) : (
-                    <>
+                    <div ref={messageListContentRef} className="chat__message-list">
                         {messages.map((msg) => (
                             <div key={msg.id} className={`chat__msg chat__msg--${msg.role}`}>
                                 {msg.role === "ai" && (
@@ -730,8 +911,8 @@ function AIGenerateTab({
                                                         <button
                                                             type="button"
                                                             className="btn btn--primary btn--sm"
-                                                            disabled={selectedSystemId === ""}
-                                                            title={selectedSystemId === "" ? "Select an AI system below before saving" : undefined}
+                                                            disabled={resolvedSelectedSystemId === ""}
+                                                            title={resolvedSelectedSystemId === "" ? "Select an AI system below before saving" : undefined}
                                                             onClick={() => handleSavePolicy(msg)}
                                                         >
                                                             <CheckCircleOutlinedIcon sx={{ fontSize: 14 }} /> Save Policy
@@ -772,8 +953,31 @@ function AIGenerateTab({
                                 </div>
                             </div>
                         )}
-                        <div ref={messagesEndRef} />
-                    </>
+                    </div>
+                )}
+                {messages.length > 0 && !isPinnedToBottom && (
+                    <div className="chat__latest-wrap">
+                        <button
+                            type="button"
+                            className={`chat__latest${unseenAssistantReply ? " chat__latest--new" : ""}`}
+                            onClick={jumpToLatest}
+                            aria-label={
+                                unseenAssistantReply
+                                    ? "New assistant reply — jump to the bottom of the chat"
+                                    : "Scroll to latest messages"
+                            }
+                        >
+                            <span className="chat__latest-main">
+                                <KeyboardArrowDownIcon sx={{ fontSize: 18 }} />
+                                {unseenAssistantReply ? "New reply" : "Jump to latest"}
+                            </span>
+                            {unseenAssistantReply && (
+                                <span className="chat__latest-hint" aria-hidden>
+                                    Assistant responded — tap to view
+                                </span>
+                            )}
+                        </button>
+                    </div>
                 )}
             </div>
 
@@ -784,8 +988,14 @@ function AIGenerateTab({
                     <select
                         className="input"
                         style={{ width: "100%" }}
-                        value={selectedSystemId}
-                        onChange={(e) => setSelectedSystemId(e.target.value ? Number(e.target.value) : "")}
+                        value={resolvedSelectedSystemId}
+                        onChange={(e) => {
+                            setSelectedSystemId(e.target.value ? Number(e.target.value) : "");
+                            setPendingMessages([]);
+                            setIsTyping(false);
+                            shouldAutoScrollRef.current = true;
+                            setIsPinnedToBottom(true);
+                        }}
                         disabled={isLoadingSystems || isTyping}
                     >
                         <option value="">
@@ -808,30 +1018,48 @@ function AIGenerateTab({
                         Failed to load systems: {systemsError instanceof Error ? systemsError.message : "Unknown error"}
                     </div>
                 )}
+                {isHistoryError && (
+                    <div style={{ maxWidth: 760, margin: "0 auto 8px", fontSize: "var(--fs-11)", color: "var(--c-high)", textAlign: "center" }}>
+                        Failed to load chat history: {historyError instanceof Error ? historyError.message : "Unknown error"}
+                    </div>
+                )}
                 <div className="chat__input-wrap">
                     <textarea
                         ref={textareaRef}
                         className="chat__textarea"
-                        placeholder="Describe a policy or ask to refine..."
+                        placeholder={resolvedSelectedSystemId === "" ? "Select a system to start a persistent AI chat..." : "Describe a policy or ask to refine..."}
                         value={input}
                         onChange={handleTextareaInput}
                         onKeyDown={handleKeyDown}
                         rows={1}
+                        disabled={resolvedSelectedSystemId === "" || isTyping}
                     />
                     <button
                         className="chat__send-btn"
-                        disabled={!input.trim() || isTyping}
+                        disabled={!input.trim() || isTyping || resolvedSelectedSystemId === ""}
                         onClick={() => handleSend()}
                     >
                         <SendOutlinedIcon sx={{ fontSize: 16 }} />
                     </button>
                 </div>
                 <div style={{ maxWidth: 760, margin: "6px auto 0", fontSize: "var(--fs-11)", color: "var(--c-text-muted)", textAlign: "center" }}>
-                    AI can make mistakes. Review generated policies before enforcing.
+                    AI can make mistakes. Review generated policies before enforcing. Conversation history is saved per system.
                 </div>
             </div>
         </div>
     );
+}
+
+function mapStoredChatMessage(message: StoredChatMessage): ChatMessage {
+    return {
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        policy: message.policy ?? undefined,
+        rules: message.rules ?? undefined,
+        provider: message.provider ?? undefined,
+        model: message.model ?? undefined,
+    };
 }
 
 /*   Render AI text content with basic formatting   */
@@ -906,7 +1134,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
                 refined.severity = "high";
                 refinedRules = { ...refinedRules, enforcement: "strict", auto_block: true };
                 return {
-                    id: `msg_${Date.now()}`, role: "ai",
+                    id: newChatMessageId(), role: "ai",
                     content: `I've updated the policy to be **more strict**. Here are the changes:\n\n- Severity escalated to **High**\n- Enforcement mode set to **Strict** (auto-block violations)\n- Auto-blocking is now enabled\n\nHere's the updated policy:`,
                     policy: refined, rules: refinedRules,
                 };
@@ -915,7 +1143,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
             if (lower.includes("add") && lower.includes("exception")) {
                 refinedRules = { ...refinedRules, exceptions: ["senior_engineers", "security_team"] };
                 return {
-                    id: `msg_${Date.now()}`, role: "ai",
+                    id: newChatMessageId(), role: "ai",
                     content: `Done! I've added exceptions for **Senior Engineers** and **Security Team**. They will be exempt from this policy restriction.\n\nUpdated policy:`,
                     policy: refined, rules: refinedRules,
                 };
@@ -924,7 +1152,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
             // Generic refinement
             refined.description = refined.description + "\n\nAdditional requirement: " + userMsg;
             return {
-                id: `msg_${Date.now()}`, role: "ai",
+                id: newChatMessageId(), role: "ai",
                 content: `I've incorporated your feedback into the policy. The description has been updated with the additional requirements.\n\nReview the changes below:`,
                 policy: refined, rules: refinedRules,
             };
@@ -934,7 +1162,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
     // If this is a follow-up question (no policy generation)
     if (hasPolicy && (lower.includes("what") || lower.includes("how") || lower.includes("why") || lower.includes("explain"))) {
         return {
-            id: `msg_${Date.now()}`, role: "ai",
+            id: newChatMessageId(), role: "ai",
             content: `Great question! Here's some context:\n\n**How enforcement works:** Policies are checked against your connected integrations (GitHub, Slack, AWS, etc.) in real-time. When a violation is detected, the system can either:\n\n- **Advisory mode:** Log and alert, but don't block\n- **Strict mode:** Auto-block the action and notify the team\n\nYou can also configure notification channels and audit frequencies for each policy.\n\nWant me to adjust the enforcement settings, or would you like to generate a different policy?`,
         };
     }
@@ -942,7 +1170,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
     //  First-time policy generation 
     if (lower.includes("gpt-4") || lower.includes("model") || lower.includes("restrict")) {
         return {
-            id: `msg_${Date.now()}`, role: "ai",
+            id: newChatMessageId(), role: "ai",
             content: `I've analyzed your requirements and generated a **Model Restrictions** policy. This will prevent developers from using expensive AI models while keeping cost-effective alternatives available.\n\nHere's the generated policy:`,
             policy: {
                 name: "Restrict AI Models to Cost-Effective Options",
@@ -955,7 +1183,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
 
     if (lower.includes("review") || lower.includes("human") || lower.includes("code")) {
         return {
-            id: `msg_${Date.now()}`, role: "ai",
+            id: newChatMessageId(), role: "ai",
             content: `Absolutely. I've created a **Code Review** policy for AI-generated code. This ensures all AI outputs are human-verified before reaching production.\n\nHere's the policy:`,
             policy: {
                 name: "Mandatory Human Review for AI-Generated Code",
@@ -968,7 +1196,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
 
     if (lower.includes("secret") || lower.includes("scanning") || lower.includes("repo")) {
         return {
-            id: `msg_${Date.now()}`, role: "ai",
+            id: newChatMessageId(), role: "ai",
             content: `Great call on security. I've created a **Secret Scanning** policy to prevent credential leaks across all repositories.\n\nHere's the policy:`,
             policy: {
                 name: "Mandatory Secret Scanning for All Repositories",
@@ -981,7 +1209,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
 
     if (lower.includes("rate") || lower.includes("limit") || lower.includes("cost") || lower.includes("usage") || lower.includes("quota")) {
         return {
-            id: `msg_${Date.now()}`, role: "ai",
+            id: newChatMessageId(), role: "ai",
             content: `Smart move on cost control. I've generated an **API Rate Limiting** policy to cap AI model usage and prevent unexpected bills.\n\nHere's the policy:`,
             policy: {
                 name: "API Rate Limiting for AI Models",
@@ -994,7 +1222,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
 
     // Default — generic policy generation
     return {
-        id: `msg_${Date.now()}`, role: "ai",
+        id: newChatMessageId(), role: "ai",
         content: `I've analyzed your requirements and generated a governance policy. Here's what I came up with:\n\nYou can **refine** this by telling me to make changes, add exceptions, change severity, or adjust the enforcement rules. Just keep chatting!`,
         policy: {
             name: "AI Governance Policy",
@@ -1076,52 +1304,52 @@ function GitHubChecksTab({
     );
 
     return (
-        <div style={{ padding: "var(--s-5)", display: "flex", flexDirection: "column", gap: "var(--s-5)" }}>
-            {/* Summary */}
-            <div style={{ display: "flex", gap: "var(--s-4)", alignItems: "center", marginBottom: "var(--s-2)" }}>
-                <div style={{ display: "flex", gap: "var(--s-3)" }}>
-                    <span className="badge badge--live" style={{ padding: "4px 10px" }}>{enabledCount} active</span>
-                    <span className="badge badge--neutral" style={{ padding: "4px 10px" }}>{policies.length - enabledCount} disabled</span>
+        <div className="policies-tab-panel">
+            <div className="policies-tab-panel__header policies-tab-panel__header--github">
+                <div style={{ display: "flex", gap: "var(--s-4)", alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: "var(--s-3)" }}>
+                        <span className="badge badge--live" style={{ padding: "4px 10px" }}>{enabledCount} active</span>
+                        <span className="badge badge--neutral" style={{ padding: "4px 10px" }}>{policies.length - enabledCount} disabled</span>
+                    </div>
+                    <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginLeft: "auto" }}>
+                        Changes take effect on next scan
+                    </span>
                 </div>
-                <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginLeft: "auto" }}>
-                    Changes take effect on next scan
-                </span>
             </div>
-
-            {policies.length === 0 && (
-                <div style={{ padding: "var(--s-10)", textAlign: "center", color: "var(--c-text-muted)", fontSize: "var(--fs-13)" }}>
-                    Loading checks…
-                </div>
-            )}
-
-            {/* Personal / repo-level checks */}
-            {personalChecks.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
-                    <p style={{ fontSize: "var(--fs-11)", fontWeight: "var(--fw-bold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0" }}>
-                        Repository Checks
-                    </p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
-                        {personalChecks.map(renderCheck)}
+            <div className="policies-tab-panel__body">
+                {policies.length === 0 && (
+                    <div style={{ padding: "var(--s-10)", textAlign: "center", color: "var(--c-text-muted)", fontSize: "var(--fs-13)" }}>
+                        Loading checks…
                     </div>
-                </div>
-            )}
+                )}
 
-            {/* Enterprise Copilot checks */}
-            {enterpriseChecks.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)", marginTop: "var(--s-4)" }}>
-                    <div>
+                {personalChecks.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
                         <p style={{ fontSize: "var(--fs-11)", fontWeight: "var(--fw-bold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0" }}>
-                            Enterprise Copilot Checks
+                            Repository Checks
                         </p>
-                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-1)", lineHeight: 1.5 }}>
-                            Requires GitHub Copilot Business or Enterprise. These checks are automatically skipped on personal accounts.
-                        </p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
+                            {personalChecks.map(renderCheck)}
+                        </div>
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
-                        {enterpriseChecks.map(renderCheck)}
+                )}
+
+                {enterpriseChecks.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)", marginTop: personalChecks.length > 0 ? "var(--s-4)" : 0 }}>
+                        <div>
+                            <p style={{ fontSize: "var(--fs-11)", fontWeight: "var(--fw-bold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0" }}>
+                                Enterprise Copilot Checks
+                            </p>
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-1)", lineHeight: 1.5 }}>
+                                Requires GitHub Copilot Business or Enterprise. These checks are automatically skipped on personal accounts.
+                            </p>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
+                            {enterpriseChecks.map(renderCheck)}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
         </div>
     );
 }

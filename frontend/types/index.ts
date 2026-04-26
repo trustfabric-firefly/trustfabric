@@ -53,7 +53,7 @@ export interface AISystemCreate {
   risk_justification?: string | null;
 }
 
-export interface AISystemUpdate extends Partial<AISystemCreate> { }
+export type AISystemUpdate = Partial<AISystemCreate>;
 
 export interface ActivityEvent {
   id: number;
@@ -174,6 +174,21 @@ export interface PolicyTemplate {
   customizable_fields: string[];
 }
 
+export type AIChatMessageRole = "user" | "ai";
+
+export interface AIChatMessage {
+  id: string;
+  system_id: number;
+  user_id: string;
+  role: AIChatMessageRole;
+  content: string;
+  policy?: PolicyCreate | null;
+  rules?: Record<string, unknown> | null;
+  provider?: string | null;
+  model?: string | null;
+  created_at: string;
+}
+
 // ─── Scan Policies ───────────────────────────────────────────────────────────
 
 export interface ScanPolicy {
@@ -202,6 +217,66 @@ export interface GitHubUserInfo {
 export interface GitHubIntegrationStatus {
   connected: boolean;
   user: GitHubUserInfo | null;
+}
+
+// ─── Slack Integration ────────────────────────────────────────────────────────
+
+export interface SlackConnectionInfo {
+  team_name: string;
+  channel_id: string;
+  channel_name: string;
+  connected_at: string;
+}
+
+export interface SlackIntegrationStatus {
+  connected: boolean;
+  info: SlackConnectionInfo | null;
+}
+
+export interface SlackChannel {
+  id: string;
+  name: string;
+}
+
+// ─── AWS Integration ─────────────────────────────────────────────────────────
+
+export interface AwsConnectionInfo {
+  account_id: string;
+  account_alias: string;
+  role_arn: string;
+  region: string;
+  connected_at: string;
+}
+
+export interface AwsIntegrationStatus {
+  connected: boolean;
+  info: AwsConnectionInfo | null;
+}
+
+export interface AwsCheckResult {
+  check_id: string;
+  check_name: string;
+  severity: PolicySeverity;
+  passed: boolean;
+  evidence: string;
+  recommendation: string;
+  risk_score: number;
+  affected_resources: string[];
+}
+
+export interface AwsScanResult {
+  scan_id: string;
+  account_id: string;
+  region: string;
+  timestamp: string;
+  compliance_score: number;
+  total_checks: number;
+  passed_checks: number;
+  failed_checks: number;
+  checks: AwsCheckResult[];
+  duration_seconds: number;
+  triggered_by: string;
+  status: ScanStatus;
 }
 
 // ─── Compliance Scans Domain ─────────────────────────────────────────────────

@@ -14,6 +14,7 @@ from app.domain.models import (
     GovernancePolicyUpdate,
 )
 from app.services import claude as claude_service
+from app.services.notifications import notify_system_change
 from app.services.store import store
 
 router = APIRouter()
@@ -30,8 +31,13 @@ def list_systems(actor: Actor = Depends(get_actor)) -> List[AISystem]:  # noqa: 
     status_code=status.HTTP_201_CREATED,
     summary="Create AI system (admin only)",
 )
-def create_system(payload: AISystemCreate, actor: Actor = Depends(require_admin)) -> AISystem:
-    return store.create_system(payload, user_id=actor.user_id)
+async def create_system(payload: AISystemCreate, actor: Actor = Depends(require_admin)) -> AISystem:
+    system = store.create_system(payload, user_id=actor.user_id)
+    try:
+        await notify_system_change(actor.user_id, system, "created")
+    except Exception:
+        pass
+    return system
 
 
 @router.get(
@@ -89,10 +95,14 @@ def get_system(system_id: int, actor: Actor = Depends(get_actor)) -> AISystem:  
 
 
 @router.patch("/{system_id}", response_model=AISystem, summary="Update AI system (admin only)")
-def update_system(system_id: int, payload: AISystemUpdate, actor: Actor = Depends(require_admin)) -> AISystem:
+async def update_system(system_id: int, payload: AISystemUpdate, actor: Actor = Depends(require_admin)) -> AISystem:
     system = store.update_system(system_id, payload, user_id=actor.user_id)
     if system is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
+    try:
+        await notify_system_change(actor.user_id, system, "updated")
+    except Exception:
+        pass
     return system
 
 
@@ -101,10 +111,16 @@ def update_system(system_id: int, payload: AISystemUpdate, actor: Actor = Depend
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete AI system (admin only)",
 )
-def delete_system(system_id: int, actor: Actor = Depends(require_admin)) -> None:
+async def delete_system(system_id: int, actor: Actor = Depends(require_admin)) -> None:
+    system = store.get_system(system_id)
     deleted = store.delete_system(system_id, user_id=actor.user_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
+    if system:
+        try:
+            await notify_system_change(actor.user_id, system, "deleted")
+        except Exception:
+            pass
 
 
 @router.post(

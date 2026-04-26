@@ -2093,6 +2093,9 @@ select.input {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  /* Fill the flex column from .tab-content; fixed height + min-height:auto on children
+     was preventing .chat__messages from getting its own scrollport. */
+  overflow: hidden;
 }
 
 /* Panel that stretches to fill page when chat is inside */
@@ -2101,6 +2104,11 @@ select.input {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
+}
+
+.panel--flex .tabs {
+  flex-shrink: 0;
 }
 
 .panel--flex .tab-content {
@@ -2108,23 +2116,135 @@ select.input {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
+/* View All, GitHub Checks: search/summary stay visible; list scrolls inside the tab */
+.policies-tab-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.policies-tab-panel__header {
+  flex-shrink: 0;
+  padding: var(--s-4) var(--s-4) var(--s-3);
+}
+
+.policies-tab-panel__header--github {
+  padding-bottom: var(--s-4);
+}
+
+.policies-tab-panel__body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 var(--s-4) var(--s-4);
+  scroll-behavior: auto;
+}
+
+/* Policies: cap <main> to the viewport so tab content scrolls inside, not the whole shell */
 .page--flex {
   display: flex;
   flex-direction: column;
   flex: 1;
-  height: calc(100vh - 56px);
+  min-height: 0;
+  max-height: calc(100vh - var(--topbar-h));
+  overflow: hidden;
   box-sizing: border-box;
   padding-bottom: 0;
-  overflow: hidden;
 }
 
 .chat__messages {
-  flex: 1;
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--s-4) 0;
-  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: auto;
+  scroll-padding-bottom: var(--s-6);
+}
+
+/* Message stack observed for height changes (policy cards, fonts) */
+.chat__message-list {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Overlays the scrollport when the user is reading earlier messages */
+.chat__latest-wrap {
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: var(--s-3);
+  display: flex;
+  justify-content: center;
+  z-index: 2;
+}
+
+.chat__latest {
+  pointer-events: auto;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-medium);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.chat__latest-main {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.chat__latest--new {
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s-2) var(--s-4);
+  border-color: rgba(124, 58, 237, 0.55);
+  background: var(--c-accent-subtle);
+  color: var(--c-text);
+  font-weight: var(--fw-semibold);
+  box-shadow: 0 4px 20px rgba(124, 58, 237, 0.15);
+}
+
+.chat__latest--new .chat__latest-hint {
+  max-width: 200px;
+  text-align: center;
+  line-height: 1.3;
+  font-size: var(--fs-11);
+  font-weight: var(--fw-normal);
+  color: var(--c-text-secondary);
+}
+
+.chat__latest:hover {
+  background: var(--c-surface-elevated);
+  border-color: var(--c-border-strong);
+  transform: translateY(-1px);
+}
+
+.chat__latest--new:hover {
+  background: rgba(124, 58, 237, 0.2);
+  border-color: var(--c-accent);
 }
 
 .chat__empty {
@@ -2338,6 +2458,7 @@ select.input {
 
 /* Input bar at bottom */
 .chat__input-bar {
+  flex-shrink: 0;
   border-top: 1px solid var(--c-border);
   padding: var(--s-4);
 }

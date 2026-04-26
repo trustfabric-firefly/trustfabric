@@ -11,6 +11,10 @@ export const metadata: Metadata = {
   },
   description:
     "AI Governance platform — continuously monitor your organizational AI tool configurations and ensure compliance with defined governance policies.",
+  icons: {
+    icon: [{ url: "/logo.svg", type: "image/svg+xml" }],
+    apple: "/logo.svg",
+  },
 };
 
 export default function RootLayout({

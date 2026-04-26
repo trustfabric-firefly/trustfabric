@@ -10,6 +10,8 @@ from firebase_admin import credentials, firestore
 
 from app.core.config import settings
 from app.domain.models import (
+    AIChatMessage,
+    AIChatMessageCreate,
     AISystem,
     AISystemCreate,
     AISystemUpdate,
@@ -174,6 +176,7 @@ class FirestoreStore:
         system = self.get_system(system_id)
         if system is None:
             return False
+        self._delete_system_chat_subcollection(system_id)
         self._delete_system_policies_subcollection(system_id)
         self._client().collection(self._systems_collection).document(str(system_id)).delete()
         self._record_audit(
@@ -286,6 +289,63 @@ class FirestoreStore:
             if key in out and out[key] is not None:
                 out[key] = self._coerce_policy_datetime(out[key])
         return out
+
+    # --- Persistent AI chat history (systems/{system_id}/copilot_chat) ---
+    def _system_chat_collection(self, system_id: int) -> Any:
+        return (
+            self._client()
+            .collection(self._systems_collection)
+            .document(str(system_id))
+            .collection("copilot_chat")
+        )
+
+    def _delete_system_chat_subcollection(self, system_id: int) -> None:
+        for doc in self._system_chat_collection(system_id).stream():
+            doc.reference.delete()
+
+    def _normalize_chat_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        out = dict(payload)
+        if "created_at" in out and out["created_at"] is not None:
+            out["created_at"] = self._coerce_policy_datetime(out["created_at"])
+        return out
+
+    def list_system_chat_messages(
+        self,
+        system_id: int,
+        user_id: str,
+    ) -> Optional[List[AIChatMessage]]:
+        if self.get_system(system_id) is None:
+            return None
+
+        messages: List[AIChatMessage] = []
+        docs = self._system_chat_collection(system_id).where("user_id", "==", user_id).stream()
+        for doc in docs:
+            raw = doc.to_dict() or {}
+            raw["id"] = doc.id
+            raw["system_id"] = system_id
+            messages.append(AIChatMessage.model_validate(self._normalize_chat_payload(raw)))
+        return sorted(messages, key=lambda message: message.created_at)
+
+    def create_system_chat_message(
+        self,
+        system_id: int,
+        user_id: str,
+        data: AIChatMessageCreate,
+    ) -> Optional[AIChatMessage]:
+        if self.get_system(system_id) is None:
+            return None
+
+        now = datetime.utcnow()
+        ref = self._system_chat_collection(system_id).document()
+        message = AIChatMessage(
+            id=ref.id,
+            system_id=system_id,
+            user_id=user_id,
+            created_at=now,
+            **data.model_dump(),
+        )
+        ref.set(message.model_dump(mode="json"))
+        return message
 
     def list_system_policies(self, system_id: int) -> Optional[List[GovernancePolicy]]:
         if self.get_system(system_id) is None:
@@ -731,6 +791,122 @@ class FirestoreStore:
         if doc_ref.get().exists:
             doc_ref.update(fields_to_remove)
 
+    # --- Slack Integration ---
+
+    def save_slack_connection(
+        self,
+        user_id: str,
+        bot_token: str,
+        team_name: str,
+        channel_id: str,
+        channel_name: str,
+    ) -> None:
+        doc = {
+            "slack_bot_token": bot_token,
+            "slack_team_name": team_name,
+            "slack_channel_id": channel_id,
+            "slack_channel_name": channel_name,
+            "slack_connected_at": datetime.utcnow().isoformat(),
+        }
+        self._client().collection(self._integrations_collection).document(user_id).set(doc, merge=True)
+
+    def get_slack_connection(self, user_id: str) -> Optional[dict]:
+        doc = self._client().collection(self._integrations_collection).document(user_id).get()
+        if not doc.exists:
+            return None
+        data = doc.to_dict() or {}
+        if not data.get("slack_bot_token"):
+            return None
+        return data
+
+    def update_slack_channel(self, user_id: str, channel_id: str, channel_name: str) -> None:
+        doc_ref = self._client().collection(self._integrations_collection).document(user_id)
+        if doc_ref.get().exists:
+            doc_ref.update({
+                "slack_channel_id": channel_id,
+                "slack_channel_name": channel_name,
+            })
+
+    def delete_slack_connection(self, user_id: str) -> None:
+        fields_to_remove = {
+            "slack_bot_token": firestore.DELETE_FIELD,
+            "slack_team_name": firestore.DELETE_FIELD,
+            "slack_channel_id": firestore.DELETE_FIELD,
+            "slack_channel_name": firestore.DELETE_FIELD,
+            "slack_connected_at": firestore.DELETE_FIELD,
+        }
+        doc_ref = self._client().collection(self._integrations_collection).document(user_id)
+        if doc_ref.get().exists:
+            doc_ref.update(fields_to_remove)
+
+    # --- AWS Integration ---
+
+    def save_aws_connection(
+        self,
+        user_id: str,
+        role_arn: str,
+        account_id: str,
+        account_alias: str,
+        region: str,
+    ) -> None:
+        doc = {
+            "aws_role_arn": role_arn,
+            "aws_account_id": account_id,
+            "aws_account_alias": account_alias,
+            "aws_region": region,
+            "aws_connected_at": datetime.utcnow().isoformat(),
+        }
+        self._client().collection(self._integrations_collection).document(user_id).set(doc, merge=True)
+
+    def get_aws_connection(self, user_id: str) -> Optional[dict]:
+        doc = self._client().collection(self._integrations_collection).document(user_id).get()
+        if not doc.exists:
+            return None
+        data = doc.to_dict() or {}
+        if not data.get("aws_role_arn"):
+            return None
+        return data
+
+    def delete_aws_connection(self, user_id: str) -> None:
+        fields_to_remove = {
+            "aws_role_arn": firestore.DELETE_FIELD,
+            "aws_account_id": firestore.DELETE_FIELD,
+            "aws_account_alias": firestore.DELETE_FIELD,
+            "aws_region": firestore.DELETE_FIELD,
+            "aws_connected_at": firestore.DELETE_FIELD,
+        }
+        doc_ref = self._client().collection(self._integrations_collection).document(user_id)
+        if doc_ref.get().exists:
+            doc_ref.update(fields_to_remove)
+
+    def save_aws_scan(self, user_id: str, record) -> None:
+        from app.domain.models import AwsScanRecord
+        doc = record.model_dump(mode="json")
+        doc["user_id"] = user_id
+        self._client().collection("aws_scans").document(record.scan_id).set(doc)
+
+    def list_aws_scans(self, user_id: str) -> list:
+        from app.domain.models import AwsScanRecord
+        results = []
+        docs = (
+            self._client()
+            .collection("aws_scans")
+            .where("user_id", "==", user_id)
+            .limit(50)
+            .stream()
+        )
+        for doc in docs:
+            results.append(AwsScanRecord.model_validate(doc.to_dict()))
+        results.sort(key=lambda r: r.timestamp, reverse=True)
+        return results
+
+    def get_aws_scan(self, scan_id: str):
+        from app.domain.models import AwsScanRecord
+        doc = self._client().collection("aws_scans").document(scan_id).get()
+        if not doc.exists:
+            return None
+        return AwsScanRecord.model_validate(doc.to_dict())
+
     # --- Helpers ---
     @staticmethod
     def _derive_policies(risk_tier: Optional[RiskTier]) -> List[PolicyKey]:
@@ -758,4 +934,3 @@ class FirestoreStore:
 
 
 store = FirestoreStore()
-

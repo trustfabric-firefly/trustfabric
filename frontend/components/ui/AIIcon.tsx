@@ -10,7 +10,7 @@ interface AIIconProps {
     sx?: {
         fontSize?: number | string;
         color?: string;
-        [key: string]: any;
+        [key: string]: string | number | undefined;
     };
 }
 
@@ -35,4 +35,4 @@ export function AIIcon({ className, style, size, sx }: AIIconProps) {
 }
 
 // For use in MUI data structures that expect a component type
-export const AIIconWrapper = (props: any) => <AIIcon {...props} />;
+export const AIIconWrapper = (props: AIIconProps) => <AIIcon {...props} />;

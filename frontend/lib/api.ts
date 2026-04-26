@@ -1,10 +1,13 @@
 import { auth } from "./firebase";
 import type {
+    AIChatMessage,
     AISystem,
     AISystemCreate,
     AISystemUpdate,
     ActivityEvent,
     AuditEvent,
+    AwsIntegrationStatus,
+    AwsScanResult,
     ComplianceEvaluationResponse,
     CopilotRecommendation,
     DashboardSummary,
@@ -16,6 +19,8 @@ import type {
     PolicyStatus,
     ScanPolicy,
     ScanResult,
+    SlackChannel,
+    SlackIntegrationStatus,
 } from "@/types";
 
 const RAW_BASE_URL =
@@ -187,6 +192,13 @@ export const scansApi = {
     getReportHtml: (scanId: string) => requestText(`/api/v1/scans/${scanId}/report`),
 };
 
+export const awsScansApi = {
+    trigger: () =>
+        request<AwsScanResult>("/api/v1/scans/aws", { method: "POST" }),
+    list: () => request<AwsScanResult[]>("/api/v1/scans/aws"),
+    get: (scanId: string) => request<AwsScanResult>(`/api/v1/scans/aws/${scanId}`),
+};
+
 export const integrationsApi = {
     getGitHubConnectUrl: () =>
         request<{ url: string }>("/api/v1/integrations/github/connect"),
@@ -194,6 +206,32 @@ export const integrationsApi = {
         request<GitHubIntegrationStatus>("/api/v1/integrations/github/status"),
     disconnectGitHub: () =>
         request<{ message: string }>("/api/v1/integrations/github", { method: "DELETE" }),
+    getSlackConnectUrl: () =>
+        request<{ url: string }>("/api/v1/integrations/slack/connect"),
+    getSlackStatus: () =>
+        request<SlackIntegrationStatus>("/api/v1/integrations/slack/status"),
+    disconnectSlack: () =>
+        request<{ message: string }>("/api/v1/integrations/slack", { method: "DELETE" }),
+    testSlack: () =>
+        request<{ message: string }>("/api/v1/integrations/slack/test", { method: "POST" }),
+    getSlackChannels: () =>
+        request<SlackChannel[]>("/api/v1/integrations/slack/channels"),
+    updateSlackChannel: (channel_id: string, channel_name: string) =>
+        request<{ message: string }>("/api/v1/integrations/slack/channel", {
+            method: "PATCH",
+            body: JSON.stringify({ channel_id, channel_name }),
+        }),
+    connectAws: (role_arn: string, region: string) =>
+        request<AwsIntegrationStatus>("/api/v1/integrations/aws/connect", {
+            method: "POST",
+            body: JSON.stringify({ role_arn, region }),
+        }),
+    getAwsStatus: () =>
+        request<AwsIntegrationStatus>("/api/v1/integrations/aws/status"),
+    testAws: () =>
+        request<{ message: string }>("/api/v1/integrations/aws/test", { method: "POST" }),
+    disconnectAws: () =>
+        request<{ message: string }>("/api/v1/integrations/aws", { method: "DELETE" }),
 };
 
 export type BackendStatus = {
@@ -208,6 +246,8 @@ export type BackendStatus = {
     gemini_api_configured: boolean;
     firebase_configured: boolean;
     github_oauth_configured: boolean;
+    slack_oauth_configured: boolean;
+    aws_configured: boolean;
     rate_limit_per_minute: number;
 };
 
@@ -250,6 +290,8 @@ export type PolicyRecommendationResponse = {
     content: string;
     policy: PolicyCreate;
     rules?: Record<string, unknown>;
+    provider?: string;
+    model?: string;
 };
 
 export const policyApi = {
@@ -257,5 +299,30 @@ export const policyApi = {
         request<PolicyRecommendationResponse>("/api/v1/copilot/policies/recommendations", {
             method: "POST",
             body: JSON.stringify({ prompt, history }),
+        }),
+    listChatHistory: (systemId: number) =>
+        request<AIChatMessage[]>(`/api/v1/copilot/systems/${systemId}/policy-chat`),
+    saveChatMessage: (
+        systemId: number,
+        body: {
+            role: "user" | "ai";
+            content: string;
+            policy?: PolicyCreate;
+            rules?: Record<string, unknown>;
+            provider?: string;
+            model?: string;
+        }
+    ) =>
+        request<AIChatMessage>(`/api/v1/copilot/systems/${systemId}/policy-chat/messages`, {
+            method: "POST",
+            body: JSON.stringify(body),
+        }),
+    generateForSystemChat: (systemId: number, prompt: string) =>
+        request<PolicyRecommendationResponse & {
+            user_message: AIChatMessage;
+            assistant_message: AIChatMessage;
+        }>(`/api/v1/copilot/systems/${systemId}/policy-chat/generate`, {
+            method: "POST",
+            body: JSON.stringify({ prompt }),
         }),
 };

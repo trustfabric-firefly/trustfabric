@@ -17,9 +17,13 @@ import NotificationsOutlinedIcon from "@mui/icons-material/NotificationsOutlined
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
+import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
+import TagOutlinedIcon from "@mui/icons-material/TagOutlined";
+import CloudOutlinedIcon from "@mui/icons-material/CloudOutlined";
 import { TopBar } from "@/components/layout/TopBar";
 import { useAuth } from "@/providers/AuthProvider";
 import { RESOLVED_API_BASE_URL, integrationsApi, settingsApi } from "@/lib/api";
+import type { SlackChannel, AwsIntegrationStatus } from "@/types";
 import { isFirebaseConfigured } from "@/lib/firebase";
 
 // ─── Local storage keys ────────────────────────────────────────────────────────
@@ -159,10 +163,31 @@ export default function SettingsPage() {
         }
     }, [githubParam, queryClient]);
 
+    // Slack OAuth redirect notice
+    const slackParam = searchParams.get("slack");
+    const [slackNotice, setSlackNotice] = useState<"connected" | "error" | null>(
+        slackParam === "connected" ? "connected" : slackParam === "error" ? "error" : null
+    );
+    useEffect(() => {
+        if (slackParam === "connected") {
+            void queryClient.invalidateQueries({ queryKey: ["slack-status"] });
+        }
+    }, [slackParam, queryClient]);
+
     // Remote data
     const { data: githubStatus, isLoading: githubLoading, refetch: refetchGitHub } = useQuery({
         queryKey: ["github-status"],
         queryFn: integrationsApi.getGitHubStatus,
+        retry: false,
+    });
+    const { data: slackStatus, isLoading: slackLoading, refetch: refetchSlack } = useQuery({
+        queryKey: ["slack-status"],
+        queryFn: integrationsApi.getSlackStatus,
+        retry: false,
+    });
+    const { data: awsStatus, isLoading: awsLoading, refetch: refetchAws } = useQuery({
+        queryKey: ["aws-status"],
+        queryFn: integrationsApi.getAwsStatus,
         retry: false,
     });
     const { data: backendStatus, isLoading: statusLoading } = useQuery({
@@ -212,6 +237,100 @@ export default function SettingsPage() {
             await refetchGitHub();
             setGithubNotice(null);
         } catch { /* ignore */ }
+    };
+
+    // Slack actions
+    const [slackChannels, setSlackChannels] = useState<SlackChannel[]>([]);
+    const [slackChannelsLoading, setSlackChannelsLoading] = useState(false);
+    const [slackTestSending, setSlackTestSending] = useState(false);
+    const [slackTestResult, setSlackTestResult] = useState<"ok" | "error" | null>(null);
+
+    const connectSlack = async () => {
+        try {
+            const { url } = await integrationsApi.getSlackConnectUrl();
+            window.location.href = url;
+        } catch {
+            setSlackNotice("error");
+        }
+    };
+    const disconnectSlack = async () => {
+        try {
+            await integrationsApi.disconnectSlack();
+            await refetchSlack();
+            setSlackNotice(null);
+        } catch { /* ignore */ }
+    };
+    const loadSlackChannels = async () => {
+        setSlackChannelsLoading(true);
+        try {
+            const channels = await integrationsApi.getSlackChannels();
+            setSlackChannels(channels);
+        } catch { /* ignore */ }
+        setSlackChannelsLoading(false);
+    };
+    const changeSlackChannel = async (channelId: string) => {
+        const ch = slackChannels.find(c => c.id === channelId);
+        if (!ch) return;
+        try {
+            await integrationsApi.updateSlackChannel(ch.id, ch.name);
+            await refetchSlack();
+        } catch { /* ignore */ }
+    };
+    const testSlack = async () => {
+        setSlackTestSending(true);
+        setSlackTestResult(null);
+        try {
+            await integrationsApi.testSlack();
+            setSlackTestResult("ok");
+        } catch {
+            setSlackTestResult("error");
+        }
+        setSlackTestSending(false);
+        setTimeout(() => setSlackTestResult(null), 3000);
+    };
+
+    useEffect(() => {
+        if (slackStatus?.connected) void loadSlackChannels();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [slackStatus?.connected]);
+
+    // AWS actions
+    const [awsRoleArn, setAwsRoleArn] = useState("");
+    const [awsRegion, setAwsRegion] = useState("us-east-1");
+    const [awsConnecting, setAwsConnecting] = useState(false);
+    const [awsError, setAwsError] = useState<string | null>(null);
+    const [awsTestResult, setAwsTestResult] = useState<"ok" | "error" | null>(null);
+    const [awsTesting, setAwsTesting] = useState(false);
+
+    const connectAws = async () => {
+        setAwsConnecting(true);
+        setAwsError(null);
+        try {
+            await integrationsApi.connectAws(awsRoleArn, awsRegion);
+            await refetchAws();
+            setAwsRoleArn("");
+        } catch (err: any) {
+            setAwsError(err?.message || "Failed to connect");
+        }
+        setAwsConnecting(false);
+    };
+    const disconnectAws = async () => {
+        try {
+            await integrationsApi.disconnectAws();
+            await refetchAws();
+        } catch { /* ignore */ }
+    };
+    const testAws = async () => {
+        setAwsTesting(true);
+        setAwsTestResult(null);
+        try {
+            await integrationsApi.testAws();
+            setAwsTestResult("ok");
+        } catch {
+            setAwsTestResult("error");
+        }
+        setAwsTesting(false);
+        setTimeout(() => setAwsTestResult(null), 3000);
     };
 
     const copyApiUrl = useCallback(() => {
@@ -270,6 +389,32 @@ export default function SettingsPage() {
                         type="button"
                         style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: "var(--fs-12)" }}
                         onClick={() => setGithubNotice(null)}
+                    >✕</button>
+                </div>
+            )}
+
+            {/* Slack OAuth notice banner */}
+            {slackNotice && (
+                <div style={{
+                    marginTop: "var(--s-4)",
+                    padding: "var(--s-3) var(--s-4)",
+                    borderRadius: "var(--r-md)",
+                    border: `1px solid ${slackNotice === "connected" ? "var(--c-live)" : "var(--c-critical)"}`,
+                    background: slackNotice === "connected" ? "rgba(57,255,20,0.06)" : "rgba(239,68,68,0.06)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--s-2)",
+                    fontSize: "var(--fs-13)",
+                    color: slackNotice === "connected" ? "var(--c-live)" : "var(--c-critical)",
+                    maxWidth: 680,
+                }}>
+                    {slackNotice === "connected"
+                        ? <><CheckCircleOutlinedIcon sx={{ fontSize: 16 }} /> Slack connected successfully — notifications will be sent to your channel</>
+                        : <><LinkOffOutlinedIcon sx={{ fontSize: 16 }} /> Slack connection failed — try again</>}
+                    <button
+                        type="button"
+                        style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: "var(--fs-12)" }}
+                        onClick={() => setSlackNotice(null)}
                     >✕</button>
                 </div>
             )}
@@ -411,6 +556,235 @@ export default function SettingsPage() {
                             >
                                 <GitHubIcon sx={{ fontSize: 18 }} />
                                 Connect GitHub
+                            </button>
+                        </>
+                    )}
+                </SectionCard>
+
+                {/* ── 3b. Slack Integration ────────────────────────────────── */}
+                <SectionCard>
+                    <SectionHeader
+                        icon={<TagOutlinedIcon sx={{ fontSize: 24 }} />}
+                        title="Slack Integration"
+                        subtitle="Receive notifications for scan results, violations, and system changes"
+                        badge={
+                            slackStatus?.connected
+                                ? <span className="badge badge--live">Connected</span>
+                                : <span className="badge badge--neutral">Not connected</span>
+                        }
+                    />
+
+                    {slackLoading && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>Checking status…</p>
+                    )}
+
+                    {!slackLoading && slackStatus?.connected && slackStatus.info && (
+                        <>
+                            <SettingRow label="Workspace" value={slackStatus.info.team_name} />
+                            <SettingRow label="Connected at" value={new Date(slackStatus.info.connected_at).toLocaleString()} />
+
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">Notification channel</label>
+                                <select
+                                    className="input"
+                                    value={slackStatus.info.channel_id}
+                                    onChange={e => void changeSlackChannel(e.target.value)}
+                                    disabled={slackChannelsLoading}
+                                    style={{ cursor: "pointer" }}
+                                >
+                                    {slackChannelsLoading && <option>Loading channels…</option>}
+                                    {!slackChannelsLoading && slackChannels.length === 0 && (
+                                        <option value={slackStatus.info.channel_id}>#{slackStatus.info.channel_name}</option>
+                                    )}
+                                    {slackChannels.map(ch => (
+                                        <option key={ch.id} value={ch.id}>#{ch.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <Divider />
+
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
+                                TrustFabric will post notifications to the selected channel when compliance scans complete, violations are found, or AI systems are created, updated, or deleted.
+                            </p>
+
+                            <div style={{ display: "flex", gap: "var(--s-2)" }}>
+                                <button
+                                    type="button"
+                                    className="btn btn--secondary btn--sm"
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                    disabled={slackTestSending}
+                                    onClick={() => void testSlack()}
+                                >
+                                    <SendOutlinedIcon sx={{ fontSize: 16 }} />
+                                    {slackTestSending ? "Sending…" : slackTestResult === "ok" ? "Sent!" : slackTestResult === "error" ? "Failed" : "Test Notification"}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn--secondary btn--sm"
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                    onClick={() => void disconnectSlack()}
+                                >
+                                    <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
+                                    Disconnect Slack
+                                </button>
+                            </div>
+                        </>
+                    )}
+
+                    {!slackLoading && !slackStatus?.connected && (
+                        <>
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
+                                Connect your Slack workspace to receive real-time notifications when compliance scans complete, violations are detected, or AI systems change.
+                            </p>
+                            {!backendStatus?.slack_oauth_configured && (
+                                <div style={{
+                                    display: "flex", alignItems: "center", gap: "var(--s-2)",
+                                    padding: "var(--s-3)", borderRadius: "var(--r-sm)",
+                                    background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)",
+                                    fontSize: "var(--fs-12)", color: "var(--c-warning, #f59e0b)", marginBottom: "var(--s-3)",
+                                }}>
+                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
+                                    Slack OAuth not configured on the server. Set <code style={{ fontFamily: "monospace", margin: "0 4px" }}>SLACK_CLIENT_ID</code> and <code style={{ fontFamily: "monospace", margin: "0 4px" }}>SLACK_CLIENT_SECRET</code> in your backend <code style={{ fontFamily: "monospace" }}>.env</code>.
+                                </div>
+                            )}
+                            <button
+                                type="button"
+                                className="btn btn--primary"
+                                style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                                disabled={!backendStatus?.slack_oauth_configured}
+                                onClick={() => void connectSlack()}
+                            >
+                                <TagOutlinedIcon sx={{ fontSize: 18 }} />
+                                Connect Slack
+                            </button>
+                        </>
+                    )}
+                </SectionCard>
+
+                {/* ── 3c. AWS Integration ─────────────────────────────────── */}
+                <SectionCard>
+                    <SectionHeader
+                        icon={<CloudOutlinedIcon sx={{ fontSize: 24 }} />}
+                        title="AWS Integration"
+                        subtitle="Connect your AWS account for cloud infrastructure compliance auditing"
+                        badge={
+                            awsStatus?.connected
+                                ? <span className="badge badge--live">Connected</span>
+                                : <span className="badge badge--neutral">Not connected</span>
+                        }
+                    />
+
+                    {awsLoading && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>Checking status…</p>
+                    )}
+
+                    {!awsLoading && awsStatus?.connected && awsStatus.info && (
+                        <>
+                            <SettingRow label="Account ID" value={awsStatus.info.account_id} mono />
+                            {awsStatus.info.account_alias && (
+                                <SettingRow label="Account alias" value={awsStatus.info.account_alias} />
+                            )}
+                            <SettingRow label="Region" value={awsStatus.info.region} />
+                            <SettingRow label="Role ARN" value={awsStatus.info.role_arn} mono />
+                            <SettingRow label="Connected at" value={new Date(awsStatus.info.connected_at).toLocaleString()} />
+
+                            <Divider />
+
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
+                                TrustFabric uses STS AssumeRole with a read-only cross-account IAM role to audit IAM, S3, CloudTrail, AWS Config, and Security Hub. No credentials are stored — temporary sessions are created on demand.
+                            </p>
+
+                            <div style={{ display: "flex", gap: "var(--s-2)" }}>
+                                <button
+                                    type="button"
+                                    className="btn btn--secondary btn--sm"
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                    disabled={awsTesting}
+                                    onClick={() => void testAws()}
+                                >
+                                    {awsTesting ? "Testing…" : awsTestResult === "ok" ? "Valid!" : awsTestResult === "error" ? "Failed" : "Test Connection"}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn--secondary btn--sm"
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                    onClick={() => void disconnectAws()}
+                                >
+                                    <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
+                                    Disconnect AWS
+                                </button>
+                            </div>
+                        </>
+                    )}
+
+                    {!awsLoading && !awsStatus?.connected && (
+                        <>
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
+                                Create a read-only IAM role in your AWS account with the <strong>SecurityAudit</strong> managed policy attached, then paste the Role ARN below.
+                            </p>
+
+                            <div style={{
+                                padding: "var(--s-3)", borderRadius: "var(--r-sm)",
+                                background: "rgba(255,255,255,0.03)", border: "1px solid var(--c-border)",
+                                fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-4)", lineHeight: 1.7,
+                            }}>
+                                <div style={{ fontWeight: "var(--fw-medium)", marginBottom: 4 }}>Setup steps:</div>
+                                <ol style={{ margin: 0, paddingLeft: "1.4em" }}>
+                                    <li>Go to AWS IAM → Roles → Create role</li>
+                                    <li>Select "Another AWS account" as trusted entity</li>
+                                    <li>Attach the <code style={{ fontFamily: "monospace" }}>SecurityAudit</code> managed policy</li>
+                                    <li>Optionally attach <code style={{ fontFamily: "monospace" }}>AWSSecurityHubReadOnlyAccess</code></li>
+                                    <li>Copy the Role ARN and paste it below</li>
+                                </ol>
+                            </div>
+
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">IAM Role ARN</label>
+                                <input
+                                    className="input"
+                                    value={awsRoleArn}
+                                    onChange={e => { setAwsRoleArn(e.target.value); setAwsError(null); }}
+                                    placeholder="arn:aws:iam::123456789012:role/TrustFabricAudit"
+                                    style={{ fontFamily: "ui-monospace, monospace", fontSize: "var(--fs-12)" }}
+                                />
+                            </div>
+
+                            <div className="form-group" style={{ marginBottom: "var(--s-4)" }}>
+                                <label className="form-label">Region</label>
+                                <select
+                                    className="input"
+                                    value={awsRegion}
+                                    onChange={e => setAwsRegion(e.target.value)}
+                                    style={{ cursor: "pointer" }}
+                                >
+                                    {["us-east-1", "us-east-2", "us-west-1", "us-west-2", "eu-west-1", "eu-west-2", "eu-central-1", "ap-southeast-1", "ap-northeast-1"].map(r => (
+                                        <option key={r} value={r}>{r}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {awsError && (
+                                <div style={{
+                                    display: "flex", alignItems: "center", gap: "var(--s-2)",
+                                    padding: "var(--s-3)", borderRadius: "var(--r-sm)",
+                                    background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)",
+                                    fontSize: "var(--fs-12)", color: "var(--c-critical, #ef4444)", marginBottom: "var(--s-3)",
+                                }}>
+                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
+                                    {awsError}
+                                </div>
+                            )}
+
+                            <button
+                                type="button"
+                                className="btn btn--primary"
+                                style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                                disabled={!awsRoleArn.startsWith("arn:aws:iam::") || awsConnecting}
+                                onClick={() => void connectAws()}
+                            >
+                                <CloudOutlinedIcon sx={{ fontSize: 18 }} />
+                                {awsConnecting ? "Connecting…" : "Connect AWS"}
                             </button>
                         </>
                     )}
