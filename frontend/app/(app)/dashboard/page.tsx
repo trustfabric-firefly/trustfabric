@@ -23,6 +23,7 @@ import MonitorOutlinedIcon from "@mui/icons-material/MonitorOutlined";
 import ChevronRightOutlinedIcon from "@mui/icons-material/ChevronRightOutlined";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import BrushOutlinedIcon from "@mui/icons-material/BrushOutlined";
 import Link from "next/link";
 import { TopBar } from "@/components/layout/TopBar";
 import { RiskTierBadge } from "@/components/ui/Badge";
@@ -81,6 +82,7 @@ type FrameworkKey = keyof typeof FRAMEWORK_CONFIGS;
 
 const INTEGRATIONS = [
     { name: "GitHub", desc: "Code scanning & PR reviews", icon: GitHubIcon, status: "connected" as const },
+    { name: "Figma", desc: "Design & brand compliance", icon: BrushOutlinedIcon, status: "connected" as const },
     { name: "Slack", desc: "Alerts & notifications", icon: ForumOutlinedIcon, status: "needs_setup" as const },
     { name: "AWS", desc: "Cloud infrastructure audit", icon: CloudOutlinedIcon, status: "needs_setup" as const },
     { name: "Azure", desc: "Identity & access management", icon: StorageOutlinedIcon, status: "needs_setup" as const },
@@ -165,9 +167,28 @@ export default function DashboardPage() {
     const connectedCount = INTEGRATIONS.filter((i) => i.name !== "GitHub" && i.status === "connected").length + (githubConnected ? 1 : 0);
     const needsSetupCount = INTEGRATIONS.filter((i) => i.name !== "GitHub" && i.status === "needs_setup").length + (!githubConnected ? 1 : 0);
 
+    const [viewRole, setViewRole] = useState<"Engineering" | "Marketing" | "Compliance">("Engineering");
+
     return (
         <>
-            <TopBar title="Dashboard" subtitle={total > 0 ? `Last updated ${formatRelativeTime(new Date().toISOString())}` : undefined} />
+            <TopBar 
+                title="Dashboard" 
+                subtitle={
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <span style={{ fontSize: "12px" }}>View as:</span>
+                        <select 
+                            className="input" 
+                            style={{ padding: "4px 8px", fontSize: "12px", height: "auto", minHeight: "auto", background: "var(--c-bg-elevated)", border: "1px solid var(--c-border)" }}
+                            value={viewRole}
+                            onChange={(e) => setViewRole(e.target.value as any)}
+                        >
+                            <option value="Engineering">Engineering Lead</option>
+                            <option value="Marketing">Marketing Head</option>
+                            <option value="Compliance">Compliance Officer</option>
+                        </select>
+                    </div>
+                } 
+            />
             <main className="page">
 
                 {/* Row 1: KPI Stats */}
@@ -466,8 +487,12 @@ export default function DashboardPage() {
                             />
                         </div>
                         <div className="panel__body--flush">
-                            {INTEGRATIONS.map((integ) => {
-                                const Icon = integ.icon;
+                            {(() => {
+                                let list = INTEGRATIONS;
+                                if (viewRole === "Marketing") list = INTEGRATIONS.filter(i => ["Figma", "Slack", "Jira"].includes(i.name));
+                                else if (viewRole === "Engineering") list = INTEGRATIONS.filter(i => ["GitHub", "AWS", "Azure", "Slack", "Jira"].includes(i.name));
+                                return list.map((integ) => {
+                                    const Icon = integ.icon;
                                 const isGitHub = integ.name === "GitHub";
                                 const effectiveStatus = isGitHub
                                     ? (githubConnected ? "connected" as const : "needs_setup" as const)
@@ -501,7 +526,8 @@ export default function DashboardPage() {
                                         <ChevronRightOutlinedIcon sx={{ fontSize: 16, color: "var(--c-text-muted)", flexShrink: 0 }} />
                                     </div>
                                 );
-                            })}
+                            });
+                            })()}
                         </div>
                     </div>
 

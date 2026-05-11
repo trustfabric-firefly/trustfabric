@@ -15,6 +15,8 @@ from app.api.routes.scans import router as scans_router
 from app.api.routes.compliance import router as compliance_router
 from app.api.routes.settings import router as settings_router
 from app.api.routes.systems import router as systems_router
+from app.api.routes.brand_compliance import router as brand_compliance_router
+from app.api.routes.figma import router as figma_router
 
 api_router = APIRouter()
 
@@ -29,3 +31,6 @@ api_router.include_router(scans_router, prefix="/api/v1/scans", tags=["scans"])
 api_router.include_router(scan_policies_router, prefix="/api/v1/scan-policies", tags=["scan-policies"])
 api_router.include_router(settings_router, prefix="/api/v1/settings", tags=["settings"])
 api_router.include_router(compliance_router, prefix="/api/v1", tags=["compliance"])
+api_router.include_router(brand_compliance_router, prefix="/api/v1/brand-compliance", tags=["brand-compliance"])
+api_router.include_router(figma_router, prefix="/api/v1/figma", tags=["figma"])
+

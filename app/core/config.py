@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     copilot_provider: str = "auto"  # auto | openai | gemini | claude
 
+    # Vision API (brand compliance scanner) — defaults to openai settings if not set
+    vision_api_key: str = ""
+    vision_base_url: str = ""
+    vision_model: str = "meta/llama-4-maverick-17b-128e-instruct"
+
     rate_limit_per_minute: int = 60
     cors_origins: list[str] = [
         "http://localhost:3000",
@@ -50,6 +55,9 @@ class Settings(BaseSettings):
     github_client_secret: str = ""
     github_redirect_uri: str = "http://localhost:8000/api/v1/integrations/github/callback"
     frontend_url: str = "http://localhost:3000"
+
+    # Figma Integration
+    figma_token: str = ""
 
 
 settings = Settings()
