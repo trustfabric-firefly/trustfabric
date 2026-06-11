@@ -262,21 +262,7 @@ export default function ScansPage() {
                 <button type="button" className="btn btn--secondary" onClick={goToHub}>
                     All integrations
                 </button>
-                {view === "config" ? (
-                    <>
-                        <button type="button" className="btn btn--secondary" onClick={handleCancelConfig}>
-                            Cancel
-                        </button>
-                        <button
-                            type="button"
-                            className="btn btn--primary"
-                            onClick={() => void handleStartScan()}
-                            disabled={configPolicies.length === 0}
-                        >
-                            <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} /> Start Scan
-                        </button>
-                    </>
-                ) : view === "main" ? (
+                {view === "main" ? (
                     hasScans ? (
                         <>
                             <button type="button" className="btn btn--secondary" onClick={handleViewTrends}>
@@ -561,6 +547,7 @@ function ConfigView({
                 </p>
             </header>
 
+            <div className="scan-config-page__body">
             <div className="scan-config-page__layout">
                 <div className="scan-config-page__form">
                     {scanError && (
@@ -596,7 +583,7 @@ function ConfigView({
                         </div>
                         <div className="form-group">
                             <label className="form-label">Target organization</label>
-                            <p className="scan-config-page__meta" style={{ marginTop: "var(--s-2)" }}>
+                            <p className="scan-config-page__meta">
                                 <BusinessOutlinedIcon sx={{ fontSize: 16 }} />
                                 {effectiveOrg ? `@${effectiveOrg}` : "Enter an organization above"}
                             </p>
@@ -654,12 +641,13 @@ function ConfigView({
                             <li>Organization-wide scope evaluates repos your token can access.</li>
                             <li>Results appear on this page once the scan completes.</li>
                         </ul>
-                        <p className="scan-config-page__meta" style={{ marginTop: "var(--s-4)" }}>
+                        <p className="scan-config-page__meta scan-config-page__meta--spaced">
                             <AccessTimeOutlinedIcon sx={{ fontSize: 16 }} />
                             Estimated scan time: ~30 seconds
                         </p>
                     </div>
                 </aside>
+            </div>
             </div>
 
             <footer className="scan-config-page__footer">
