@@ -162,12 +162,12 @@ export default function SystemsPage() {
     }, [runScanMutation]);
 
     const handleOpenComplianceScans = useCallback(() => {
-        router.push("/scans?start=config");
+        router.push("/scans?app=github&start=config");
     }, [router]);
 
     const handleViewScanHistory = useCallback((system: AISystemInventoryItem) => {
         if (system.last_scan_id) {
-            router.push(`/scans?scanId=${encodeURIComponent(system.last_scan_id)}`);
+            router.push(`/scans?app=github&scanId=${encodeURIComponent(system.last_scan_id)}`);
             return;
         }
         router.push("/scans");
