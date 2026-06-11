@@ -1,29 +1,9 @@
 "use client";
+import { SettingsOutlinedIcon, LogoutOutlinedIcon, LinkOutlinedIcon, ContentCopyOutlinedIcon, CheckOutlinedIcon, GitHubIcon, CheckCircleOutlinedIcon, LinkOffOutlinedIcon, BrushOutlinedIcon, AutoAwesomeOutlinedIcon, BusinessOutlinedIcon, GroupOutlinedIcon, PersonRemoveOutlinedIcon, VpnKeyOutlinedIcon, NotificationsOutlinedIcon, SearchOutlinedIcon, InfoOutlinedIcon, WarningAmberOutlinedIcon, SendOutlinedIcon, TagOutlinedIcon, CloudOutlinedIcon } from "@/lib/icons";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
-import LogoutOutlinedIcon from "@mui/icons-material/LogoutOutlined";
-import LinkOutlinedIcon from "@mui/icons-material/LinkOutlined";
-import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
-import CheckOutlinedIcon from "@mui/icons-material/CheckOutlined";
-import GitHubIcon from "@mui/icons-material/GitHub";
-import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
-import LinkOffOutlinedIcon from "@mui/icons-material/LinkOffOutlined";
-import BrushOutlinedIcon from "@mui/icons-material/BrushOutlined";
-import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
-import BusinessOutlinedIcon from "@mui/icons-material/BusinessOutlined";
-import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
-import PersonRemoveOutlinedIcon from "@mui/icons-material/PersonRemoveOutlined";
-import VpnKeyOutlinedIcon from "@mui/icons-material/VpnKeyOutlined";
-import NotificationsOutlinedIcon from "@mui/icons-material/NotificationsOutlined";
-import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
-import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
-import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
-import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
-import TagOutlinedIcon from "@mui/icons-material/TagOutlined";
-import CloudOutlinedIcon from "@mui/icons-material/CloudOutlined";
 import { TopBar } from "@/components/layout/TopBar";
 import { useAuth } from "@/providers/AuthProvider";
 import {
@@ -36,6 +16,7 @@ import {
 import { useOrganization } from "@/providers/OrganizationProvider";
 import type { SlackChannel, AwsIntegrationStatus } from "@/types";
 import { isFirebaseConfigured } from "@/lib/firebase";
+import { IS_PRODUCTION_BUILD } from "@/lib/auth-config";
 
 // ─── Local storage keys ────────────────────────────────────────────────────────
 const LS_DEFAULT_GITHUB_ORG = "tf_default_github_org";
@@ -143,6 +124,37 @@ function Divider() {
     return <div style={{ borderTop: "1px solid var(--c-border)", margin: "var(--s-4) 0" }} />;
 }
 
+function OAuthConnectSteps({ provider }: { provider: "GitHub" | "Slack" }) {
+    const steps =
+        provider === "GitHub"
+            ? [
+                "Click Connect GitHub below.",
+                "Sign in on GitHub (personal account or your company organization).",
+                "Review and approve TrustFabric's read-only access request.",
+                "You'll return here automatically when authorization completes.",
+            ]
+            : [
+                "Click Connect Slack below.",
+                "Choose your company's Slack workspace and sign in.",
+                "Approve TrustFabric to post notifications to channels you select.",
+                "You'll return here automatically when authorization completes.",
+            ];
+
+    return (
+        <ol style={{
+            margin: "0 0 var(--s-3)",
+            paddingLeft: "var(--s-5)",
+            fontSize: "var(--fs-12)",
+            color: "var(--c-text-muted)",
+            lineHeight: 1.6,
+        }}>
+            {steps.map((step) => (
+                <li key={step} style={{ marginBottom: 4 }}>{step}</li>
+            ))}
+        </ol>
+    );
+}
+
 function NotifToggle({ label, description, value, onChange }: {
     label: string;
     description: string;
@@ -239,6 +251,11 @@ export default function SettingsPage() {
     const { data: awsStatus, isLoading: awsLoading, refetch: refetchAws } = useQuery({
         queryKey: ["aws-status"],
         queryFn: integrationsApi.getAwsStatus,
+        retry: false,
+    });
+    const { data: figmaStatus, isLoading: figmaLoading, refetch: refetchFigma } = useQuery({
+        queryKey: ["figma-status"],
+        queryFn: integrationsApi.getFigmaStatus,
         retry: false,
     });
     const { data: backendStatus, isLoading: statusLoading } = useQuery({
@@ -440,12 +457,21 @@ export default function SettingsPage() {
     const saveNotif = (key: string, val: boolean) => localStorage.setItem(key, String(val));
 
     // GitHub actions
+    const [githubConnecting, setGithubConnecting] = useState(false);
+    const [githubConnectError, setGithubConnectError] = useState<string | null>(null);
     const connectGitHub = async () => {
+        setGithubConnecting(true);
+        setGithubConnectError(null);
         try {
             const { url } = await integrationsApi.getGitHubConnectUrl();
             window.location.href = url;
-        } catch {
-            setGithubNotice("error");
+        } catch (err) {
+            setGithubConnecting(false);
+            setGithubConnectError(
+                err instanceof Error
+                    ? err.message
+                    : "Could not start GitHub authorization. Try again or contact support.",
+            );
         }
     };
     const disconnectGitHub = async () => {
@@ -462,12 +488,21 @@ export default function SettingsPage() {
     const [slackTestSending, setSlackTestSending] = useState(false);
     const [slackTestResult, setSlackTestResult] = useState<"ok" | "error" | null>(null);
 
+    const [slackConnecting, setSlackConnecting] = useState(false);
+    const [slackConnectError, setSlackConnectError] = useState<string | null>(null);
     const connectSlack = async () => {
+        setSlackConnecting(true);
+        setSlackConnectError(null);
         try {
             const { url } = await integrationsApi.getSlackConnectUrl();
             window.location.href = url;
-        } catch {
-            setSlackNotice("error");
+        } catch (err) {
+            setSlackConnecting(false);
+            setSlackConnectError(
+                err instanceof Error
+                    ? err.message
+                    : "Could not start Slack authorization. Try again or contact support.",
+            );
         }
     };
     const disconnectSlack = async () => {
@@ -550,6 +585,31 @@ export default function SettingsPage() {
         setTimeout(() => setAwsTestResult(null), 3000);
     };
 
+    // Figma actions
+    const [figmaToken, setFigmaToken] = useState("");
+    const [figmaConnecting, setFigmaConnecting] = useState(false);
+    const [figmaError, setFigmaError] = useState<string | null>(null);
+
+    const connectFigma = async () => {
+        if (!figmaToken.trim()) return;
+        setFigmaConnecting(true);
+        setFigmaError(null);
+        try {
+            await integrationsApi.connectFigma(figmaToken.trim());
+            await refetchFigma();
+            setFigmaToken("");
+        } catch (err: unknown) {
+            setFigmaError(err instanceof Error ? err.message : "Failed to connect Figma");
+        }
+        setFigmaConnecting(false);
+    };
+    const disconnectFigma = async () => {
+        try {
+            await integrationsApi.disconnectFigma();
+            await refetchFigma();
+        } catch { /* ignore */ }
+    };
+
     const copyApiUrl = useCallback(() => {
         void navigator.clipboard.writeText(RESOLVED_API_BASE_URL).then(() => {
             setCopied(true);
@@ -557,8 +617,10 @@ export default function SettingsPage() {
         });
     }, []);
 
-    const authModeLabel = isDevMode ? "Local dev — stub user (Firebase not configured)" : "Firebase Authentication";
-    const hasDevBearer = Boolean(process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN) || Boolean(process.env.NEXT_PUBLIC_DEV_VIEWER_TOKEN);
+    const showDevDiagnostics = isDevMode && !IS_PRODUCTION_BUILD;
+    const actorRoleLabel = activeOrganization?.role
+        ? ROLE_LABELS[activeOrganization.role as OrgRole] ?? activeOrganization.role
+        : "—";
 
     // Determine active LLM model label
     const activeLlmLabel = () => {
@@ -643,29 +705,28 @@ export default function SettingsPage() {
                     <SectionHeader
                         icon={<SettingsOutlinedIcon sx={{ fontSize: 24 }} />}
                         title="Account"
-                        subtitle={authModeLabel}
+                        subtitle="Your profile and workspace access"
                     />
-                    <SettingRow label="Email" value={user?.email ?? (isDevMode ? "dev@local (stub)" : "—")} />
-                    <SettingRow label="User ID" value={user?.uid ?? "—"} mono />
-                    <SettingRow label="Role" value={isDevMode ? "Admin (dev)" : "Admin"} />
-
-                    {!isDevMode && (
-                        <button
-                            type="button"
-                            className="btn btn--secondary btn--sm"
-                            style={{ marginTop: "var(--s-3)", display: "inline-flex", alignItems: "center", gap: 8 }}
-                            disabled={loading}
-                            onClick={() => void logOut()}
-                        >
-                            <LogoutOutlinedIcon sx={{ fontSize: 16 }} />
-                            Sign out
-                        </button>
+                    <SettingRow label="Email" value={user?.email ?? "—"} />
+                    <SettingRow label="Workspace role" value={actorRoleLabel} />
+                    {showDevDiagnostics && (
+                        <>
+                            <SettingRow label="User ID" value={user?.uid ?? "—"} mono />
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-2)", lineHeight: 1.5 }}>
+                                Local development mode — configure Firebase in <code style={{ fontFamily: "monospace" }}>.env.local</code> for production authentication.
+                            </p>
+                        </>
                     )}
-                    {isDevMode && (
-                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-2)", lineHeight: 1.5 }}>
-                            Running in dev mode. Set <code style={{ fontFamily: "monospace" }}>NEXT_PUBLIC_FIREBASE_API_KEY</code> in <code style={{ fontFamily: "monospace" }}>.env.local</code> to enable real authentication.
-                        </p>
-                    )}
+                    <button
+                        type="button"
+                        className="btn btn--secondary btn--sm"
+                        style={{ marginTop: "var(--s-3)", display: "inline-flex", alignItems: "center", gap: 8 }}
+                        disabled={loading || !user}
+                        onClick={() => void logOut()}
+                    >
+                        <LogoutOutlinedIcon sx={{ fontSize: 16 }} />
+                        Sign out
+                    </button>
                 </SectionCard>
 
                 {/* ── 2. Organization Profile ───────────────────────────────── */}
@@ -691,18 +752,20 @@ export default function SettingsPage() {
                             </select>
                         </div>
                     )}
-                    <SettingRow
-                        label="Workspace ID"
-                        value={activeOrganizationId ?? "—"}
-                        mono
-                    />
+                    {canAdmin && (
+                        <SettingRow
+                            label="Workspace ID"
+                            value={activeOrganizationId ?? "—"}
+                            mono
+                        />
+                    )}
                     <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
                         <label className="form-label">Organization name</label>
                         <input
                             className="input"
                             value={orgName}
                             onChange={e => setOrgName(e.target.value)}
-                            placeholder="e.g. Mouser Electronics"
+                            placeholder="Your company name"
                             disabled={!canAdmin}
                         />
                     </div>
@@ -719,7 +782,7 @@ export default function SettingsPage() {
                     </div>
                     {!canAdmin && (
                         <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)" }}>
-                            Your role ({activeOrganization?.role ?? "viewer"}) is read-only for workspace settings.
+                            Your role ({actorRoleLabel}) does not allow editing workspace settings.
                         </p>
                     )}
                     {orgError && (
@@ -1079,7 +1142,7 @@ export default function SettingsPage() {
                             <Divider />
 
                             <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
-                                TrustFabric stores a GitHub OAuth token in Firestore to read your organization's Copilot configuration and repository security settings. No code is ever read or modified.
+                                TrustFabric stores an encrypted GitHub OAuth token to read your organization&apos;s Copilot configuration and repository security settings. No code is ever read or modified.
                             </p>
 
                             <button
@@ -1097,30 +1160,54 @@ export default function SettingsPage() {
 
                     {!githubLoading && !githubStatus?.connected && (
                         <>
-                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
-                                Connect your GitHub account (personal or enterprise org) to scan Copilot configuration, branch protection, vulnerability alerts, and Actions permissions.
+                            <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", marginBottom: "var(--s-3)", lineHeight: 1.6 }}>
+                                Authorize TrustFabric to read Copilot settings, branch protection, vulnerability alerts, and Actions permissions.
+                                Each workspace connects its own GitHub account — your team does not configure API keys in TrustFabric.
                             </p>
-                            {!backendStatus?.github_oauth_configured && (
+                            {backendStatus?.github_oauth_configured ? (
+                                <OAuthConnectSteps provider="GitHub" />
+                            ) : (
                                 <div style={{
-                                    display: "flex", alignItems: "center", gap: "var(--s-2)",
+                                    display: "flex", alignItems: "flex-start", gap: "var(--s-2)",
                                     padding: "var(--s-3)", borderRadius: "var(--r-sm)",
                                     background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)",
                                     fontSize: "var(--fs-12)", color: "var(--c-warning, #f59e0b)", marginBottom: "var(--s-3)",
+                                    lineHeight: 1.5,
                                 }}>
-                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
-                                    GitHub OAuth not configured on the server. Set <code style={{ fontFamily: "monospace", margin: "0 4px" }}>GITHUB_CLIENT_ID</code> and <code style={{ fontFamily: "monospace", margin: "0 4px" }}>GITHUB_CLIENT_SECRET</code> in your backend <code style={{ fontFamily: "monospace" }}>.env</code>.
+                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0, marginTop: 2 }} />
+                                    {showDevDiagnostics ? (
+                                        <>
+                                            GitHub OAuth is not configured for this environment. Register a GitHub OAuth App and set{" "}
+                                            <code style={{ fontFamily: "monospace" }}>GITHUB_CLIENT_ID</code> and{" "}
+                                            <code style={{ fontFamily: "monospace" }}>GITHUB_CLIENT_SECRET</code> once on the TrustFabric backend
+                                            (not per customer). Callback URL:{" "}
+                                            <code style={{ fontFamily: "monospace" }}>{RESOLVED_API_BASE_URL}/api/v1/integrations/github/callback</code>
+                                        </>
+                                    ) : (
+                                        "GitHub connection is temporarily unavailable on this TrustFabric instance. Contact TrustFabric support — no action is required from your GitHub administrators beyond approving access when Connect is enabled."
+                                    )}
                                 </div>
+                            )}
+                            {githubConnectError && (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-critical)", marginBottom: "var(--s-3)" }}>
+                                    {githubConnectError}
+                                </p>
                             )}
                             <button
                                 type="button"
                                 className="btn btn--primary"
                                 style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
-                                disabled={!canAdmin || !backendStatus?.github_oauth_configured}
+                                disabled={!canAdmin || !backendStatus?.github_oauth_configured || githubConnecting}
                                 onClick={() => void connectGitHub()}
                             >
                                 <GitHubIcon sx={{ fontSize: 18 }} />
-                                Connect GitHub
+                                {githubConnecting ? "Redirecting to GitHub…" : "Connect GitHub"}
                             </button>
+                            {!canAdmin && (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-2)" }}>
+                                    Only workspace administrators can connect integrations.
+                                </p>
+                            )}
                         </>
                     )}
                 </SectionCard>
@@ -1199,30 +1286,54 @@ export default function SettingsPage() {
 
                     {!slackLoading && !slackStatus?.connected && (
                         <>
-                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
-                                Connect your Slack workspace to receive real-time notifications when compliance scans complete, violations are detected, or AI systems change.
+                            <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", marginBottom: "var(--s-3)", lineHeight: 1.6 }}>
+                                Authorize your Slack workspace to receive notifications when scans complete, violations are detected, or AI systems change.
+                                Each workspace connects independently — no Slack app credentials are stored in your browser.
                             </p>
-                            {!backendStatus?.slack_oauth_configured && (
+                            {backendStatus?.slack_oauth_configured ? (
+                                <OAuthConnectSteps provider="Slack" />
+                            ) : (
                                 <div style={{
-                                    display: "flex", alignItems: "center", gap: "var(--s-2)",
+                                    display: "flex", alignItems: "flex-start", gap: "var(--s-2)",
                                     padding: "var(--s-3)", borderRadius: "var(--r-sm)",
                                     background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)",
                                     fontSize: "var(--fs-12)", color: "var(--c-warning, #f59e0b)", marginBottom: "var(--s-3)",
+                                    lineHeight: 1.5,
                                 }}>
-                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
-                                    Slack OAuth not configured on the server. Set <code style={{ fontFamily: "monospace", margin: "0 4px" }}>SLACK_CLIENT_ID</code> and <code style={{ fontFamily: "monospace", margin: "0 4px" }}>SLACK_CLIENT_SECRET</code> in your backend <code style={{ fontFamily: "monospace" }}>.env</code>.
+                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0, marginTop: 2 }} />
+                                    {showDevDiagnostics ? (
+                                        <>
+                                            Slack OAuth is not configured for this environment. Create a Slack app and set{" "}
+                                            <code style={{ fontFamily: "monospace" }}>SLACK_CLIENT_ID</code> and{" "}
+                                            <code style={{ fontFamily: "monospace" }}>SLACK_CLIENT_SECRET</code> once on the TrustFabric backend.
+                                            Redirect URL:{" "}
+                                            <code style={{ fontFamily: "monospace" }}>{RESOLVED_API_BASE_URL}/api/v1/integrations/slack/callback</code>
+                                        </>
+                                    ) : (
+                                        "Slack connection is temporarily unavailable on this TrustFabric instance. Contact TrustFabric support."
+                                    )}
                                 </div>
+                            )}
+                            {slackConnectError && (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-critical)", marginBottom: "var(--s-3)" }}>
+                                    {slackConnectError}
+                                </p>
                             )}
                             <button
                                 type="button"
                                 className="btn btn--primary"
                                 style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
-                                disabled={!canAdmin || !backendStatus?.slack_oauth_configured}
+                                disabled={!canAdmin || !backendStatus?.slack_oauth_configured || slackConnecting}
                                 onClick={() => void connectSlack()}
                             >
                                 <TagOutlinedIcon sx={{ fontSize: 18 }} />
-                                Connect Slack
+                                {slackConnecting ? "Redirecting to Slack…" : "Connect Slack"}
                             </button>
+                            {!canAdmin && (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-2)" }}>
+                                    Only workspace administrators can connect integrations.
+                                </p>
+                            )}
                         </>
                     )}
                 </SectionCard>
@@ -1363,28 +1474,84 @@ export default function SettingsPage() {
                         title="Figma Integration"
                         subtitle="Connect Figma to enable automated brand compliance scanning of marketing assets"
                         badge={
-                            <span className="badge badge--live">Connected</span>
+                            figmaStatus?.connected
+                                ? <span className="badge badge--live">Connected</span>
+                                : <span className="badge badge--neutral">Not connected</span>
                         }
                     />
 
-                    <SettingRow label="Status" value="Connected via Personal Access Token" />
-                    <SettingRow label="Figma account" value="@Koshish — kxs3924@mavs.uta.edu" />
-                    <SettingRow label="Capabilities" value="Read files, list team projects, export frames" />
+                    {figmaLoading && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>Checking status…</p>
+                    )}
 
-                    <Divider />
+                    {!figmaLoading && figmaStatus?.connected && figmaStatus.user && (
+                        <>
+                            <SettingRow label="Figma account" value={`@${figmaStatus.user.handle} — ${figmaStatus.user.email}`} />
+                            <SettingRow
+                                label="Connected at"
+                                value={
+                                    figmaStatus.user.connected_at
+                                        ? new Date(figmaStatus.user.connected_at).toLocaleString()
+                                        : "—"
+                                }
+                            />
+                            <Divider />
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
+                                Tokens are encrypted at rest per workspace. TrustFabric uses your Figma token to fetch design frames and evaluate them against brand guidelines.
+                            </p>
+                            <button
+                                type="button"
+                                className="btn btn--secondary btn--sm"
+                                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                disabled={!canAdmin}
+                                onClick={() => void disconnectFigma()}
+                            >
+                                <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
+                                Disconnect Figma
+                            </button>
+                        </>
+                    )}
 
-                    <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
-                        TrustFabric uses the configured Figma token to securely fetch design frames and evaluate them against your brand guidelines using Vision AI.
-                    </p>
-                    <button
-                        type="button"
-                        className="btn btn--secondary btn--sm"
-                        style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-                        disabled
-                    >
-                        <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
-                        Disconnect Figma
-                    </button>
+                    {!figmaLoading && !figmaStatus?.connected && (
+                        <>
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
+                                Create a Figma personal access token with file read access, then paste it below. Each workspace stores its own token — nothing is shared across tenants.
+                            </p>
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">Figma personal access token</label>
+                                <input
+                                    className="input"
+                                    type="password"
+                                    value={figmaToken}
+                                    onChange={(e) => { setFigmaToken(e.target.value); setFigmaError(null); }}
+                                    placeholder="figd_..."
+                                    autoComplete="off"
+                                    style={{ fontFamily: "ui-monospace, monospace", fontSize: "var(--fs-12)" }}
+                                />
+                            </div>
+                            {figmaError && (
+                                <div style={{
+                                    display: "flex", alignItems: "center", gap: "var(--s-2)",
+                                    padding: "var(--s-3)", borderRadius: "var(--r-sm)",
+                                    background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)",
+                                    fontSize: "var(--fs-12)", color: "var(--c-critical, #ef4444)", marginBottom: "var(--s-3)",
+                                }}>
+                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
+                                    {figmaError}
+                                </div>
+                            )}
+                            <button
+                                type="button"
+                                className="btn btn--primary"
+                                style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                                disabled={!canAdmin || figmaToken.trim().length < 10 || figmaConnecting}
+                                onClick={() => void connectFigma()}
+                            >
+                                <BrushOutlinedIcon sx={{ fontSize: 18 }} />
+                                {figmaConnecting ? "Connecting…" : "Connect Figma"}
+                            </button>
+                        </>
+                    )}
                 </SectionCard>
 
                 {/* ── 4. Scan Defaults ──────────────────────────────────────── */}
@@ -1403,7 +1570,7 @@ export default function SettingsPage() {
                             placeholder={githubStatus?.user?.login ?? "your-github-username-or-org"}
                         />
                         <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-1)" }}>
-                            For personal accounts use your GitHub username. For enterprise use the org slug (e.g. <code style={{ fontFamily: "monospace" }}>mouser-electronics</code>).
+                            For personal accounts use your GitHub username. For enterprise use your organization slug (e.g. <code style={{ fontFamily: "monospace" }}>your-org</code>).
                         </p>
                     </div>
                     <button
@@ -1469,14 +1636,20 @@ export default function SettingsPage() {
                                     <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", lineHeight: 1.5 }}>
                                         {policyEvalAvailable
                                             ? "Every compliance scan will automatically evaluate all your active governance policies (AI-generated, manual, or template) against the real GitHub configuration using Claude."
-                                            : "Set CLAUDE_API_KEY in your backend .env to enable LLM-based evaluation of custom governance policies during scans."}
+                                            : "Custom policy evaluation during scans requires Claude to be configured by your administrator."}
                                     </div>
                                 </div>
                             </div>
 
-                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-3)", lineHeight: 1.5 }}>
-                                To change the provider, set <code style={{ fontFamily: "monospace" }}>COPILOT_PROVIDER=openai|claude|gemini|auto</code> in your backend <code style={{ fontFamily: "monospace" }}>.env</code> and restart the server.
-                            </p>
+                            {showDevDiagnostics ? (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-3)", lineHeight: 1.5 }}>
+                                    To change the provider locally, set <code style={{ fontFamily: "monospace" }}>COPILOT_PROVIDER</code> in the backend environment and restart the server.
+                                </p>
+                            ) : (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-3)", lineHeight: 1.5 }}>
+                                    AI provider configuration is managed by your platform administrator.
+                                </p>
+                            )}
                         </>
                     )}
                 </SectionCard>
@@ -1507,49 +1680,45 @@ export default function SettingsPage() {
                         onChange={v => { setNotifPolicyChanges(v); saveNotif(LS_NOTIF_POLICY_CHANGES, v); }}
                     />
                     <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-1)", lineHeight: 1.5 }}>
-                        Email delivery and webhook integrations are on the roadmap. Preferences are saved locally for now.
+                        Preferences are saved in this browser. Email and webhook delivery can be configured by your administrator via Slack.
                     </p>
                 </SectionCard>
 
-                {/* ── 7. API & Developer ────────────────────────────────────── */}
-                <SectionCard>
-                    <SectionHeader
-                        icon={<LinkOutlinedIcon sx={{ fontSize: 24 }} />}
-                        title="API & Developer"
-                        subtitle="Backend connection and authentication diagnostics"
-                    />
-                    <SettingRow label="API base URL" value={RESOLVED_API_BASE_URL} mono />
-                    <div style={{ display: "flex", gap: "var(--s-2)", marginBottom: "var(--s-3)" }}>
-                        <button type="button" className="btn btn--ghost btn--sm" style={{ gap: 6 }} onClick={copyApiUrl}>
-                            {copied ? <CheckOutlinedIcon sx={{ fontSize: 16 }} /> : <ContentCopyOutlinedIcon sx={{ fontSize: 16 }} />}
-                            {copied ? "Copied" : "Copy URL"}
-                        </button>
-                        <a
-                            href={`${RESOLVED_API_BASE_URL}/docs`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="btn btn--ghost btn--sm"
-                            style={{ gap: 6, textDecoration: "none" }}
-                        >
-                            Open API docs ↗
-                        </a>
-                    </div>
-
-                    <SettingRow
-                        label="Firebase client"
-                        value={isFirebaseConfigured ? "Configured" : "Not configured — using dev stub user"}
-                    />
-                    <SettingRow
-                        label="Dev bearer token"
-                        value={hasDevBearer ? "Set (NEXT_PUBLIC_DEV_ADMIN_TOKEN)" : "Not set"}
-                    />
-                    {backendStatus && (
-                        <>
-                            <SettingRow label="Backend environment" value={`${backendStatus.app_env} — v${backendStatus.app_version}`} />
-                            <SettingRow label="Rate limit" value={`${backendStatus.rate_limit_per_minute} requests / minute`} />
-                        </>
-                    )}
-                </SectionCard>
+                {showDevDiagnostics && (
+                    <SectionCard>
+                        <SectionHeader
+                            icon={<LinkOutlinedIcon sx={{ fontSize: 24 }} />}
+                            title="Developer diagnostics"
+                            subtitle="Local development connection details"
+                        />
+                        <SettingRow label="API base URL" value={RESOLVED_API_BASE_URL} mono />
+                        <div style={{ display: "flex", gap: "var(--s-2)", marginBottom: "var(--s-3)" }}>
+                            <button type="button" className="btn btn--ghost btn--sm" style={{ gap: 6 }} onClick={copyApiUrl}>
+                                {copied ? <CheckOutlinedIcon sx={{ fontSize: 16 }} /> : <ContentCopyOutlinedIcon sx={{ fontSize: 16 }} />}
+                                {copied ? "Copied" : "Copy URL"}
+                            </button>
+                            <a
+                                href={`${RESOLVED_API_BASE_URL}/docs`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="btn btn--ghost btn--sm"
+                                style={{ gap: 6, textDecoration: "none" }}
+                            >
+                                Open API docs ↗
+                            </a>
+                        </div>
+                        <SettingRow
+                            label="Firebase client"
+                            value={isFirebaseConfigured ? "Configured" : "Not configured"}
+                        />
+                        {backendStatus && (
+                            <>
+                                <SettingRow label="Backend environment" value={`${backendStatus.app_env} — v${backendStatus.app_version}`} />
+                                <SettingRow label="Rate limit" value={`${backendStatus.rate_limit_per_minute} requests / minute`} />
+                            </>
+                        )}
+                    </SectionCard>
+                )}
 
                 {/* ── 8. About ─────────────────────────────────────────────── */}
                 <SectionCard>
@@ -1558,7 +1727,7 @@ export default function SettingsPage() {
                         title="About TrustFabric"
                     />
                     <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", lineHeight: 1.7, marginBottom: "var(--s-4)" }}>
-                        TrustFabric is an AI Governance SaaS platform that continuously monitors organizational AI tool configurations and ensures compliance with defined governance policies. Built as a senior design capstone project.
+                        TrustFabric helps enterprise security and compliance teams govern AI systems end to end — from inventory and policy enforcement to audit-ready evidence aligned with NIST AI RMF.
                     </p>
 
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--s-3)", marginBottom: "var(--s-4)" }}>

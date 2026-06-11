@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { CloseIcon } from "@/lib/icons";
 import { useEffect } from "react";
 
 interface ModalProps {
@@ -47,7 +47,7 @@ export function Modal({
                         onClick={onClose}
                         aria-label="Close"
                     >
-                        <X size={18} />
+                        <CloseIcon sx={{ fontSize: 18 }} />
                     </button>
                 </div>
 

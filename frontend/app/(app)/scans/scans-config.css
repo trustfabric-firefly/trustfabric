@@ -1,0 +1,228 @@
+/* Configure compliance scan — full-width two-column layout */
+
+.scan-config-page {
+  width: 100%;
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: var(--s-2) 0 var(--s-6);
+  box-sizing: border-box;
+}
+
+.scan-config-page__header {
+  margin-bottom: var(--s-5);
+}
+
+.scan-config-page__title {
+  font-size: var(--fs-18);
+  font-weight: var(--fw-semibold);
+  color: var(--c-text);
+  margin: 0 0 var(--s-2);
+  letter-spacing: -0.02em;
+}
+
+.scan-config-page__subtitle {
+  font-size: var(--fs-14);
+  color: var(--c-text-muted);
+  line-height: 1.55;
+  margin: 0;
+  max-width: 40rem;
+}
+
+.scan-config-page__layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--s-6);
+  align-items: start;
+}
+
+@media (min-width: 960px) {
+  .scan-config-page__layout {
+    grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr);
+  }
+}
+
+.scan-config-page__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.scan-config-page__row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--s-4);
+}
+
+@media (min-width: 640px) {
+  .scan-config-page__row--2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.scan-config-page__aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+@media (min-width: 960px) {
+  .scan-config-page__aside {
+    position: sticky;
+    top: var(--s-4);
+  }
+}
+
+.scan-config-page__card {
+  padding: var(--s-4) 0 0;
+  border-top: 1px solid var(--c-border);
+}
+
+.scan-config-page__card-title {
+  font-size: var(--fs-11);
+  font-weight: var(--fw-semibold);
+  color: var(--c-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 var(--s-3);
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.scan-config-page__checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.scan-config-page__check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  font-size: var(--fs-13);
+  color: var(--c-text-secondary);
+  line-height: 1.45;
+}
+
+.scan-config-page__check-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c-text-muted);
+  flex-shrink: 0;
+  margin-top: 7px;
+}
+
+.scan-config-page__check-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.scan-config-page__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-13);
+  color: var(--c-text-muted);
+  margin: 0;
+}
+
+.scan-config-page__tips {
+  margin: 0;
+  padding-left: 1.15rem;
+  font-size: var(--fs-13);
+  color: var(--c-text-secondary);
+  line-height: 1.65;
+}
+
+.scan-config-page__tips li + li {
+  margin-top: var(--s-2);
+}
+
+.scan-config-page__scope {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+@media (min-width: 640px) {
+  .scan-config-page__scope {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+  }
+
+  .scan-config-page__scope-option {
+    flex: 1;
+    min-width: 10rem;
+    justify-content: center;
+    padding: 10px var(--s-3);
+    border: 1px solid var(--c-border);
+    border-radius: var(--r-md);
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .scan-config-page__scope-option:has(input:checked) {
+    border-color: var(--c-border-strong);
+    background: var(--c-accent-subtle);
+  }
+}
+
+.scan-config-page__scope-option {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-13);
+  color: var(--c-text);
+  cursor: pointer;
+}
+
+.scan-config-page__scope-option input {
+  accent-color: var(--c-accent);
+}
+
+.scan-config-page__footer {
+  margin-top: var(--s-6);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--c-border);
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+.scan-config-page__footer-hint {
+  margin-right: auto;
+  font-size: var(--fs-12);
+  color: var(--c-text-muted);
+}
+
+.scan-config-page__error {
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid var(--c-critical);
+  font-size: var(--fs-13);
+  color: var(--c-critical);
+}
+
+@media (max-width: 639px) {
+  .scan-config-page__footer {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .scan-config-page__footer-hint {
+    margin-right: 0;
+    text-align: center;
+  }
+
+  .scan-config-page__footer .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}

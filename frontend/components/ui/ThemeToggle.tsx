@@ -1,10 +1,8 @@
 "use client";
+import { DarkModeOutlinedIcon, LightModeOutlinedIcon } from "@/lib/icons";
 
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
-import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
-import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
-
 export function ThemeToggle() {
     const { theme, setTheme } = useTheme();
     const [mounted, setMounted] = useState(false);

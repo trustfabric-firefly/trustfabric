@@ -45,7 +45,7 @@
 }
 
 .auth-subtitle {
-  font-size: 1rem;
+  font-size: 1.0625rem;
   line-height: 1.55;
   color: #6d6d6d;
   margin: 0;
@@ -57,7 +57,7 @@
 
 .auth-label {
   display: block;
-  font-size: 0.8125rem;
+  font-size: 1.0625rem;
   color: #9a9a9a;
   margin-bottom: 0.5rem;
 }
@@ -69,7 +69,7 @@
 .auth-input {
   width: 100%;
   padding: 0.9rem 1rem;
-  font-size: 0.9375rem;
+  font-size: 1.0625rem;
   font-family: inherit;
   color: #ffffff;
   background: #1a1a1a;
@@ -123,7 +123,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.8125rem;
+  font-size: 1.0625rem;
   color: #9a9a9a;
   cursor: pointer;
   user-select: none;
@@ -133,13 +133,13 @@
   width: 1rem;
   height: 1rem;
   margin: 0;
-  accent-color: #a78bfa;
+  accent-color: var(--c-accent);
   cursor: pointer;
 }
 
 .auth-link {
-  font-size: 0.8125rem;
-  color: #a78bfa;
+  font-size: 1.0625rem;
+  color: var(--c-accent-text);
   text-decoration: none;
   transition: opacity 0.15s ease;
 }
@@ -154,7 +154,7 @@
   justify-content: center;
   width: 100%;
   padding: 0.9rem 1.5rem;
-  font-size: 0.9375rem;
+  font-size: 1.0625rem;
   font-weight: 500;
   font-family: inherit;
   color: #000000;
@@ -179,7 +179,7 @@
   align-items: center;
   gap: 1rem;
   margin: 1.75rem 0;
-  font-size: 0.8125rem;
+  font-size: 1.0625rem;
   color: #555555;
 }
 
@@ -221,14 +221,14 @@
 .auth-footer-text {
   margin-top: 2rem;
   text-align: center;
-  font-size: 0.8125rem;
+  font-size: 1.0625rem;
   color: #6d6d6d;
 }
 
 .auth-alert {
   margin-bottom: 1rem;
   padding: 0.75rem 1rem;
-  font-size: 0.8125rem;
+  font-size: 1.0625rem;
   color: #fb7185;
   background: rgba(244, 63, 94, 0.08);
   border: 1px solid rgba(244, 63, 94, 0.2);
@@ -238,7 +238,7 @@
 .auth-sso-hint {
   margin-bottom: 1rem;
   padding: 0.875rem 1rem;
-  font-size: 0.8125rem;
+  font-size: 1.0625rem;
   line-height: 1.45;
   color: #d4d4d4;
   background: rgba(167, 139, 250, 0.08);
@@ -287,7 +287,7 @@
     radial-gradient(ellipse 80% 60% at 15% 40%, rgba(99, 102, 241, 0.85), transparent 55%),
     radial-gradient(ellipse 70% 50% at 85% 25%, rgba(244, 63, 94, 0.65), transparent 50%),
     radial-gradient(ellipse 60% 55% at 55% 85%, rgba(59, 130, 246, 0.75), transparent 52%),
-    radial-gradient(ellipse 40% 35% at 70% 55%, rgba(139, 92, 246, 0.5), transparent 45%),
+    radial-gradient(ellipse 40% 35% at 70% 55%, rgba(148, 163, 184, 0.35), transparent 45%),
     #0f0f12;
   animation: auth-gradient-shift 12s ease-in-out infinite alternate;
 }

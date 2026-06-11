@@ -1,4 +1,5 @@
 import { auth } from "./firebase";
+import { getDevBearerToken, IS_PRODUCTION_BUILD } from "./auth-config";
 import type {
     AIChatMessage,
     AISystem,
@@ -27,7 +28,6 @@ const RAW_BASE_URL =
     process.env.NEXT_PUBLIC_API_BASE_URL ??
     process.env.NEXT_PUBLIC_API_URL ??
     "http://localhost:8000";
-const LOCAL_TOKEN_KEY = "trustfabric_api_token";
 const LOCAL_ORG_KEY = "trustfabric_organization_id";
 
 function normalizeBaseUrl(value: string): string {
@@ -64,19 +64,33 @@ async function getAuthHeaders(): Promise<HeadersInit> {
         const token = await user.getIdToken();
         return { Authorization: `Bearer ${token}`, ...getOrganizationHeader() };
     }
-    if (typeof window !== "undefined") {
-        const localToken = window.localStorage.getItem(LOCAL_TOKEN_KEY);
-        if (localToken) {
-            return { Authorization: `Bearer ${localToken}`, ...getOrganizationHeader() };
-        }
+    const devToken = getDevBearerToken();
+    if (devToken) {
+        return { Authorization: `Bearer ${devToken}`, ...getOrganizationHeader() };
     }
-    const devToken =
-        process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN
-        ?? process.env.NEXT_PUBLIC_DEV_VIEWER_TOKEN;
-    if (devToken) return { Authorization: `Bearer ${devToken}`, ...getOrganizationHeader() };
+    if (IS_PRODUCTION_BUILD) {
+        throw new Error("Authentication required. Sign in to continue.");
+    }
     throw new Error("Not authenticated");
 }
 
+
+function parseApiErrorDetail(detail: unknown, fallback: string): string {
+    if (typeof detail === "string" && detail.trim()) return detail;
+    if (Array.isArray(detail)) {
+        const parts = detail
+            .map((item) => {
+                if (typeof item === "string") return item;
+                if (item && typeof item === "object" && "msg" in item) {
+                    return String((item as { msg: unknown }).msg);
+                }
+                return "";
+            })
+            .filter(Boolean);
+        if (parts.length) return parts.join("; ");
+    }
+    return fallback;
+}
 
 async function request<T>(
     path: string,
@@ -95,7 +109,7 @@ async function request<T>(
 
     if (!res.ok) {
         const error = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(error.detail ?? "Request failed");
+        throw new Error(parseApiErrorDetail(error.detail, res.statusText || "Request failed"));
     }
 
     // 204 No Content
@@ -247,6 +261,15 @@ export const integrationsApi = {
         request<{ message: string }>("/api/v1/integrations/aws/test", { method: "POST" }),
     disconnectAws: () =>
         request<{ message: string }>("/api/v1/integrations/aws", { method: "DELETE" }),
+    connectFigma: (access_token: string) =>
+        request<FigmaIntegrationStatus>("/api/v1/integrations/figma/connect", {
+            method: "POST",
+            body: JSON.stringify({ access_token }),
+        }),
+    getFigmaStatus: () =>
+        request<FigmaIntegrationStatus>("/api/v1/integrations/figma/status"),
+    disconnectFigma: () =>
+        request<{ message: string }>("/api/v1/integrations/figma", { method: "DELETE" }),
 };
 
 export type BackendStatus = {
@@ -540,8 +563,9 @@ export const brandComplianceApi = {
 
 // --- Figma Integration ---
 
-export type FigmaUser = { id: string; email: string; handle: string; img_url: string };
-export type FigmaStatus = { connected: boolean; user?: FigmaUser; error?: string };
+export type FigmaUser = { id: string; email: string; handle: string; img_url: string; connected_at?: string };
+export type FigmaIntegrationStatus = { connected: boolean; user?: FigmaUser };
+export type FigmaStatus = FigmaIntegrationStatus & { error?: string };
 export type FigmaProject = { id: string; name: string };
 export type FigmaFile = { key: string; name: string; thumbnail_url?: string; last_modified?: string };
 export type FigmaFrame = {
@@ -558,7 +582,7 @@ export type FigmaScanResult = {
 };
 
 export const figmaApi = {
-    status: () => request<FigmaStatus>("/api/v1/figma/status"),
+    status: () => integrationsApi.getFigmaStatus(),
     teamProjects: (teamId: string) => request<{ projects: FigmaProject[] }>(`/api/v1/figma/teams/${teamId}/projects`),
     projectFiles: (projectId: string) => request<{ files: FigmaFile[] }>(`/api/v1/figma/projects/${projectId}/files`),
     fileFrames: (fileKey: string) => request<{ frames: FigmaFrame[]; count: number }>(`/api/v1/figma/files/${fileKey}/frames`),

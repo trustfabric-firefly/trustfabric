@@ -1,4 +1,6 @@
 "use client";
+import { ListOutlinedIcon, EditOutlinedIcon, DashboardCustomizeOutlinedIcon, SearchOutlinedIcon, SecurityOutlinedIcon, DescriptionOutlinedIcon, ModeEditOutlineOutlinedIcon, VisibilityOutlinedIcon, ToggleOnOutlinedIcon, ToggleOffOutlinedIcon, AddOutlinedIcon, ArrowBackOutlinedIcon, ArrowForwardOutlinedIcon, RefreshOutlinedIcon, SendOutlinedIcon, BoltOutlinedIcon, LockOutlinedIcon, BarChartOutlinedIcon, GroupOutlinedIcon, AttachMoneyOutlinedIcon, CheckCircleOutlinedIcon, ContentCopyOutlinedIcon, KeyboardArrowDownIcon, GitHubIcon } from "@/lib/icons"
+import type { AppIconComponent } from "@/lib/icons";
 
 import {
     useState,
@@ -10,34 +12,12 @@ import {
     type ElementType,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import ListOutlinedIcon from "@mui/icons-material/ListOutlined";
-import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
-import DashboardCustomizeOutlinedIcon from "@mui/icons-material/DashboardCustomizeOutlined";
 import { AIIcon, AIIconWrapper } from "@/components/ui/AIIcon";
-import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
-import SecurityOutlinedIcon from "@mui/icons-material/SecurityOutlined";
-import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import ModeEditOutlineOutlinedIcon from "@mui/icons-material/ModeEditOutlineOutlined";
-import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
-import ToggleOnOutlinedIcon from "@mui/icons-material/ToggleOnOutlined";
-import ToggleOffOutlinedIcon from "@mui/icons-material/ToggleOffOutlined";
-import AddOutlinedIcon from "@mui/icons-material/AddOutlined";
-import ArrowBackOutlinedIcon from "@mui/icons-material/ArrowBackOutlined";
-import ArrowForwardOutlinedIcon from "@mui/icons-material/ArrowForwardOutlined";
-import RefreshOutlinedIcon from "@mui/icons-material/RefreshOutlined";
-import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
-import BoltOutlinedIcon from "@mui/icons-material/BoltOutlined";
-import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
-import BarChartOutlinedIcon from "@mui/icons-material/BarChartOutlined";
-import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
-import AttachMoneyOutlinedIcon from "@mui/icons-material/AttachMoneyOutlined";
-import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
-import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
-import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import type { SvgIconComponent } from "@mui/icons-material";
-import GitHubIcon from "@mui/icons-material/GitHub";
 import { TopBar } from "@/components/layout/TopBar";
+import { PageEmptyIllustration } from "@/components/ui/PageEmptyIllustration";
 import { policyApi, systemPoliciesApi, systemsApi, scanPoliciesApi } from "@/lib/api";
+import "./policies-form.css";
+import "./policies-page.css";
 import type {
     AIChatMessage as StoredChatMessage,
     AISystem,
@@ -88,7 +68,7 @@ const CATEGORY_LABELS: Record<PolicyCategory, string> = {
     compliance: "Compliance",
 };
 
-const CATEGORY_ICONS: Record<PolicyCategory, SvgIconComponent> = {
+const CATEGORY_ICONS: Record<PolicyCategory, AppIconComponent> = {
     model_restrictions: LockOutlinedIcon,
     feature_control: ToggleOnOutlinedIcon,
     security: SecurityOutlinedIcon,
@@ -99,13 +79,13 @@ const CATEGORY_ICONS: Record<PolicyCategory, SvgIconComponent> = {
     compliance: BarChartOutlinedIcon,
 };
 
-const MOCK_TEMPLATES: TPolicyTemplate[] = [
-    { id: "tpl_001", name: "Restrict AI Models", description: "Limit which AI models developers can use. Configure allowed and prohibited models.", category: "model_restrictions", severity: "high", used_by: 47, default_rules: { allowed_models: ["claude-3-5-sonnet", "gpt-3.5-turbo"], forbidden_models: ["gpt-4*"], enforcement: "strict" }, customizable_fields: ["allowed_models", "forbidden_models", "enforcement"] },
-    { id: "tpl_002", name: "Disable AI CLI Features", description: "Prevent use of command-line AI tools across the organization.", category: "feature_control", severity: "medium", used_by: 23, default_rules: { disabled_features: ["cli_completion", "cli_chat", "cli_edit"], environments: ["production", "staging"] }, customizable_fields: ["disabled_features", "environments"] },
-    { id: "tpl_003", name: "Require Secret Scanning", description: "Mandate GitHub secret scanning on all repositories to prevent credential leaks.", category: "security", severity: "medium", used_by: 156, default_rules: { scan_on_push: true, block_push_on_detection: true, notification_channels: ["slack", "email"] }, customizable_fields: ["block_push_on_detection", "notification_channels"] },
-    { id: "tpl_004", name: "Mandate Code Review for AI Code", description: "AI-generated code must have mandatory human review before deployment.", category: "quality_control", severity: "high", used_by: 89, default_rules: { min_reviewers: 2, require_senior_reviewer: true, auto_label_ai_code: true }, customizable_fields: ["min_reviewers", "require_senior_reviewer"] },
-    { id: "tpl_005", name: "PII Anonymization Policy", description: "Enforce data anonymization for all AI systems processing personally identifiable information.", category: "data_privacy", severity: "high", used_by: 64, default_rules: { anonymize_before_training: true, gdpr_compliance: true, data_retention_days: 90 }, customizable_fields: ["data_retention_days", "gdpr_compliance"] },
-    { id: "tpl_006", name: "API Rate Limiting for AI", description: "Set usage quotas and rate limits for AI model API calls to control costs.", category: "cost_management", severity: "low", used_by: 31, default_rules: { max_requests_per_minute: 60, max_tokens_per_day: 1000000, alert_at_80_percent: true }, customizable_fields: ["max_requests_per_minute", "max_tokens_per_day"] },
+const POLICY_TEMPLATES: TPolicyTemplate[] = [
+    { id: "tpl_001", name: "Restrict AI Models", description: "Limit which AI models developers can use. Configure allowed and prohibited models.", category: "model_restrictions", severity: "high", used_by: 0, default_rules: { allowed_models: ["claude-3-5-sonnet", "gpt-3.5-turbo"], forbidden_models: ["gpt-4*"], enforcement: "strict" }, customizable_fields: ["allowed_models", "forbidden_models", "enforcement"] },
+    { id: "tpl_002", name: "Disable AI CLI Features", description: "Prevent use of command-line AI tools across the organization.", category: "feature_control", severity: "medium", used_by: 0, default_rules: { disabled_features: ["cli_completion", "cli_chat", "cli_edit"], environments: ["production", "staging"] }, customizable_fields: ["disabled_features", "environments"] },
+    { id: "tpl_003", name: "Require Secret Scanning", description: "Mandate GitHub secret scanning on all repositories to prevent credential leaks.", category: "security", severity: "medium", used_by: 0, default_rules: { scan_on_push: true, block_push_on_detection: true, notification_channels: ["slack", "email"] }, customizable_fields: ["block_push_on_detection", "notification_channels"] },
+    { id: "tpl_004", name: "Mandate Code Review for AI Code", description: "AI-generated code must have mandatory human review before deployment.", category: "quality_control", severity: "high", used_by: 0, default_rules: { min_reviewers: 2, require_senior_reviewer: true, auto_label_ai_code: true }, customizable_fields: ["min_reviewers", "require_senior_reviewer"] },
+    { id: "tpl_005", name: "PII Anonymization Policy", description: "Enforce data anonymization for all AI systems processing personally identifiable information.", category: "data_privacy", severity: "high", used_by: 0, default_rules: { anonymize_before_training: true, gdpr_compliance: true, data_retention_days: 90 }, customizable_fields: ["data_retention_days", "gdpr_compliance"] },
+    { id: "tpl_006", name: "API Rate Limiting for AI", description: "Set usage quotas and rate limits for AI model API calls to control costs.", category: "cost_management", severity: "low", used_by: 0, default_rules: { max_requests_per_minute: 60, max_tokens_per_day: 1000000, alert_at_80_percent: true }, customizable_fields: ["max_requests_per_minute", "max_tokens_per_day"] },
 ];
 
 
@@ -190,11 +170,7 @@ export default function PoliciesPage() {
             />
 
             <main className={`page${useTabColumnScroll ? " page--flex" : ""}`}>
-                {/* Tab bar panel */}
-                <div
-                    className={`panel${useTabColumnScroll ? " panel--flex" : ""}`}
-                    style={{ marginBottom: useTabColumnScroll ? 0 : "var(--s-4)" }}
-                >
+                <div className={`policies-shell${useTabColumnScroll ? " policies-shell--flex" : ""}`}>
                     <div className="tabs">
                         {TABS.map(({ id, label, icon: Icon }) => (
                             <button
@@ -283,6 +259,20 @@ function ViewAllTab({
         .filter((p) => filter === "all" || p.status === filter)
         .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase()));
 
+    const isInitialEmpty = policies.length === 0;
+
+    if (isInitialEmpty) {
+        return (
+            <div className="policies-tab-panel policies-tab-panel--empty">
+                <PageEmptyIllustration
+                    src="/policy.png"
+                    title="No policies"
+                    label="Your policy library is empty"
+                />
+            </div>
+        );
+    }
+
     return (
         <div className="policies-tab-panel">
             <div className="policies-tab-panel__header">
@@ -301,11 +291,12 @@ function ViewAllTab({
             </div>
             <div className="policies-tab-panel__body">
                 {filtered.length === 0 ? (
-                    <div className="empty-state" style={{ padding: "var(--s-8)" }}>
-                        <div className="empty-state__icon"><DescriptionOutlinedIcon sx={{ fontSize: 20 }} /></div>
-                        <p className="empty-state__title">No policies found</p>
-                        <p className="empty-state__desc">{search ? "Try adjusting your search." : "Create your first policy to get started."}</p>
-                    </div>
+                    <PageEmptyIllustration
+                        src="/policy.png"
+                        title="No policies"
+                        label="No policies match this filter"
+                        compact
+                    />
                 ) : (
                     <div>
                         {filtered.map((p) => {
@@ -358,6 +349,88 @@ const EMPTY_MANUAL: PolicyCreate = {
     name: "", description: "", category: "compliance", severity: "medium", applies_to: ["All Organizations"], creation_method: "manual",
 };
 
+function PolicyFormAside({
+    form,
+    systemName,
+    tips,
+}: {
+    form: Pick<PolicyCreate, "name" | "description" | "category" | "severity">;
+    systemName?: string;
+    tips?: string[];
+}) {
+    const defaultTips = [
+        "State who the policy applies to and what must happen.",
+        "Use specific, measurable language (e.g. all repos, before merge).",
+        "Set severity to match the business impact of a violation.",
+    ];
+
+    return (
+        <aside className="policy-form-page__aside">
+            <div className="policy-form-page__card">
+                <h3 className="policy-form-page__card-title">Writing tips</h3>
+                <ul className="policy-form-page__tips">
+                    {(tips ?? defaultTips).map((tip) => (
+                        <li key={tip}>{tip}</li>
+                    ))}
+                </ul>
+            </div>
+            <div className="policy-form-page__card">
+                <h3 className="policy-form-page__card-title">Live preview</h3>
+                {form.name.trim() ? (
+                    <>
+                        <p className="policy-form-page__preview-name">{form.name}</p>
+                        <p className="policy-form-page__preview-desc">
+                            {form.description.trim() || "No description yet."}
+                        </p>
+                        <div className="policy-form-page__preview-meta">
+                            <span className="badge badge--neutral">{CATEGORY_LABELS[form.category]}</span>
+                            <span className={`badge badge--${form.severity === "high" ? "warning" : form.severity === "low" ? "live" : "neutral"}`}>
+                                {form.severity}
+                            </span>
+                            {systemName ? <span className="badge badge--neutral">{systemName}</span> : null}
+                        </div>
+                    </>
+                ) : (
+                    <p className="policy-form-page__placeholder">Start typing to see a preview of your policy.</p>
+                )}
+            </div>
+        </aside>
+    );
+}
+
+function SystemSelectField({
+    systems,
+    systemId,
+    onSystemIdChange,
+    systemsLoading,
+}: {
+    systems: AISystem[];
+    systemId: number | "";
+    onSystemIdChange: (id: number | "") => void;
+    systemsLoading: boolean;
+}) {
+    return (
+        <div className="form-group">
+            <label className="form-label">AI system *</label>
+            <select
+                className="input"
+                value={systemId}
+                onChange={(e) => onSystemIdChange(e.target.value ? Number(e.target.value) : "")}
+                disabled={systemsLoading}
+            >
+                <option value="">
+                    {systemsLoading ? "Loading systems…" : systems.length === 0 ? "No systems — create one in Inventory" : "Select system"}
+                </option>
+                {systems.map((s) => (
+                    <option key={s.id} value={s.id}>
+                        {s.name} (Risk: {s.risk_tier ?? "Unassigned"})
+                    </option>
+                ))}
+            </select>
+        </div>
+    );
+}
+
 function ManualTab({
     systems,
     systemId,
@@ -375,75 +448,88 @@ function ManualTab({
     const set = (k: keyof PolicyCreate, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
     const valid = form.name.trim().length > 0 && form.description.trim().length > 0;
     const canSave = valid && systemId !== "";
+    const selectedSystem = systems.find((s) => s.id === systemId);
 
     return (
-        <div style={{ padding: "var(--s-4)", maxWidth: 640 }}>
-            <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", marginBottom: "var(--s-5)", lineHeight: 1.5 }}>
-                Write your policy in plain language. Policies are stored in Firestore under the selected AI system.
-            </p>
+        <div className="policy-form-page">
+            <header className="policy-form-page__header">
+                <h2 className="policy-form-page__title">Create policy manually</h2>
+                <p className="policy-form-page__subtitle">
+                    Write your policy in plain language. It will be saved under the selected AI system in your workspace.
+                </p>
+            </header>
 
-            <div className="form-group">
-                <label className="form-label">AI system *</label>
-                <select
-                    className="input"
-                    value={systemId}
-                    onChange={(e) => onSystemIdChange(e.target.value ? Number(e.target.value) : "")}
-                    disabled={systemsLoading}
-                >
-                    <option value="">{systemsLoading ? "Loading systems…" : systems.length === 0 ? "No systems — create one in Inventory" : "Select system"}</option>
-                    {systems.map((s) => (
-                        <option key={s.id} value={s.id}>
-                            {s.name} (Risk: {s.risk_tier ?? "Unassigned"})
-                        </option>
-                    ))}
-                </select>
-            </div>
+            <div className="policy-form-page__layout">
+                <div className="policy-form-page__fields">
+                    <div className="policy-form-page__row policy-form-page__row--2">
+                        <SystemSelectField
+                            systems={systems}
+                            systemId={systemId}
+                            onSystemIdChange={onSystemIdChange}
+                            systemsLoading={systemsLoading}
+                        />
+                        <div className="form-group">
+                            <label className="form-label">Policy name *</label>
+                            <input
+                                className="input"
+                                placeholder='e.g., "Restrict AI Models to Approved List"'
+                                value={form.name}
+                                onChange={(e) => set("name", e.target.value)}
+                            />
+                        </div>
+                    </div>
 
-            <div className="form-group">
-                <label className="form-label">Policy Name *</label>
-                <input className="input" placeholder='e.g., "Restrict AI Models to Approved List"' value={form.name} onChange={(e) => set("name", e.target.value)} />
-            </div>
+                    <div className="form-group">
+                        <label className="form-label">Policy description *</label>
+                        <textarea
+                            className="input"
+                            rows={6}
+                            placeholder="Describe the policy requirements in detail..."
+                            value={form.description}
+                            onChange={(e) => set("description", e.target.value)}
+                        />
+                    </div>
 
-            <div className="form-group">
-                <label className="form-label">Policy Description *</label>
-                <textarea className="input" rows={5} placeholder="Describe the policy requirements in detail..." value={form.description} onChange={(e) => set("description", e.target.value)} />
-            </div>
+                    <div className="policy-form-page__row policy-form-page__row--2">
+                        <div className="form-group">
+                            <label className="form-label">Category</label>
+                            <select className="input" value={form.category} onChange={(e) => set("category", e.target.value)}>
+                                {Object.entries(CATEGORY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                            </select>
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Applies to</label>
+                            <select className="input" value={form.applies_to[0]} onChange={(e) => set("applies_to", [e.target.value])}>
+                                <option>All Organizations</option>
+                                <option>Engineering</option>
+                                <option>Data Science</option>
+                                <option>Product</option>
+                                <option>Security</option>
+                            </select>
+                        </div>
+                    </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--s-3)" }}>
-                <div className="form-group">
-                    <label className="form-label">Category</label>
-                    <select className="input" value={form.category} onChange={(e) => set("category", e.target.value)}>
-                        {Object.entries(CATEGORY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                    </select>
+                    <div className="form-group">
+                        <label className="form-label">Severity level</label>
+                        <SeverityRadio value={form.severity} onChange={(v) => set("severity", v)} />
+                    </div>
                 </div>
-                <div className="form-group">
-                    <label className="form-label">Applies To</label>
-                    <select className="input" value={form.applies_to[0]} onChange={(e) => set("applies_to", [e.target.value])}>
-                        <option>All Organizations</option>
-                        <option>Engineering</option>
-                        <option>Data Science</option>
-                        <option>Product</option>
-                        <option>Security</option>
-                    </select>
-                </div>
+
+                <PolicyFormAside form={form} systemName={selectedSystem?.name} />
             </div>
 
-            <div className="form-group">
-                <label className="form-label">Severity Level</label>
-                <SeverityRadio value={form.severity} onChange={(v) => set("severity", v)} />
-            </div>
-
-            <div className="divider" />
-
-            <div style={{ display: "flex", gap: "var(--s-2)", justifyContent: "flex-end" }}>
-                <button className="btn btn--secondary" onClick={() => setForm(EMPTY_MANUAL)}>Cancel</button>
-                <button className="btn btn--secondary" disabled={!canSave} onClick={() => canSave && onCreate(form, { asDraft: true })}>
+            <footer className="policy-form-page__footer">
+                <span className="policy-form-page__footer-hint">
+                    {canSave ? "Ready to save" : "Select a system and complete required fields"}
+                </span>
+                <button type="button" className="btn btn--secondary" onClick={() => setForm(EMPTY_MANUAL)}>Cancel</button>
+                <button type="button" className="btn btn--secondary" disabled={!canSave} onClick={() => canSave && onCreate(form, { asDraft: true })}>
                     Save as Draft
                 </button>
-                <button className="btn btn--primary" disabled={!canSave} onClick={() => canSave && onCreate(form)}>
+                <button type="button" className="btn btn--primary" disabled={!canSave} onClick={() => canSave && onCreate(form)}>
                     Create Policy
                 </button>
-            </div>
+            </footer>
         </div>
     );
 }
@@ -478,83 +564,94 @@ function TemplateTab({
         });
     };
 
-    const filtered = MOCK_TEMPLATES.filter(
+    const filtered = POLICY_TEMPLATES.filter(
         (t) => !search || t.name.toLowerCase().includes(search.toLowerCase()) || t.description.toLowerCase().includes(search.toLowerCase())
     );
 
     if (selected && form) {
         const canCreate = systemId !== "";
+        const selectedSystem = systems.find((s) => s.id === systemId);
         return (
-            <div style={{ padding: "var(--s-4)", maxWidth: 640 }}>
-                <button className="btn btn--ghost btn--sm" style={{ marginBottom: "var(--s-4)", gap: 4 }} onClick={() => { setSelected(null); setForm(null); }}>
-                    <ArrowBackOutlinedIcon sx={{ fontSize: 14 }} /> Back to Templates
-                </button>
-
-                <h3 style={{ fontSize: "var(--fs-16)", fontWeight: "var(--fw-semibold)", marginBottom: "var(--s-1)" }}>
-                    Customize Template: {selected.name}
-                </h3>
-                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-5)" }}>
-                    Pre-filled from template. Modify fields as needed.
-                </p>
-
-                <div className="form-group">
-                    <label className="form-label">AI system *</label>
-                    <select
-                        className="input"
-                        value={systemId}
-                        onChange={(e) => onSystemIdChange(e.target.value ? Number(e.target.value) : "")}
-                        disabled={systemsLoading}
+            <div className="policy-form-page">
+                <header className="policy-form-page__header">
+                    <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        style={{ marginBottom: "var(--s-3)", gap: 4 }}
+                        onClick={() => { setSelected(null); setForm(null); }}
                     >
-                        <option value="">{systemsLoading ? "Loading systems…" : systems.length === 0 ? "No systems" : "Select system"}</option>
-                        {systems.map((s) => (
-                            <option key={s.id} value={s.id}>
-                                {s.name} (Risk: {s.risk_tier ?? "Unassigned"})
-                            </option>
-                        ))}
-                    </select>
+                        <ArrowBackOutlinedIcon sx={{ fontSize: 14 }} /> Back to templates
+                    </button>
+                    <h2 className="policy-form-page__title">Customize: {selected.name}</h2>
+                    <p className="policy-form-page__subtitle">
+                        Pre-filled from template. Adjust fields and enforcement rules before saving.
+                    </p>
+                </header>
+
+                <div className="policy-form-page__layout">
+                    <div className="policy-form-page__fields">
+                        <SystemSelectField
+                            systems={systems}
+                            systemId={systemId}
+                            onSystemIdChange={onSystemIdChange}
+                            systemsLoading={systemsLoading}
+                        />
+                        <div className="form-group">
+                            <label className="form-label">Policy name</label>
+                            <input className="input" value={form.name} onChange={(e) => setForm((f) => f ? { ...f, name: e.target.value } : f)} />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Policy description</label>
+                            <textarea className="input" rows={5} value={form.description} onChange={(e) => setForm((f) => f ? { ...f, description: e.target.value } : f)} />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Severity</label>
+                            <SeverityRadio value={form.severity} onChange={(v) => setForm((f) => f ? { ...f, severity: v } : f)} />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Enforcement rules</label>
+                            <div className="code-block">{JSON.stringify(form.rules, null, 2)}</div>
+                        </div>
+                    </div>
+
+                    <PolicyFormAside
+                        form={form}
+                        systemName={selectedSystem?.name}
+                        tips={[
+                            `Based on the "${selected.name}" template.`,
+                            "Review enforcement rules before creating the policy.",
+                            "You can edit the policy after it is saved.",
+                        ]}
+                    />
                 </div>
 
-                <div className="form-group">
-                    <label className="form-label">Policy Name</label>
-                    <input className="input" value={form.name} onChange={(e) => setForm((f) => f ? { ...f, name: e.target.value } : f)} />
-                </div>
-                <div className="form-group">
-                    <label className="form-label">Policy Description</label>
-                    <textarea className="input" rows={4} value={form.description} onChange={(e) => setForm((f) => f ? { ...f, description: e.target.value } : f)} />
-                </div>
-
-                <div className="form-group">
-                    <label className="form-label">Severity</label>
-                    <SeverityRadio value={form.severity} onChange={(v) => setForm((f) => f ? { ...f, severity: v } : f)} />
-                </div>
-
-                {/* Rules JSON preview */}
-                <div className="form-group">
-                    <label className="form-label">Enforcement Rules</label>
-                    <div className="code-block">{JSON.stringify(form.rules, null, 2)}</div>
-                </div>
-
-                <div className="divider" />
-                <div style={{ display: "flex", gap: "var(--s-2)", justifyContent: "flex-end" }}>
-                    <button className="btn btn--secondary" onClick={() => { setSelected(null); setForm(null); }}>Cancel</button>
-                    <button className="btn btn--primary" disabled={!canCreate} onClick={() => canCreate && onCreate(form)}>Create Policy</button>
-                </div>
+                <footer className="policy-form-page__footer">
+                    <span className="policy-form-page__footer-hint">
+                        {canCreate ? "Ready to create from template" : "Select an AI system to continue"}
+                    </span>
+                    <button type="button" className="btn btn--secondary" onClick={() => { setSelected(null); setForm(null); }}>Cancel</button>
+                    <button type="button" className="btn btn--primary" disabled={!canCreate} onClick={() => canCreate && onCreate(form)}>Create Policy</button>
+                </footer>
             </div>
         );
     }
 
     return (
-        <div style={{ padding: "var(--s-4)" }}>
-            <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", marginBottom: "var(--s-4)", lineHeight: 1.5 }}>
-                Select a pre-configured policy template and customize it for your organization. Saved policies are attached to an AI system in Firestore.
-            </p>
+        <div className="policy-form-page">
+            <header className="policy-form-page__header">
+                <h2 className="policy-form-page__title">Policy templates</h2>
+                <p className="policy-form-page__subtitle">
+                    Select a pre-configured template and customize it for your organization.
+                </p>
+            </header>
 
+            <div style={{ maxWidth: "72rem", margin: "0 auto" }}>
             <div className="search-bar" style={{ marginBottom: "var(--s-4)" }}>
                 <span className="search-bar__icon"><SearchOutlinedIcon sx={{ fontSize: 16 }} /></span>
                 <input className="input" placeholder="Search templates..." value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "var(--s-3)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "var(--s-4)" }}>
                 {filtered.map((tpl) => {
                     const CatIcon = CATEGORY_ICONS[tpl.category] ?? DescriptionOutlinedIcon;
                     return (
@@ -566,19 +663,17 @@ function TemplateTab({
                             <div className="template-card__desc">{tpl.description}</div>
                             <div className="template-card__footer">
                                 <span>{CATEGORY_LABELS[tpl.category]}</span>
-                                <div style={{ display: "flex", alignItems: "center", gap: "var(--s-2)" }}>
-                                    <span>Used by {tpl.used_by} orgs</span>
-                                    <span className="btn btn--ghost btn--sm" style={{ gap: 4, padding: "2px 8px" }}>
-                                        Select <ArrowForwardOutlinedIcon sx={{ fontSize: 12 }} />
-                                    </span>
-                                </div>
+                                <span className="btn btn--ghost btn--sm" style={{ gap: 4, padding: "2px 8px" }}>
+                                    Select <ArrowForwardOutlinedIcon sx={{ fontSize: 12 }} />
+                                </span>
                             </div>
                         </div>
                     );
                 })}
             </div>
-            <div style={{ marginTop: "var(--s-3)", fontSize: "var(--fs-11)", color: "var(--c-text-muted)" }}>
+            <div style={{ marginTop: "var(--s-4)", fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
                 Showing {filtered.length} templates
+            </div>
             </div>
         </div>
     );

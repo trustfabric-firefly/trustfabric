@@ -13,6 +13,9 @@ from app.domain.models import (
     AwsConnectionInfo,
     AwsConnectRequest,
     AwsIntegrationStatus,
+    FigmaConnectRequest,
+    FigmaIntegrationStatus,
+    FigmaUserInfo,
     GitHubIntegrationStatus,
     GitHubUserInfo,
     SlackConnectionInfo,
@@ -28,6 +31,7 @@ from app.integrations.github import (
 )
 from app.integrations import aws as aws_integration
 from app.integrations import slack as slack_integration
+from app.services.figma import get_figma_user
 from app.services.store import store
 
 router = APIRouter()
@@ -39,8 +43,11 @@ router = APIRouter()
 @router.get("/github/connect")
 async def github_connect(actor: Actor = Depends(require_admin)) -> dict:
     """Return the GitHub OAuth URL. Frontend navigates the browser to this URL."""
-    if not settings.github_client_id:
-        raise HTTPException(status_code=501, detail="GitHub OAuth not configured — set GITHUB_CLIENT_ID in .env")
+    if not settings.github_oauth_ready:
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub integration is not enabled on this TrustFabric deployment.",
+        )
     state = encode_state(actor.user_id, actor.organization_id)
     return {"url": build_oauth_url(state)}
 
@@ -99,8 +106,11 @@ class SlackChannelUpdate(BaseModel):
 @router.get("/slack/connect")
 async def slack_connect(actor: Actor = Depends(require_admin)) -> dict:
     """Return the Slack OAuth URL. Frontend navigates the browser to this URL."""
-    if not settings.slack_client_id:
-        raise HTTPException(status_code=501, detail="Slack OAuth not configured — set SLACK_CLIENT_ID in .env")
+    if not settings.slack_oauth_ready:
+        raise HTTPException(
+            status_code=503,
+            detail="Slack integration is not enabled on this TrustFabric deployment.",
+        )
     state = slack_integration.encode_state(actor.user_id, actor.organization_id)
     return {"url": slack_integration.build_oauth_url(state)}
 
@@ -283,3 +293,58 @@ async def aws_disconnect(actor: Actor = Depends(require_admin)) -> dict:
     """Remove the stored AWS connection for the authenticated user."""
     store.delete_aws_connection(actor.organization_id)
     return {"message": "AWS disconnected"}
+
+
+# ── Figma ─────────────────────────────────────────────────────────────────────
+
+
+@router.post("/figma/connect", response_model=FigmaIntegrationStatus)
+async def figma_connect(
+    body: FigmaConnectRequest,
+    actor: Actor = Depends(require_admin),
+) -> FigmaIntegrationStatus:
+    """Validate and store a Figma personal access token for this workspace."""
+    token = body.access_token.strip()
+    try:
+        user_info = get_figma_user(token)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid Figma token: {str(exc)[:200]}") from exc
+
+    store.save_figma_connection(actor.organization_id, token, user_info)
+    return FigmaIntegrationStatus(
+        connected=True,
+        user=FigmaUserInfo(
+            id=str(user_info.get("id", "")),
+            email=str(user_info.get("email", "")),
+            handle=str(user_info.get("handle", "")),
+            img_url=str(user_info.get("img_url", "")),
+            connected_at=datetime.utcnow(),
+        ),
+    )
+
+
+@router.get("/figma/status", response_model=FigmaIntegrationStatus)
+async def figma_status(actor: Actor = Depends(get_actor)) -> FigmaIntegrationStatus:
+    """Check whether Figma is connected for this workspace."""
+    conn = store.get_figma_connection(actor.organization_id)
+    if not conn or not conn.get("figma_access_token"):
+        return FigmaIntegrationStatus(connected=False)
+    return FigmaIntegrationStatus(
+        connected=True,
+        user=FigmaUserInfo(
+            id=str(conn.get("figma_user_id", "")),
+            email=str(conn.get("figma_email", "")),
+            handle=str(conn.get("figma_handle", "")),
+            img_url=str(conn.get("figma_img_url", "")),
+            connected_at=datetime.fromisoformat(conn["figma_connected_at"]),
+        ),
+    )
+
+
+@router.delete("/figma")
+async def figma_disconnect(actor: Actor = Depends(require_admin)) -> dict:
+    """Remove the stored Figma connection for this workspace."""
+    store.delete_figma_connection(actor.organization_id)
+    return {"message": "Figma disconnected"}

@@ -1,4 +1,4 @@
-# Figma integration API routes — connect, list files, fetch frames, batch scan
+# Figma integration API routes — list files, fetch frames, batch scan
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from app.core.rate_limit import rate_limit
 from app.core.security import Actor, get_actor
 from app.services.figma import (
-    get_figma_user,
+    resolve_figma_token,
     get_team_projects,
     get_project_files,
     list_frames_in_file,
@@ -17,19 +17,15 @@ from app.services.figma import (
     download_image,
 )
 from app.services.brand_compliance import scan_image_compliance
+from app.services.store import store
 
 
 router = APIRouter()
 
 
-@router.get("/status")
-def figma_status(actor: Actor = Depends(get_actor)) -> dict:
-    """Check Figma connection status and return user info."""
-    try:
-        user = get_figma_user()
-        return {"connected": True, "user": user}
-    except Exception as e:
-        return {"connected": False, "error": str(e)[:200]}
+class BatchScanRequest(BaseModel):
+    file_key: str
+    node_ids: list[str] = Field(default_factory=list, description="Node IDs to scan. If empty, scans all frames.")
 
 
 @router.get("/teams/{team_id}/projects")
@@ -39,7 +35,8 @@ def list_team_projects(
     actor: Actor = Depends(get_actor),
 ) -> dict:
     rate_limit(request)
-    projects = get_team_projects(team_id)
+    token = resolve_figma_token(actor.organization_id)
+    projects = get_team_projects(token, team_id)
     return {"projects": projects}
 
 
@@ -50,7 +47,8 @@ def list_project_files_route(
     actor: Actor = Depends(get_actor),
 ) -> dict:
     rate_limit(request)
-    files = get_project_files(project_id)
+    token = resolve_figma_token(actor.organization_id)
+    files = get_project_files(token, project_id)
     return {"files": files}
 
 
@@ -62,13 +60,9 @@ def list_file_frames(
 ) -> dict:
     """List all top-level frames/artboards in a Figma file with thumbnail URLs."""
     rate_limit(request)
-    frames = fetch_frames_with_thumbnails(file_key)
+    token = resolve_figma_token(actor.organization_id)
+    frames = fetch_frames_with_thumbnails(token, file_key)
     return {"frames": frames, "count": len(frames)}
-
-
-class BatchScanRequest(BaseModel):
-    file_key: str
-    node_ids: list[str] = Field(default_factory=list, description="Node IDs to scan. If empty, scans all frames.")
 
 
 @router.post("/scan")
@@ -77,37 +71,28 @@ def batch_scan_figma_file(
     request: Request,
     actor: Actor = Depends(get_actor),
 ) -> dict:
-    """Scan frames from a Figma file for brand compliance.
-    If node_ids is empty, scans all top-level frames."""
+    """Scan frames from a Figma file for brand compliance."""
     rate_limit(request)
+    token = resolve_figma_token(actor.organization_id)
 
-    # Get frames to scan
     if payload.node_ids:
         node_ids = payload.node_ids
     else:
-        frames = list_frames_in_file(payload.file_key)
+        frames = list_frames_in_file(token, payload.file_key)
         node_ids = [f["id"] for f in frames]
 
     if not node_ids:
         return {"results": [], "summary": {"total": 0}}
 
-    # Export full-res images from Figma
-    image_urls = get_file_images(payload.file_key, node_ids, fmt="png", scale=2.0)
+    image_urls = get_file_images(token, payload.file_key, node_ids, fmt="png", scale=2.0)
 
-    # Fetch all active policies from DB that might apply to design/brand
-    from app.services.store import store
-    active_policies = store.list_all_active_governance_policies()
-    
-    # We will pass all active policy rules as custom instructions
-    # This allows users to enforce things like "Use blue color palette" across the org
+    active_policies = store.list_all_active_governance_policies(actor.organization_id)
     custom_rules = []
-    for p in active_policies:
-        # Just grab all rules from active policies for maximum enforcement coverage,
-        # or we could filter by category if needed.
-        if p.rules:
-            custom_rules.append(f"Policy: {p.name}")
-            for r in p.rules:
-                custom_rules.append(f"  - {r}")
+    for policy in active_policies:
+        if policy.rules:
+            custom_rules.append(f"Policy: {policy.name}")
+            for rule in policy.rules:
+                custom_rules.append(f"  - {rule}")
 
     results = []
     for node_id in node_ids:
@@ -133,14 +118,13 @@ def batch_scan_figma_file(
                 "status": "scanned",
                 **compliance,
             })
-        except Exception as e:
+        except Exception as exc:
             results.append({
                 "node_id": node_id,
                 "status": "error",
-                "error": str(e)[:300],
+                "error": str(exc)[:300],
             })
 
-    # Build summary
     scanned = [r for r in results if r["status"] == "scanned"]
     total_score = sum(r.get("overall_score", 0) for r in scanned)
     avg_score = round(total_score / len(scanned)) if scanned else 0

@@ -1,19 +1,16 @@
 "use client";
+import { BrushOutlinedIcon, CheckCircleOutlinedIcon, ErrorOutlineOutlinedIcon, WarningAmberOutlinedIcon, LinkOutlinedIcon } from "@/lib/icons";
 import { useState, useCallback } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import BrushOutlinedIcon from "@mui/icons-material/BrushOutlined";
-import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
-import ErrorOutlineOutlinedIcon from "@mui/icons-material/ErrorOutlineOutlined";
-import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
-import LinkOutlinedIcon from "@mui/icons-material/LinkOutlined";
-import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
 import { TopBar } from "@/components/layout/TopBar";
-import { figmaApi, brandComplianceApi, type FigmaFrame, type BrandComplianceResult, type FigmaScanResult } from "@/lib/api";
+import { PageEmptyIllustration } from "@/components/ui/PageEmptyIllustration";
+import { figmaApi, type FigmaFrame, type FigmaScanResult } from "@/lib/api";
 
 type ScanState = "idle" | "loading-frames" | "scanning" | "done";
 
 export default function BrandCompliancePage() {
-    const [fileUrl, setFileUrl] = useState("https://www.figma.com/files/team/1631423113293559422/project/594252304?fuid=1610878785316337426");
+    const [fileUrl, setFileUrl] = useState("");
     const [frames, setFrames] = useState<FigmaFrame[]>([]);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [scanState, setScanState] = useState<ScanState>("idle");
@@ -134,45 +131,82 @@ export default function BrandCompliancePage() {
     };
 
     const connected = figmaStatus?.connected;
+    const showInitialEmpty = frames.length === 0 && scanState !== "scanning" && !scanResult;
 
     return (
         <>
-            <TopBar title="Brand Compliance Scanner" subtitle="Analyze Figma design assets against brand guidelines" />
+            <TopBar
+                title="Brand Compliance Scanner"
+                subtitle={connected ? "Analyze Figma design assets against brand guidelines" : undefined}
+                actions={
+                    connected && frames.length > 0 ? undefined : connected ? (
+                        <button
+                            type="button"
+                            className="btn btn--primary"
+                            onClick={handleFetchFrames}
+                            disabled={!fileUrl.trim() || scanState === "loading-frames"}
+                        >
+                            {scanState === "loading-frames" ? "Loading…" : "Fetch designs"}
+                        </button>
+                    ) : (
+                        <Link href="/settings" className="btn btn--primary">
+                            Connect Figma
+                        </Link>
+                    )
+                }
+            />
             <main className="page">
-                {/* Connection Status */}
-                <div className="panel" style={{ marginBottom: "var(--s-4)" }}>
-                    <div className="panel__body" style={{ display: "flex", alignItems: "center", gap: "var(--s-3)", padding: "var(--s-3) var(--s-4)" }}>
-                        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/33/Figma-logo.svg/1920px-Figma-logo.svg.png" alt="Figma" style={{ width: 20, height: 28, objectFit: "contain" }} />
-                        <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: "var(--fs-14)", fontWeight: "var(--fw-semibold)" }}>Figma</div>
-                            <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
-                                {connected ? `Connected as ${figmaStatus?.user?.handle} (${figmaStatus?.user?.email})` : "Not connected — add FIGMA_TOKEN to .env"}
-                            </div>
+                {connected && showInitialEmpty && (
+                    <div className="panel" style={{ marginBottom: "var(--s-4)", width: "100%" }}>
+                        <div className="panel__header">
+                            <span className="panel__title">
+                                <LinkOutlinedIcon sx={{ fontSize: 16 }} /> Load Figma file
+                            </span>
+                            <span className="badge badge--live">
+                                {figmaStatus?.user?.handle ? `Connected · ${figmaStatus.user.handle}` : "Connected"}
+                            </span>
                         </div>
-                        <span className={`badge badge--${connected ? "success" : "danger"}`}>{connected ? "Connected" : "Disconnected"}</span>
-                    </div>
-                </div>
-
-                {/* File URL Input */}
-                {connected && (
-                    <div className="panel" style={{ marginBottom: "var(--s-4)" }}>
-                        <div className="panel__header"><span className="panel__title"><LinkOutlinedIcon sx={{ fontSize: 16 }} /> Load Figma File</span></div>
                         <div className="panel__body">
                             <div style={{ display: "flex", gap: "var(--s-2)" }}>
                                 <input
-                                    type="text" className="input" placeholder="e.g. https://www.figma.com/files/team/1631423113293559422/project/594252304..."
-                                    value={fileUrl} onChange={e => setFileUrl(e.target.value)}
-                                    onKeyDown={e => e.key === "Enter" && handleFetchFrames()}
+                                    type="text"
+                                    className="input"
+                                    placeholder="Paste a Figma file or project URL"
+                                    value={fileUrl}
+                                    onChange={(e) => setFileUrl(e.target.value)}
+                                    onKeyDown={(e) => e.key === "Enter" && handleFetchFrames()}
                                     style={{ flex: 1 }}
                                 />
-                                <button className="btn btn--primary" onClick={handleFetchFrames} disabled={scanState === "loading-frames"}>
-                                    {scanState === "loading-frames" ? "Loading..." : "Fetch Designs"}
+                                <button
+                                    type="button"
+                                    className="btn btn--primary"
+                                    onClick={handleFetchFrames}
+                                    disabled={scanState === "loading-frames"}
+                                >
+                                    {scanState === "loading-frames" ? "Loading…" : "Fetch designs"}
                                 </button>
                             </div>
-                            <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: "var(--s-2)" }}>
-                                Paste any Figma file URL. TrustFabric will fetch all frames/artboards and render them for compliance analysis.
-                            </div>
                         </div>
+                    </div>
+                )}
+
+                {showInitialEmpty && (
+                    <div className="page-empty-shell" style={{ width: "100%" }}>
+                        <PageEmptyIllustration
+                            src="/brand.png"
+                            title={connected ? "No designs loaded" : "Connect Figma"}
+                            label={
+                                connected
+                                    ? "Paste a file URL above to scan brand compliance"
+                                    : "Connect Figma in Settings to analyze designs against your brand guidelines"
+                            }
+                        >
+                            {!connected && (
+                                <Link href="/settings" className="btn btn--primary" style={{ marginTop: "var(--s-4)" }}>
+                                    Connect Figma in Settings
+                                </Link>
+                            )}
+                        </PageEmptyIllustration>
                     </div>
                 )}
 

@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, ChevronRight } from "lucide-react";
+import { EyeIcon, EyeOffIcon, ChevronRightIcon } from "@/lib/icons";
 import { useAuth } from "@/providers/AuthProvider";
 import { Logo } from "@/components/marketing/Logo";
 import { RESOLVED_API_BASE_URL, ssoApi } from "@/lib/api";
@@ -61,12 +61,11 @@ function GoogleIcon() {
 }
 
 export default function LoginPage() {
-  const { signIn, isDevMode } = useAuth();
+  const { signIn } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [ssoDiscovery, setSsoDiscovery] = useState<SsoDiscovery | null>(null);
@@ -120,18 +119,6 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await signIn(email, password);
-      if (typeof window !== "undefined") {
-        if (isDevMode) {
-          window.localStorage.setItem("trustfabric_api_token", password.trim());
-        } else {
-          window.localStorage.removeItem("trustfabric_api_token");
-        }
-        if (!rememberMe) {
-          window.sessionStorage.setItem("trustfabric_session_only", "1");
-        } else {
-          window.sessionStorage.removeItem("trustfabric_session_only");
-        }
-      }
       router.push(returnTo);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Sign in failed.");
@@ -205,22 +192,14 @@ export default function LoginPage() {
                     onClick={() => setShowPassword((v) => !v)}
                     aria-label={showPassword ? "Hide password" : "Show password"}
                   >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    {showPassword ? <EyeOffIcon sx={{ fontSize: 18 }} /> : <EyeIcon sx={{ fontSize: 18 }} />}
                   </button>
                 </div>
               </div>
             )}
 
             {showPasswordField && (
-              <div className="auth-row">
-                <label className="auth-check">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                  />
-                  Keep me signed in
-                </label>
+              <div className="auth-row" style={{ justifyContent: "flex-end" }}>
                 <Link href="mailto:hello@trustfabric.ai" className="auth-link">
                   Reset password
                 </Link>
@@ -261,9 +240,9 @@ export default function LoginPage() {
           )}
 
           <p className="auth-footer-text">
-            New to our platform?{" "}
+            Need enterprise access?{" "}
             <Link href="/#contact" className="auth-link">
-              Create Account
+              Request a demo
             </Link>
           </p>
         </div>
@@ -288,7 +267,7 @@ export default function LoginPage() {
             aria-label="Next testimonial"
             onClick={() => setQuoteIndex((i) => (i + 1) % spotlightQuotes.length)}
           >
-            <ChevronRight size={18} />
+            <ChevronRightIcon sx={{ fontSize: 18 }} />
           </button>
         </div>
       </aside>

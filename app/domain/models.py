@@ -445,6 +445,26 @@ class AwsConnectRequest(BaseModel):
     region: str = Field(default="us-east-1")
 
 
+# --- Figma Integration ---
+
+
+class FigmaUserInfo(BaseModel):
+    id: str
+    email: str
+    handle: str
+    img_url: str = ""
+    connected_at: datetime
+
+
+class FigmaIntegrationStatus(BaseModel):
+    connected: bool
+    user: Optional[FigmaUserInfo] = None
+
+
+class FigmaConnectRequest(BaseModel):
+    access_token: str = Field(..., min_length=10)
+
+
 class AwsCheckResult(BaseModel):
     check_id: str
     check_name: str

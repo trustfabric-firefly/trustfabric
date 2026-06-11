@@ -305,7 +305,7 @@ class FirestoreStore:
     @staticmethod
     def _encrypt_integration_fields(doc: dict[str, Any]) -> dict[str, Any]:
         out = dict(doc)
-        for field in ("github_access_token", "slack_bot_token"):
+        for field in ("github_access_token", "slack_bot_token", "figma_access_token"):
             if out.get(field):
                 out[field] = encrypt_secret(str(out[field]))
         return out
@@ -313,7 +313,7 @@ class FirestoreStore:
     @staticmethod
     def _decrypt_integration_fields(doc: dict[str, Any]) -> dict[str, Any]:
         out = dict(doc)
-        for field in ("github_access_token", "slack_bot_token"):
+        for field in ("github_access_token", "slack_bot_token", "figma_access_token"):
             if out.get(field):
                 out[field] = decrypt_secret(str(out[field]))
         return out
@@ -1174,6 +1174,50 @@ class FirestoreStore:
             "aws_account_alias": firestore.DELETE_FIELD,
             "aws_region": firestore.DELETE_FIELD,
             "aws_connected_at": firestore.DELETE_FIELD,
+        }
+        doc_ref = self._client().collection(self._integrations_collection).document(organization_id)
+        if doc_ref.get().exists:
+            doc_ref.update(fields_to_remove)
+
+    # --- Figma Integration ---
+
+    def save_figma_connection(
+        self,
+        organization_id: str,
+        token: str,
+        user_info: dict[str, Any],
+    ) -> None:
+        doc = {
+            "organization_id": organization_id,
+            "figma_access_token": token,
+            "figma_user_id": user_info.get("id", ""),
+            "figma_email": user_info.get("email", ""),
+            "figma_handle": user_info.get("handle", ""),
+            "figma_img_url": user_info.get("img_url", ""),
+            "figma_connected_at": datetime.utcnow().isoformat(),
+        }
+        encrypted = self._encrypt_integration_fields(doc)
+        self._client().collection(self._integrations_collection).document(organization_id).set(
+            encrypted, merge=True
+        )
+
+    def get_figma_connection(self, organization_id: str) -> Optional[dict]:
+        doc = self._client().collection(self._integrations_collection).document(organization_id).get()
+        if not doc.exists:
+            return None
+        data = self._decrypt_integration_fields(doc.to_dict() or {})
+        if not data.get("figma_access_token"):
+            return None
+        return data
+
+    def delete_figma_connection(self, organization_id: str) -> None:
+        fields_to_remove = {
+            "figma_access_token": firestore.DELETE_FIELD,
+            "figma_user_id": firestore.DELETE_FIELD,
+            "figma_email": firestore.DELETE_FIELD,
+            "figma_handle": firestore.DELETE_FIELD,
+            "figma_img_url": firestore.DELETE_FIELD,
+            "figma_connected_at": firestore.DELETE_FIELD,
         }
         doc_ref = self._client().collection(self._integrations_collection).document(organization_id)
         if doc_ref.get().exists:

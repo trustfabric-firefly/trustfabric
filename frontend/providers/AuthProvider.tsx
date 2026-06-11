@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         // ── No Firebase web config: dev stub user ───────────────────────────────
         if (!isFirebaseConfigured) {
-            setUser(DEV_USER);
+            setUser(process.env.NODE_ENV === "production" ? null : DEV_USER);
             setLoading(false);
             return;
         }
@@ -76,7 +76,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const logOut = async () => {
         if (typeof window !== "undefined") {
-            window.localStorage.removeItem("trustfabric_api_token");
             window.localStorage.removeItem("trustfabric_organization_id");
         }
         if (!isFirebaseConfigured || !auth) {

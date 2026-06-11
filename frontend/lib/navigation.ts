@@ -1,13 +1,5 @@
+import { DashboardOutlinedIcon, MemoryOutlinedIcon, PolicyOutlinedIcon, DocumentScannerOutlinedIcon, HistoryOutlinedIcon, SettingsOutlinedIcon, VerifiedUserOutlinedIcon, BrushOutlinedIcon } from "@/lib/icons";
 import type { ElementType } from "react";
-import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
-import MemoryOutlinedIcon from "@mui/icons-material/MemoryOutlined";
-import PolicyOutlinedIcon from "@mui/icons-material/PolicyOutlined";
-import DocumentScannerOutlinedIcon from "@mui/icons-material/DocumentScannerOutlined";
-import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
-import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
-import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
-import BrushOutlinedIcon from "@mui/icons-material/BrushOutlined";
-
 type NavIcon = ElementType<{ sx?: { fontSize?: number | string } }>;
 
 export type NavItem = { label: string; href: string; icon: NavIcon };

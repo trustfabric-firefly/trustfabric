@@ -56,20 +56,38 @@ class Settings(BaseSettings):
     # GitHub OAuth
     github_client_id: str = ""
     github_client_secret: str = ""
-    github_redirect_uri: str = "http://localhost:8000/api/v1/integrations/github/callback"
+    github_redirect_uri: str = ""
     frontend_url: str = "http://localhost:3000"
     api_base_url: str = "http://localhost:8000"
 
     # Slack OAuth
     slack_client_id: str = ""
     slack_client_secret: str = ""
-    slack_redirect_uri: str = "http://localhost:8000/api/v1/integrations/slack/callback"
+    slack_redirect_uri: str = ""
 
     # AWS
     aws_external_id: str = ""  # shared external ID for STS AssumeRole (set per deployment)
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
     aws_default_region: str = "us-east-1"
+
+    @model_validator(mode="after")
+    def derive_integration_urls(self) -> "Settings":
+        """Default OAuth callback URLs from API_BASE_URL when not explicitly set."""
+        base = (self.api_base_url or "http://localhost:8000").rstrip("/")
+        if not self.github_redirect_uri:
+            self.github_redirect_uri = f"{base}/api/v1/integrations/github/callback"
+        if not self.slack_redirect_uri:
+            self.slack_redirect_uri = f"{base}/api/v1/integrations/slack/callback"
+        return self
+
+    @property
+    def github_oauth_ready(self) -> bool:
+        return bool(self.github_client_id and self.github_client_secret)
+
+    @property
+    def slack_oauth_ready(self) -> bool:
+        return bool(self.slack_client_id and self.slack_client_secret)
 
     @model_validator(mode="after")
     def check_production_secrets(self) -> "Settings":
@@ -87,10 +105,10 @@ class Settings(BaseSettings):
             if "*" in self.cors_origins:
                 raise ValueError("Wildcard CORS origin is not allowed in production")
 
-        return self
+            if self.admin_token or self.viewer_token:
+                raise ValueError("ADMIN_TOKEN and VIEWER_TOKEN must not be set in production")
 
-    # Figma Integration
-    figma_token: str = ""
+        return self
 
 
 settings = Settings()
