@@ -1,4 +1,4 @@
-import { DashboardOutlinedIcon, MemoryOutlinedIcon, PolicyOutlinedIcon, DocumentScannerOutlinedIcon, HistoryOutlinedIcon, SettingsOutlinedIcon, VerifiedUserOutlinedIcon, BrushOutlinedIcon } from "@/lib/icons";
+import { DashboardOutlinedIcon, MemoryOutlinedIcon, PolicyOutlinedIcon, DocumentScannerOutlinedIcon, HistoryOutlinedIcon, SettingsOutlinedIcon, VerifiedUserOutlinedIcon } from "@/lib/icons";
 import type { ElementType } from "react";
 type NavIcon = ElementType<{ sx?: { fontSize?: number | string } }>;
 
@@ -17,8 +17,7 @@ export const APP_MAIN_NAV: readonly NavSection[] = [
         items: [
             { label: "AI Systems", href: "/systems", icon: MemoryOutlinedIcon },
             { label: "Policies", href: "/policies", icon: PolicyOutlinedIcon },
-            { label: "Brand Compliance", href: "/brand-compliance", icon: BrushOutlinedIcon },
-            { label: "Scans", href: "/scans", icon: DocumentScannerOutlinedIcon },
+            { label: "Integrations", href: "/scans", icon: DocumentScannerOutlinedIcon },
             { label: "Compliance", href: "/compliance", icon: VerifiedUserOutlinedIcon },
             { label: "Audit", href: "/audit", icon: HistoryOutlinedIcon },
         ],

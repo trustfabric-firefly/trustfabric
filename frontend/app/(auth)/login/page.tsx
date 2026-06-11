@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { EyeIcon, EyeOffIcon, ChevronRightIcon } from "@/lib/icons";
+import { EyeIcon, EyeOffIcon, ChevronRightIcon, ArrowBackOutlinedIcon } from "@/lib/icons";
 import { useAuth } from "@/providers/AuthProvider";
 import { Logo } from "@/components/marketing/Logo";
 import { RESOLVED_API_BASE_URL, ssoApi } from "@/lib/api";
@@ -134,6 +134,10 @@ export default function LoginPage() {
     <div className="auth-split">
       <div className="auth-form-panel">
         <div className="auth-form-inner">
+          <Link href="/" className="auth-back-home">
+            <ArrowBackOutlinedIcon sx={{ fontSize: 16 }} />
+            Back to home
+          </Link>
           <div className="auth-form-top">
             <Logo />
             <h1 className="auth-welcome">Welcome</h1>

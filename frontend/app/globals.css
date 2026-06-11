@@ -504,6 +504,9 @@ svg {
 .sidebar__footer {
   padding: var(--s-2);
   border-top: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
 }
 
 .sidebar__user {
@@ -512,12 +515,30 @@ svg {
   gap: var(--s-2);
   padding: var(--s-2) var(--s-3);
   border-radius: var(--r-md);
-  cursor: pointer;
-  transition: background var(--ease);
 }
 
-.sidebar__user:hover {
+.sidebar__sign-out {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  width: 100%;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-family: var(--font);
+  font-size: var(--fs-13);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: background var(--ease), border-color var(--ease), color var(--ease);
+}
+
+.sidebar__sign-out:hover {
   background: var(--c-surface-hover);
+  border-color: var(--c-border-strong);
+  color: var(--c-text);
 }
 
 .sidebar__avatar {

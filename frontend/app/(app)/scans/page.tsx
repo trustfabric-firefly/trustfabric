@@ -1,15 +1,19 @@
 "use client";
 import { DocumentScannerOutlinedIcon, PlayArrowOutlinedIcon, CheckCircleOutlinedIcon, WarningAmberOutlinedIcon, CancelOutlinedIcon, AccessTimeOutlinedIcon, BusinessOutlinedIcon, DescriptionOutlinedIcon, ChevronRightOutlinedIcon, FileDownloadOutlinedIcon, RefreshOutlinedIcon, TrendingUpOutlinedIcon, TrendingDownOutlinedIcon, RemoveOutlinedIcon, FilterListOutlinedIcon, BarChartOutlinedIcon, TipsAndUpdatesOutlinedIcon, VisibilityOutlinedIcon, CloudOutlinedIcon } from "@/lib/icons";
 
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect, type ReactNode } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { scansApi, awsScansApi, integrationsApi } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
 import { PageEmptyIllustration } from "@/components/ui/PageEmptyIllustration";
 import { TopBar } from "@/components/layout/TopBar";
+import { IntegrationsHub } from "@/components/scans/IntegrationsHub";
+import { FigmaBrandScanPanel } from "@/components/scans/FigmaBrandScanPanel";
+import { isScanAppId } from "@/lib/scan-integrations";
 import "./scans-config.css";
+import "./scans-hub.css";
 import type {
     ScanResult,
     ScanProgress,
@@ -35,7 +39,10 @@ type PageView = "main" | "config" | "scanning" | "results" | "trends";
 
 export default function ScansPage() {
     const queryClient = useQueryClient();
+    const router = useRouter();
     const searchParams = useSearchParams();
+    const activeAppParam = searchParams.get("app");
+    const activeApp = isScanAppId(activeAppParam) ? activeAppParam : null;
     const [view, setView] = useState<PageView>("main");
     const [currentScan, setCurrentScan] = useState<ScanResult | null>(null);
     const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
@@ -53,6 +60,12 @@ export default function ScansPage() {
     const { data: awsStatus } = useQuery({
         queryKey: ["aws-status"],
         queryFn: integrationsApi.getAwsStatus,
+        retry: false,
+    });
+
+    const { data: figmaStatus } = useQuery({
+        queryKey: ["figma-status"],
+        queryFn: integrationsApi.getFigmaStatus,
         retry: false,
     });
 
@@ -97,15 +110,27 @@ export default function ScansPage() {
     const requestedScanId = searchParams.get("scanId");
     const requestedStart = searchParams.get("start");
 
+    const goToHub = useCallback(() => {
+        router.push("/scans");
+    }, [router]);
+
     useEffect(() => {
-        if (requestedStart === "config") {
+        if ((requestedScanId || requestedStart) && !activeApp) {
+            const params = new URLSearchParams(searchParams.toString());
+            params.set("app", "github");
+            router.replace(`/scans?${params.toString()}`);
+        }
+    }, [requestedScanId, requestedStart, activeApp, searchParams, router]);
+
+    useEffect(() => {
+        if (requestedStart === "config" && (activeApp === "github" || !activeApp)) {
             setView("config");
             if (!configOrg) {
                 const saved = localStorage.getItem("tf_default_github_org");
                 setConfigOrg(saved || githubLogin);
             }
         }
-    }, [requestedStart, configOrg, githubLogin]);
+    }, [requestedStart, activeApp, configOrg, githubLogin]);
 
     useEffect(() => {
         if (!requestedScanId || scanHistory.length === 0) return;
@@ -215,53 +240,118 @@ export default function ScansPage() {
         }, 300);
     }, []);
 
-    return (
-        <>
-            <TopBar
-                title="Compliance Scans"
-                subtitle={
-                    view === "config"
-                        ? "Set organization, scope, and checks"
-                        : hasScans
-                            ? `${scanHistory.length} scans completed`
-                            : undefined
-                }
-                actions={
-                    view === "config" ? (
-                        <div style={{ display: "flex", gap: "var(--s-2)" }}>
-                            <button type="button" className="btn btn--secondary" onClick={handleCancelConfig}>
-                                Cancel
+    const hubView = !activeApp;
+    const isGithub = activeApp === "github";
+    const isAws = activeApp === "aws";
+    const isFigma = activeApp === "figma";
+
+    let topBarTitle = "Integrations";
+    let topBarSubtitle: string | undefined = "Run compliance scans across your connected apps";
+    let topBarActions: ReactNode;
+
+    if (isGithub) {
+        topBarTitle = "GitHub";
+        topBarSubtitle =
+            view === "config"
+                ? "Set organization, scope, and checks"
+                : hasScans
+                    ? `${scanHistory.length} scans completed`
+                    : "Repository governance scans";
+        topBarActions = (
+            <div style={{ display: "flex", gap: "var(--s-2)" }}>
+                <button type="button" className="btn btn--secondary" onClick={goToHub}>
+                    All integrations
+                </button>
+                {view === "config" ? (
+                    <>
+                        <button type="button" className="btn btn--secondary" onClick={handleCancelConfig}>
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn--primary"
+                            onClick={() => void handleStartScan()}
+                            disabled={configPolicies.length === 0}
+                        >
+                            <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} /> Start Scan
+                        </button>
+                    </>
+                ) : view === "main" ? (
+                    hasScans ? (
+                        <>
+                            <button type="button" className="btn btn--secondary" onClick={handleViewTrends}>
+                                <BarChartOutlinedIcon sx={{ fontSize: 16 }} /> View Trends
                             </button>
-                            <button
-                                type="button"
-                                className="btn btn--primary"
-                                onClick={() => void handleStartScan()}
-                                disabled={configPolicies.length === 0}
-                            >
-                                <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} /> Start Scan
-                            </button>
-                        </div>
-                    ) : view === "main" ? (
-                        hasScans ? (
-                            <div style={{ display: "flex", gap: "var(--s-2)" }}>
-                                <button type="button" className="btn btn--secondary" onClick={handleViewTrends}>
-                                    <BarChartOutlinedIcon sx={{ fontSize: 16 }} /> View Trends
-                                </button>
-                                <button type="button" className="btn btn--primary" onClick={handleStartConfig}>
-                                    <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} /> Run Scan
-                                </button>
-                            </div>
-                        ) : (
                             <button type="button" className="btn btn--primary" onClick={handleStartConfig}>
                                 <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} /> Run Scan
                             </button>
-                        )
-                    ) : undefined
-                }
-            />
+                        </>
+                    ) : (
+                        <button type="button" className="btn btn--primary" onClick={handleStartConfig}>
+                            <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} /> Run Scan
+                        </button>
+                    )
+                ) : null}
+            </div>
+        );
+    } else if (isAws) {
+        topBarTitle = "AWS";
+        topBarSubtitle = awsStatus?.connected
+            ? `Account ${awsStatus.info?.account_id ?? ""} · ${awsStatus.info?.region ?? "us-east-1"}`
+            : "Infrastructure compliance scans";
+        topBarActions = (
+            <div style={{ display: "flex", gap: "var(--s-2)" }}>
+                <button type="button" className="btn btn--secondary" onClick={goToHub}>
+                    All integrations
+                </button>
+                {awsStatus?.connected && !selectedAwsScan && (
+                    <button
+                        type="button"
+                        className="btn btn--primary"
+                        onClick={() => void handleAwsScan()}
+                        disabled={awsScanning}
+                    >
+                        <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} />
+                        {awsScanning ? "Scanning…" : "Run AWS Scan"}
+                    </button>
+                )}
+            </div>
+        );
+    } else if (isFigma) {
+        topBarTitle = "Figma";
+        topBarSubtitle = figmaStatus?.connected
+            ? "Brand compliance scans"
+            : "Connect Figma to scan design assets";
+        topBarActions = (
+            <div style={{ display: "flex", gap: "var(--s-2)" }}>
+                <button type="button" className="btn btn--secondary" onClick={goToHub}>
+                    All integrations
+                </button>
+                {!figmaStatus?.connected && (
+                    <Link href="/settings" className="btn btn--primary">
+                        Connect Figma
+                    </Link>
+                )}
+            </div>
+        );
+    }
+
+    return (
+        <>
+            <TopBar title={topBarTitle} subtitle={topBarSubtitle} actions={topBarActions} />
 
             <main className="page">
-                {view === "main" && (
+                {hubView && (
+                    <IntegrationsHub
+                        connected={{
+                            github: githubStatus?.connected ?? false,
+                            aws: awsStatus?.connected ?? false,
+                            figma: figmaStatus?.connected ?? false,
+                        }}
+                    />
+                )}
+
+                {isGithub && view === "main" && (
                     <MainView
                         hasScans={hasScans}
                         latestScan={latestScan}
@@ -273,7 +363,7 @@ export default function ScansPage() {
                     />
                 )}
 
-                {view === "config" && (
+                {isGithub && view === "config" && (
                     <ConfigView
                         configOrg={configOrg}
                         setConfigOrg={setConfigOrg}
@@ -288,11 +378,11 @@ export default function ScansPage() {
                     />
                 )}
 
-                {view === "scanning" && scanProgress && (
+                {isGithub && view === "scanning" && scanProgress && (
                     <ScanningView progress={scanProgress} org={configOrg} policiesCount={configPolicies.length} />
                 )}
 
-                {view === "results" && currentScan && (
+                {isGithub && view === "results" && currentScan && (
                     <ResultsView
                         scan={currentScan}
                         onRunAnother={handleStartConfig}
@@ -302,14 +392,11 @@ export default function ScansPage() {
                     />
                 )}
 
-                {view === "trends" && (
-                    <TrendsView
-                        scanHistory={scanHistory}
-                        onBack={handleBackFromTrends}
-                    />
+                {isGithub && view === "trends" && (
+                    <TrendsView scanHistory={scanHistory} onBack={handleBackFromTrends} />
                 )}
 
-                {view === "main" && (
+                {isAws && (
                     <AwsScanSection
                         awsConnected={awsStatus?.connected ?? false}
                         accountId={awsStatus?.info?.account_id}
@@ -323,6 +410,8 @@ export default function ScansPage() {
                         onClearScan={() => setSelectedAwsScan(null)}
                     />
                 )}
+
+                {isFigma && <FigmaBrandScanPanel />}
             </main>
         </>
     );
@@ -1319,22 +1408,17 @@ function AwsScanSection({
     }
 
     return (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)", marginTop: "var(--s-4)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
             <div className="panel">
                 <div className="panel__header">
                     <span className="panel__title" style={{ display: "flex", alignItems: "center", gap: "var(--s-2)" }}>
                         <CloudOutlinedIcon sx={{ fontSize: 18 }} />
                         AWS Infrastructure Scans
                     </span>
-                    {awsConnected && (
-                        <button
-                            className="btn btn--primary btn--sm"
-                            disabled={scanning}
-                            onClick={onTrigger}
-                        >
-                            <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} />
-                            {scanning ? "Scanning…" : "Run AWS Scan"}
-                        </button>
+                    {awsConnected && accountId && (
+                        <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                            {accountId} · {region ?? "us-east-1"}
+                        </span>
                     )}
                 </div>
 
@@ -1360,10 +1444,19 @@ function AwsScanSection({
                     ) : scanHistory.length === 0 && !scanning ? (
                         <div className="panel__empty-body">
                             <PageEmptyIllustration
-                                src="/scan-comp.png"
+                                src="/cloud.png"
                                 title="No AWS scans"
                                 label="Run your first infrastructure scan"
-                            />
+                            >
+                                <button
+                                    type="button"
+                                    className="btn btn--primary"
+                                    style={{ marginTop: "var(--s-4)" }}
+                                    onClick={onTrigger}
+                                >
+                                    <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} /> Run AWS Scan
+                                </button>
+                            </PageEmptyIllustration>
                         </div>
                     ) : scanning ? (
                         <div className="panel__empty-body">
