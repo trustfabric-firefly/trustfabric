@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
@@ -13,6 +13,9 @@ import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
 import LinkOffOutlinedIcon from "@mui/icons-material/LinkOffOutlined";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import BusinessOutlinedIcon from "@mui/icons-material/BusinessOutlined";
+import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
+import PersonRemoveOutlinedIcon from "@mui/icons-material/PersonRemoveOutlined";
+import VpnKeyOutlinedIcon from "@mui/icons-material/VpnKeyOutlined";
 import NotificationsOutlinedIcon from "@mui/icons-material/NotificationsOutlined";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
@@ -22,14 +25,53 @@ import TagOutlinedIcon from "@mui/icons-material/TagOutlined";
 import CloudOutlinedIcon from "@mui/icons-material/CloudOutlined";
 import { TopBar } from "@/components/layout/TopBar";
 import { useAuth } from "@/providers/AuthProvider";
-import { RESOLVED_API_BASE_URL, integrationsApi, settingsApi } from "@/lib/api";
+import {
+    RESOLVED_API_BASE_URL,
+    integrationsApi,
+    organizationsApi,
+    settingsApi,
+    type OrgRole,
+} from "@/lib/api";
+import { useOrganization } from "@/providers/OrganizationProvider";
 import type { SlackChannel, AwsIntegrationStatus } from "@/types";
 import { isFirebaseConfigured } from "@/lib/firebase";
 
 // ─── Local storage keys ────────────────────────────────────────────────────────
-const LS_ORG_NAME = "tf_org_name";
-const LS_ORG_CONTACT = "tf_org_contact";
 const LS_DEFAULT_GITHUB_ORG = "tf_default_github_org";
+
+const ROLE_LABELS: Record<OrgRole, string> = {
+    owner: "Owner",
+    admin: "Admin",
+    security_admin: "Security admin",
+    auditor: "Auditor",
+    viewer: "Viewer",
+};
+
+function assignableRoles(actorRole: string): OrgRole[] {
+    if (actorRole === "owner" || actorRole === "admin") {
+        return ["admin", "security_admin", "auditor", "viewer"];
+    }
+    if (actorRole === "security_admin") {
+        return ["auditor", "viewer"];
+    }
+    return [];
+}
+
+function canManageMember(
+    actorRole: string,
+    targetRole: string,
+    targetUserId: string,
+    selfUserId: string
+): boolean {
+    if (!selfUserId || targetUserId === selfUserId) return false;
+    if (targetRole === "owner") return actorRole === "owner";
+    if (actorRole === "owner") return true;
+    if (actorRole === "admin") return targetRole !== "owner";
+    if (actorRole === "security_admin") {
+        return targetRole === "auditor" || targetRole === "viewer";
+    }
+    return false;
+}
 const LS_NOTIF_VIOLATIONS = "tf_notif_violations";
 const LS_NOTIF_SCANS = "tf_notif_scans";
 const LS_NOTIF_POLICY_CHANGES = "tf_notif_policy_changes";
@@ -148,6 +190,14 @@ function NotifToggle({ label, description, value, onChange }: {
 
 export default function SettingsPage() {
     const { user, isDevMode, logOut, loading } = useAuth();
+    const {
+        activeOrganization,
+        activeOrganizationId,
+        canAdmin,
+        context: orgContext,
+        switchOrganization,
+        refresh: refreshOrganizations,
+    } = useOrganization();
     const [copied, setCopied] = useState(false);
     const searchParams = useSearchParams();
     const queryClient = useQueryClient();
@@ -195,16 +245,182 @@ export default function SettingsPage() {
         queryFn: settingsApi.status,
         retry: false,
     });
+    const { data: currentOrg } = useQuery({
+        queryKey: ["org-current", activeOrganizationId],
+        queryFn: organizationsApi.current,
+        enabled: !!activeOrganizationId,
+        retry: false,
+    });
+    const { data: members = [], isLoading: membersLoading, refetch: refetchMembers } = useQuery({
+        queryKey: ["org-members", activeOrganizationId],
+        queryFn: organizationsApi.members,
+        enabled: !!activeOrganizationId,
+        retry: false,
+    });
+    const { data: pendingInvites = [], refetch: refetchInvites } = useQuery({
+        queryKey: ["org-invites", activeOrganizationId],
+        queryFn: organizationsApi.invites,
+        enabled: !!activeOrganizationId && canAdmin,
+        retry: false,
+    });
+    const { data: ssoConfig, refetch: refetchSso } = useQuery({
+        queryKey: ["org-sso", activeOrganizationId],
+        queryFn: organizationsApi.getSso,
+        enabled: !!activeOrganizationId && canAdmin,
+        retry: false,
+    });
 
-    // Org profile (localStorage)
-    const [orgName, setOrgName] = useState(() => ls(LS_ORG_NAME));
-    const [orgContact, setOrgContact] = useState(() => ls(LS_ORG_CONTACT));
+    const selfUserId = currentOrg?.user_id ?? user?.uid ?? "";
+    const actorRole = activeOrganization?.role ?? "viewer";
+    const inviteRoles = useMemo(() => assignableRoles(actorRole), [actorRole]);
+
+    const [inviteEmail, setInviteEmail] = useState("");
+    const [inviteRole, setInviteRole] = useState<OrgRole>("viewer");
+    const [inviteSending, setInviteSending] = useState(false);
+    const [inviteError, setInviteError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (inviteRoles.length > 0 && !inviteRoles.includes(inviteRole)) {
+            setInviteRole(inviteRoles[0]);
+        }
+    }, [inviteRoles, inviteRole]);
+    const [memberActionError, setMemberActionError] = useState<string | null>(null);
+    const [memberUpdating, setMemberUpdating] = useState<string | null>(null);
+
+    const [ssoEnabled, setSsoEnabled] = useState(false);
+    const [ssoEnforced, setSsoEnforced] = useState(false);
+    const [ssoIdpEntityId, setSsoIdpEntityId] = useState("");
+    const [ssoIdpUrl, setSsoIdpUrl] = useState("");
+    const [ssoCert, setSsoCert] = useState("");
+    const [ssoDomains, setSsoDomains] = useState("");
+    const [ssoJit, setSsoJit] = useState(true);
+    const [ssoDefaultRole, setSsoDefaultRole] = useState<OrgRole>("viewer");
+    const [ssoSaving, setSsoSaving] = useState(false);
+    const [ssoSaved, setSsoSaved] = useState(false);
+    const [ssoError, setSsoError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!ssoConfig) return;
+        setSsoEnabled(ssoConfig.enabled);
+        setSsoEnforced(ssoConfig.enforced);
+        setSsoIdpEntityId(ssoConfig.idp_entity_id ?? "");
+        setSsoIdpUrl(ssoConfig.idp_sso_url ?? "");
+        setSsoDomains((ssoConfig.email_domains ?? []).join(", "));
+        setSsoJit(ssoConfig.jit_provisioning ?? true);
+        setSsoDefaultRole(ssoConfig.default_role ?? "viewer");
+    }, [ssoConfig]);
+
+    const saveSso = async () => {
+        if (!canAdmin) return;
+        setSsoSaving(true);
+        setSsoError(null);
+        try {
+            await organizationsApi.updateSso({
+                enabled: ssoEnabled,
+                enforced: ssoEnforced,
+                idp_entity_id: ssoIdpEntityId.trim(),
+                idp_sso_url: ssoIdpUrl.trim(),
+                idp_x509_cert: ssoCert.trim(),
+                email_domains: ssoDomains.split(",").map((d) => d.trim()).filter(Boolean),
+                jit_provisioning: ssoJit,
+                default_role: ssoDefaultRole,
+            });
+            await refetchSso();
+            setSsoSaved(true);
+            setTimeout(() => setSsoSaved(false), 2000);
+        } catch (err) {
+            setSsoError(err instanceof Error ? err.message : "Failed to save SSO settings");
+        } finally {
+            setSsoSaving(false);
+        }
+    };
+
+    const sendInvite = async () => {
+        if (!canAdmin || !inviteEmail.trim()) return;
+        setInviteSending(true);
+        setInviteError(null);
+        try {
+            await organizationsApi.inviteMember({
+                email: inviteEmail.trim(),
+                role: inviteRole,
+            });
+            setInviteEmail("");
+            await Promise.all([refetchMembers(), refetchInvites(), refreshOrganizations()]);
+        } catch (err) {
+            setInviteError(err instanceof Error ? err.message : "Failed to send invite");
+        } finally {
+            setInviteSending(false);
+        }
+    };
+
+    const changeMemberRole = async (userId: string, role: OrgRole) => {
+        setMemberUpdating(userId);
+        setMemberActionError(null);
+        try {
+            await organizationsApi.updateMemberRole(userId, role);
+            await refetchMembers();
+        } catch (err) {
+            setMemberActionError(err instanceof Error ? err.message : "Failed to update role");
+        } finally {
+            setMemberUpdating(null);
+        }
+    };
+
+    const removeMember = async (userId: string) => {
+        setMemberUpdating(userId);
+        setMemberActionError(null);
+        try {
+            await organizationsApi.removeMember(userId);
+            await refetchMembers();
+        } catch (err) {
+            setMemberActionError(err instanceof Error ? err.message : "Failed to remove member");
+        } finally {
+            setMemberUpdating(null);
+        }
+    };
+
+    const revokeInvite = async (inviteId: string) => {
+        setMemberUpdating(inviteId);
+        setInviteError(null);
+        try {
+            await organizationsApi.revokeInvite(inviteId);
+            await refetchInvites();
+        } catch (err) {
+            setInviteError(err instanceof Error ? err.message : "Failed to revoke invite");
+        } finally {
+            setMemberUpdating(null);
+        }
+    };
+
+    const [orgName, setOrgName] = useState("");
+    const [orgContact, setOrgContact] = useState("");
     const [orgSaved, setOrgSaved] = useState(false);
-    const saveOrg = () => {
-        localStorage.setItem(LS_ORG_NAME, orgName);
-        localStorage.setItem(LS_ORG_CONTACT, orgContact);
-        setOrgSaved(true);
-        setTimeout(() => setOrgSaved(false), 2000);
+    const [orgSaving, setOrgSaving] = useState(false);
+    const [orgError, setOrgError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!activeOrganization) return;
+        setOrgName(activeOrganization.organization.name);
+        setOrgContact(activeOrganization.organization.compliance_contact_email ?? "");
+    }, [activeOrganization]);
+
+    const saveOrg = async () => {
+        if (!canAdmin) return;
+        setOrgSaving(true);
+        setOrgError(null);
+        try {
+            await organizationsApi.updateCurrent({
+                name: orgName.trim(),
+                compliance_contact_email: orgContact.trim() || null,
+            });
+            await refreshOrganizations();
+            setOrgSaved(true);
+            setTimeout(() => setOrgSaved(false), 2000);
+        } catch (err) {
+            setOrgError(err instanceof Error ? err.message : "Failed to save organization");
+        } finally {
+            setOrgSaving(false);
+        }
     };
 
     // Scan defaults (localStorage)
@@ -456,7 +672,28 @@ export default function SettingsPage() {
                     <SectionHeader
                         icon={<BusinessOutlinedIcon sx={{ fontSize: 24 }} />}
                         title="Organization"
-                        subtitle="Used as context in scan reports and AI policy generation"
+                        subtitle="Workspace profile used in scan reports and AI policy generation"
+                    />
+                    {(orgContext?.organizations.length ?? 0) > 1 && (
+                        <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                            <label className="form-label">Active workspace</label>
+                            <select
+                                className="input"
+                                value={activeOrganizationId ?? ""}
+                                onChange={(e) => switchOrganization(e.target.value)}
+                            >
+                                {orgContext?.organizations.map((entry) => (
+                                    <option key={entry.organization.id} value={entry.organization.id}>
+                                        {entry.organization.name} ({entry.role})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+                    <SettingRow
+                        label="Workspace ID"
+                        value={activeOrganizationId ?? "—"}
+                        mono
                     />
                     <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
                         <label className="form-label">Organization name</label>
@@ -465,6 +702,7 @@ export default function SettingsPage() {
                             value={orgName}
                             onChange={e => setOrgName(e.target.value)}
                             placeholder="e.g. Mouser Electronics"
+                            disabled={!canAdmin}
                         />
                     </div>
                     <div className="form-group" style={{ marginBottom: "var(--s-4)" }}>
@@ -475,16 +713,340 @@ export default function SettingsPage() {
                             value={orgContact}
                             onChange={e => setOrgContact(e.target.value)}
                             placeholder="e.g. governance@yourcompany.com"
+                            disabled={!canAdmin}
                         />
                     </div>
+                    {!canAdmin && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)" }}>
+                            Your role ({activeOrganization?.role ?? "viewer"}) is read-only for workspace settings.
+                        </p>
+                    )}
+                    {orgError && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-danger)", marginBottom: "var(--s-3)" }}>
+                            {orgError}
+                        </p>
+                    )}
                     <button
                         type="button"
                         className="btn btn--primary btn--sm"
-                        onClick={saveOrg}
+                        onClick={() => void saveOrg()}
+                        disabled={!canAdmin || orgSaving}
                         style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
                     >
-                        {orgSaved ? <><CheckOutlinedIcon sx={{ fontSize: 16 }} /> Saved</> : "Save"}
+                        {orgSaved ? <><CheckOutlinedIcon sx={{ fontSize: 16 }} /> Saved</> : orgSaving ? "Saving…" : "Save"}
                     </button>
+                </SectionCard>
+
+                {/* ── 2b. Team & access ─────────────────────────────────────── */}
+                <SectionCard>
+                    <SectionHeader
+                        icon={<GroupOutlinedIcon sx={{ fontSize: 24 }} />}
+                        title="Team & access"
+                        subtitle="Invite teammates and manage workspace roles"
+                    />
+
+                    {membersLoading && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>Loading members…</p>
+                    )}
+
+                    {!membersLoading && (
+                        <div style={{ marginBottom: "var(--s-4)" }}>
+                            <div style={{
+                                fontSize: "var(--fs-11)",
+                                color: "var(--c-text-muted)",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.04em",
+                                marginBottom: "var(--s-2)",
+                            }}>
+                                Members ({members.length})
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
+                                {members.map((member) => {
+                                    const manageable = canAdmin && canManageMember(
+                                        actorRole,
+                                        member.role,
+                                        member.user_id,
+                                        selfUserId,
+                                    );
+                                    return (
+                                        <div
+                                            key={member.user_id}
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "var(--s-3)",
+                                                padding: "var(--s-3)",
+                                                borderRadius: "var(--r-sm)",
+                                                border: "1px solid var(--c-border)",
+                                                background: "rgba(255,255,255,0.02)",
+                                            }}
+                                        >
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ fontSize: "var(--fs-13)", fontWeight: "var(--fw-medium)" }}>
+                                                    {member.email ?? member.user_id}
+                                                    {member.user_id === selfUserId ? " (you)" : ""}
+                                                </div>
+                                                <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: 2 }}>
+                                                    Joined {new Date(member.joined_at).toLocaleDateString()}
+                                                </div>
+                                            </div>
+                                            {manageable ? (
+                                                <select
+                                                    className="input"
+                                                    style={{ width: 160, flexShrink: 0 }}
+                                                    value={member.role}
+                                                    disabled={memberUpdating === member.user_id}
+                                                    onChange={(e) => void changeMemberRole(member.user_id, e.target.value as OrgRole)}
+                                                >
+                                                    {assignableRoles(actorRole).map((role) => (
+                                                        <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                                                    ))}
+                                                    {member.role === "owner" && (
+                                                        <option value="owner">{ROLE_LABELS.owner}</option>
+                                                    )}
+                                                </select>
+                                            ) : (
+                                                <span className="badge badge--neutral" style={{ fontSize: "var(--fs-11)" }}>
+                                                    {ROLE_LABELS[member.role as OrgRole] ?? member.role}
+                                                </span>
+                                            )}
+                                            {manageable && (
+                                                <button
+                                                    type="button"
+                                                    className="btn btn--secondary btn--sm"
+                                                    disabled={memberUpdating === member.user_id}
+                                                    onClick={() => void removeMember(member.user_id)}
+                                                    title="Remove member"
+                                                    style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}
+                                                >
+                                                    <PersonRemoveOutlinedIcon sx={{ fontSize: 16 }} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {canAdmin && pendingInvites.length > 0 && (
+                        <div style={{ marginBottom: "var(--s-4)" }}>
+                            <div style={{
+                                fontSize: "var(--fs-11)",
+                                color: "var(--c-text-muted)",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.04em",
+                                marginBottom: "var(--s-2)",
+                            }}>
+                                Pending invites ({pendingInvites.length})
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
+                                {pendingInvites.map((invite) => (
+                                    <div
+                                        key={invite.id}
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "var(--s-3)",
+                                            padding: "var(--s-3)",
+                                            borderRadius: "var(--r-sm)",
+                                            border: "1px dashed var(--c-border)",
+                                        }}
+                                    >
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: "var(--fs-13)" }}>{invite.email}</div>
+                                            <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: 2 }}>
+                                                {ROLE_LABELS[invite.role as OrgRole] ?? invite.role} · invited {new Date(invite.created_at).toLocaleDateString()}
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="btn btn--secondary btn--sm"
+                                            disabled={memberUpdating === invite.id}
+                                            onClick={() => void revokeInvite(invite.id)}
+                                        >
+                                            Revoke
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {canAdmin && inviteRoles.length > 0 && (
+                        <>
+                            <Divider />
+                            <div style={{ display: "flex", gap: "var(--s-2)", flexWrap: "wrap", alignItems: "flex-end" }}>
+                                <div className="form-group" style={{ flex: "1 1 220px", marginBottom: 0 }}>
+                                    <label className="form-label">Invite by email</label>
+                                    <input
+                                        className="input"
+                                        type="email"
+                                        value={inviteEmail}
+                                        onChange={(e) => { setInviteEmail(e.target.value); setInviteError(null); }}
+                                        placeholder="teammate@company.com"
+                                    />
+                                </div>
+                                <div className="form-group" style={{ width: 180, marginBottom: 0 }}>
+                                    <label className="form-label">Role</label>
+                                    <select
+                                        className="input"
+                                        value={inviteRole}
+                                        onChange={(e) => setInviteRole(e.target.value as OrgRole)}
+                                    >
+                                        {inviteRoles.map((role) => (
+                                            <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn btn--primary btn--sm"
+                                    disabled={inviteSending || !inviteEmail.trim()}
+                                    onClick={() => void sendInvite()}
+                                    style={{ marginBottom: 2 }}
+                                >
+                                    {inviteSending ? "Sending…" : "Send invite"}
+                                </button>
+                            </div>
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-3)", lineHeight: 1.5 }}>
+                                Existing users are added immediately. New users receive access when they sign up with the invited email.
+                            </p>
+                        </>
+                    )}
+
+                    {!canAdmin && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", lineHeight: 1.5 }}>
+                            Contact a workspace admin to invite teammates or change roles.
+                        </p>
+                    )}
+
+                    {(inviteError || memberActionError) && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-danger)", marginTop: "var(--s-3)" }}>
+                            {inviteError ?? memberActionError}
+                        </p>
+                    )}
+                </SectionCard>
+
+                {/* ── 2c. SAML SSO ──────────────────────────────────────────── */}
+                <SectionCard>
+                    <SectionHeader
+                        icon={<VpnKeyOutlinedIcon sx={{ fontSize: 24 }} />}
+                        title="SAML SSO"
+                        subtitle="Connect Okta, Azure AD, Google Workspace, or any SAML 2.0 identity provider"
+                        badge={
+                            ssoConfig?.enabled
+                                ? <span className="badge badge--live">Enabled</span>
+                                : <span className="badge badge--neutral">Disabled</span>
+                        }
+                    />
+
+                    {canAdmin && ssoConfig && (
+                        <>
+                            <SettingRow label="SP Entity ID" value={ssoConfig.sp_entity_id} mono />
+                            <SettingRow label="ACS URL" value={ssoConfig.sp_acs_url} mono />
+                            <SettingRow label="Metadata URL" value={ssoConfig.metadata_url} mono />
+
+                            <div style={{ display: "flex", gap: "var(--s-4)", flexWrap: "wrap", margin: "var(--s-4) 0" }}>
+                                <NotifToggle
+                                    label="Enable SAML SSO"
+                                    description="Allow users with matching email domains to sign in via your IdP"
+                                    value={ssoEnabled}
+                                    onChange={setSsoEnabled}
+                                />
+                                <NotifToggle
+                                    label="Enforce SSO"
+                                    description="Hide password sign-in for users on configured email domains"
+                                    value={ssoEnforced}
+                                    onChange={setSsoEnforced}
+                                />
+                                <NotifToggle
+                                    label="Just-in-time provisioning"
+                                    description="Automatically add SSO users to this workspace with the default role"
+                                    value={ssoJit}
+                                    onChange={setSsoJit}
+                                />
+                            </div>
+
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">Email domains</label>
+                                <input
+                                    className="input"
+                                    value={ssoDomains}
+                                    onChange={(e) => setSsoDomains(e.target.value)}
+                                    placeholder="company.com, subsidiary.com"
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">IdP Entity ID</label>
+                                <input
+                                    className="input"
+                                    value={ssoIdpEntityId}
+                                    onChange={(e) => setSsoIdpEntityId(e.target.value)}
+                                    placeholder="urn:example:idp"
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">IdP SSO URL</label>
+                                <input
+                                    className="input"
+                                    value={ssoIdpUrl}
+                                    onChange={(e) => setSsoIdpUrl(e.target.value)}
+                                    placeholder="https://idp.example.com/saml/sso"
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">IdP X.509 certificate</label>
+                                <textarea
+                                    className="input"
+                                    rows={5}
+                                    value={ssoCert}
+                                    onChange={(e) => setSsoCert(e.target.value)}
+                                    placeholder="Paste the IdP signing certificate (PEM)"
+                                    style={{ fontFamily: "ui-monospace, monospace", fontSize: "var(--fs-12)" }}
+                                />
+                                {ssoConfig.idp_x509_cert_configured && !ssoCert && (
+                                    <p style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: 4 }}>
+                                        A certificate is already saved. Paste a new one to rotate.
+                                    </p>
+                                )}
+                            </div>
+                            <div className="form-group" style={{ marginBottom: "var(--s-4)", maxWidth: 240 }}>
+                                <label className="form-label">Default role for new SSO users</label>
+                                <select
+                                    className="input"
+                                    value={ssoDefaultRole}
+                                    onChange={(e) => setSsoDefaultRole(e.target.value as OrgRole)}
+                                >
+                                    {(["admin", "security_admin", "auditor", "viewer"] as OrgRole[]).map((role) => (
+                                        <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {ssoError && (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-danger)", marginBottom: "var(--s-3)" }}>
+                                    {ssoError}
+                                </p>
+                            )}
+
+                            <button
+                                type="button"
+                                className="btn btn--primary btn--sm"
+                                disabled={ssoSaving}
+                                onClick={() => void saveSso()}
+                                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                            >
+                                {ssoSaved ? <><CheckOutlinedIcon sx={{ fontSize: 16 }} /> Saved</> : ssoSaving ? "Saving…" : "Save SSO settings"}
+                            </button>
+                        </>
+                    )}
+
+                    {!canAdmin && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", lineHeight: 1.5 }}>
+                            SAML SSO is managed by workspace administrators.
+                        </p>
+                    )}
                 </SectionCard>
 
                 {/* ── 3. GitHub Integration ─────────────────────────────────── */}
@@ -523,6 +1085,7 @@ export default function SettingsPage() {
                                 type="button"
                                 className="btn btn--secondary btn--sm"
                                 style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                disabled={!canAdmin}
                                 onClick={() => void disconnectGitHub()}
                             >
                                 <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
@@ -551,7 +1114,7 @@ export default function SettingsPage() {
                                 type="button"
                                 className="btn btn--primary"
                                 style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
-                                disabled={!backendStatus?.github_oauth_configured}
+                                disabled={!canAdmin || !backendStatus?.github_oauth_configured}
                                 onClick={() => void connectGitHub()}
                             >
                                 <GitHubIcon sx={{ fontSize: 18 }} />
@@ -589,7 +1152,7 @@ export default function SettingsPage() {
                                     className="input"
                                     value={slackStatus.info.channel_id}
                                     onChange={e => void changeSlackChannel(e.target.value)}
-                                    disabled={slackChannelsLoading}
+                                    disabled={!canAdmin || slackChannelsLoading}
                                     style={{ cursor: "pointer" }}
                                 >
                                     {slackChannelsLoading && <option>Loading channels…</option>}
@@ -613,7 +1176,7 @@ export default function SettingsPage() {
                                     type="button"
                                     className="btn btn--secondary btn--sm"
                                     style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-                                    disabled={slackTestSending}
+                                    disabled={!canAdmin || slackTestSending}
                                     onClick={() => void testSlack()}
                                 >
                                     <SendOutlinedIcon sx={{ fontSize: 16 }} />
@@ -623,6 +1186,7 @@ export default function SettingsPage() {
                                     type="button"
                                     className="btn btn--secondary btn--sm"
                                     style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                    disabled={!canAdmin}
                                     onClick={() => void disconnectSlack()}
                                 >
                                     <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
@@ -652,7 +1216,7 @@ export default function SettingsPage() {
                                 type="button"
                                 className="btn btn--primary"
                                 style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
-                                disabled={!backendStatus?.slack_oauth_configured}
+                                disabled={!canAdmin || !backendStatus?.slack_oauth_configured}
                                 onClick={() => void connectSlack()}
                             >
                                 <TagOutlinedIcon sx={{ fontSize: 18 }} />
@@ -700,7 +1264,7 @@ export default function SettingsPage() {
                                     type="button"
                                     className="btn btn--secondary btn--sm"
                                     style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-                                    disabled={awsTesting}
+                                    disabled={!canAdmin || awsTesting}
                                     onClick={() => void testAws()}
                                 >
                                     {awsTesting ? "Testing…" : awsTestResult === "ok" ? "Valid!" : awsTestResult === "error" ? "Failed" : "Test Connection"}
@@ -709,6 +1273,7 @@ export default function SettingsPage() {
                                     type="button"
                                     className="btn btn--secondary btn--sm"
                                     style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                    disabled={!canAdmin}
                                     onClick={() => void disconnectAws()}
                                 >
                                     <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
@@ -780,7 +1345,7 @@ export default function SettingsPage() {
                                 type="button"
                                 className="btn btn--primary"
                                 style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
-                                disabled={!awsRoleArn.startsWith("arn:aws:iam::") || awsConnecting}
+                                disabled={!canAdmin || !awsRoleArn.startsWith("arn:aws:iam::") || awsConnecting}
                                 onClick={() => void connectAws()}
                             >
                                 <CloudOutlinedIcon sx={{ fontSize: 18 }} />

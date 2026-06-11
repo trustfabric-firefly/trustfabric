@@ -61,8 +61,8 @@ Remember: your output is advisory only. Human reviewers make the final decisions
     return base
 
 
-def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
-    system = store.get_system(system_id)
+def generate_recommendations_for_system(system_id: int, user_id: str, organization_id: str) -> dict:
+    system = store.get_system(system_id, organization_id)
     if system is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
 
@@ -101,7 +101,8 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
                 model_name=settings.anthropic_model,
                 response_summary=error_detail[:1000],
                 success=False,
-            )
+            ),
+            organization_id,
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -127,7 +128,8 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
             model_name=settings.anthropic_model,
             response_summary=summary,
             success=True,
-        )
+        ),
+        organization_id,
     )
 
     # Let the frontend handle JSON parsing/validation of output (NIST Manage)
@@ -160,10 +162,10 @@ def _extract_json_object(raw: str) -> dict[str, Any]:
     )
 
 
-def explain_missing_controls(system_id: int, user_id: str) -> dict:
+def explain_missing_controls(system_id: int, user_id: str, organization_id: str) -> dict:
     """Generate a plain-English explanation of what governance controls a system is missing
     and concrete action steps to become compliant. (Stretch goal — NIST Manage function.)"""
-    system = store.get_system(system_id)
+    system = store.get_system(system_id, organization_id)
     if system is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
 
@@ -221,7 +223,7 @@ Keep the language clear and actionable. This output is shown directly to system 
             input_summary=f"explain_missing for system {system_id}",
             model_name=settings.anthropic_model,
             response_summary=str(exc)[:500], success=False,
-        ))
+        ), organization_id)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY,
                             detail=f"Claude API call failed: {exc}") from exc
 
@@ -235,7 +237,7 @@ Keep the language clear and actionable. This output is shown directly to system 
         model_name=settings.anthropic_model,
         response_summary=raw[:1000] + ("..." if len(raw) > 1000 else ""),
         success=True,
-    ))
+    ), organization_id)
 
     payload = _extract_json_object(raw)
     return {
@@ -246,7 +248,13 @@ Keep the language clear and actionable. This output is shown directly to system 
     }
 
 
-def generate_policy_recommendation(prompt: str, user_id: str, history: list[str] | None = None) -> dict:
+def generate_policy_recommendation(
+    prompt: str,
+    user_id: str,
+    history: list[str] | None = None,
+    organization_id: str | None = None,
+) -> dict:
+    org_id = organization_id or settings.default_organization_id
     if not settings.claude_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -299,7 +307,8 @@ Return strict JSON with keys:
                 model_name=settings.anthropic_model,
                 response_summary=error_detail[:1000],
                 success=False,
-            )
+            ),
+            org_id,
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -320,7 +329,8 @@ Return strict JSON with keys:
             model_name=settings.anthropic_model,
             response_summary=raw[:1000] + ("..." if len(raw) > 1000 else ""),
             success=True,
-        )
+        ),
+        org_id,
     )
     return payload
 

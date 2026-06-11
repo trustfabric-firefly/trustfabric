@@ -15,6 +15,9 @@ class Settings(BaseSettings):
 
     admin_token: str = ""
     viewer_token: str = ""
+    default_organization_id: str = "default"
+    oauth_state_secret: str = ""
+    encryption_key: str = ""
 
     database_url: str = ""  # DB connection
 
@@ -50,6 +53,7 @@ class Settings(BaseSettings):
     github_client_secret: str = ""
     github_redirect_uri: str = "http://localhost:8000/api/v1/integrations/github/callback"
     frontend_url: str = "http://localhost:3000"
+    api_base_url: str = "http://localhost:8000"
 
     # Slack OAuth
     slack_client_id: str = ""
@@ -66,8 +70,9 @@ class Settings(BaseSettings):
     def check_production_secrets(self) -> "Settings":
         if self.app_env == "production":
             required = {
-                "admin_token": self.admin_token,
-                "viewer_token": self.viewer_token,
+                "encryption_key": self.encryption_key,
+                "oauth_state_secret": self.oauth_state_secret,
+                "firebase_project_id": self.firebase_project_id,
                 "database_url": self.database_url,
             }
             missing = [k for k, v in required.items() if not v]

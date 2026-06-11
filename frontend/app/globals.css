@@ -1,3 +1,7 @@
+@import "tailwindcss";
+@source "../app/**/*.{ts,tsx}";
+@source "../components/**/*.{ts,tsx}";
+@import "./marketing.css";
 
 :root {
   /* ─── Core palette ────────────────────────────────────────────────── */

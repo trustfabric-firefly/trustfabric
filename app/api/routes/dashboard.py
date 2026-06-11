@@ -10,11 +10,10 @@ router = APIRouter()
 
 
 @router.get("/", response_model=DashboardSummary, summary="Governance dashboard summary")
-def get_dashboard(actor: Actor = Depends(get_actor)) -> DashboardSummary:  # noqa: ARG001
-    return store.dashboard_summary()
+def get_dashboard(actor: Actor = Depends(get_actor)) -> DashboardSummary:
+    return store.dashboard_summary(actor.organization_id)
 
 
 @router.get("/nist-coverage", response_model=NistCoverage, summary="NIST AI RMF control coverage")
-def get_nist_coverage(actor: Actor = Depends(get_actor)) -> NistCoverage:  # noqa: ARG001
-    return store.nist_coverage()
-
+def get_nist_coverage(actor: Actor = Depends(get_actor)) -> NistCoverage:
+    return store.nist_coverage(actor.organization_id)

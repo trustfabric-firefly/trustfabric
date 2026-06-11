@@ -1,6 +1,6 @@
 ## TrustFabric
 
-FastAPI + Next.js app for AI **system inventory**, risk tiers, audit/events, and governance copilot features (NIST AI RMF–aligned). Data lives in **Firestore**. The API accepts **dev bearer tokens** and/or **Firebase ID tokens** when configured.
+FastAPI + Next.js **multi-tenant SaaS** for AI **system inventory**, risk tiers, audit/events, and governance copilot features (NIST AI RMF–aligned). Data lives in **Firestore** with **organization-scoped isolation**. The API accepts **dev bearer tokens** (non-production only) and/or **Firebase ID tokens** when configured.
 
 **System recommendations** (`POST /api/v1/copilot/systems/{id}/recommendations`) and **policy text generation** (`POST /api/v1/copilot/policies/recommendations`) can use an **OpenAI-compatible** endpoint, **Gemini**, **Claude**, or **auto** (OpenAI-compatible first, then Gemini, then Claude), controlled by `COPILOT_PROVIDER` in `.env`.
 

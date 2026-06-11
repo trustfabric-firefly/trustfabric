@@ -9,6 +9,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 
 from app.core.config import settings
+from app.core.secrets import decrypt_secret, encrypt_secret
 from app.domain.models import (
     AIChatMessage,
     AIChatMessageCreate,
@@ -26,6 +27,12 @@ from app.domain.models import (
     LLMInteractionLog,
     NistCoverage,
     NistFunctionCoverage,
+    Organization,
+    OrganizationInvite,
+    OrganizationInviteStatus,
+    OrganizationMember,
+    OrganizationSsoConfig,
+    OrganizationUpdate,
     PolicyKey,
     RiskTier,
 )
@@ -40,7 +47,12 @@ class FirestoreStore:
         self._llm_logs_collection = "llm_logs"
         self._counter_collection = "_counters"
         self._counter_document = "ids"
-        self._integrations_collection = "user_integrations"
+        self._organizations_collection = "organizations"
+        self._organization_members_collection = "organization_members"
+        self._organization_invites_collection = "organization_invites"
+        self._organization_sso_collection = "organization_sso"
+        self._sso_exchange_collection = "sso_exchange_codes"
+        self._integrations_collection = "organization_integrations"
         # Lazy init so importing the app without Firebase creds (e.g. unit tests) does not fail.
         self._db: Any = None
 
@@ -66,8 +78,8 @@ class FirestoreStore:
 
         return firestore.client()
 
-    def _next_id(self, key: str) -> int:
-        counter_ref = self._client().collection(self._counter_collection).document(self._counter_document)
+    def _next_id(self, key: str, organization_id: str) -> int:
+        counter_ref = self._client().collection(self._counter_collection).document(organization_id)
         field = f"{key}_id_seq"
         counter_ref.set({field: firestore.Increment(1)}, merge=True)
         data = counter_ref.get().to_dict() or {}
@@ -77,15 +89,245 @@ class FirestoreStore:
     def _serialize(model_obj) -> dict:
         return model_obj.model_dump(mode="json")
 
+    @staticmethod
+    def _matches_org(payload: dict[str, Any], organization_id: str) -> bool:
+        doc_org = payload.get("organization_id")
+        if doc_org is None:
+            return organization_id == settings.default_organization_id
+        return doc_org == organization_id
+
+    # --- Organizations ---
+    def create_organization(self, org: Organization) -> Organization:
+        self._client().collection(self._organizations_collection).document(org.id).set(self._serialize(org))
+        return org
+
+    def get_organization(self, organization_id: str) -> Optional[Organization]:
+        doc = self._client().collection(self._organizations_collection).document(organization_id).get()
+        if not doc.exists:
+            return None
+        return Organization.model_validate(doc.to_dict() or {})
+
+    def add_organization_member(self, member: OrganizationMember) -> OrganizationMember:
+        doc_id = f"{member.organization_id}_{member.user_id}"
+        self._client().collection(self._organization_members_collection).document(doc_id).set(
+            self._serialize(member)
+        )
+        return member
+
+    def list_user_memberships(self, user_id: str) -> List[OrganizationMember]:
+        members: List[OrganizationMember] = []
+        docs = (
+            self._client()
+            .collection(self._organization_members_collection)
+            .where("user_id", "==", user_id)
+            .stream()
+        )
+        for doc in docs:
+            members.append(OrganizationMember.model_validate(doc.to_dict() or {}))
+        return sorted(members, key=lambda member: member.joined_at)
+
+    def list_organization_members(self, organization_id: str) -> List[OrganizationMember]:
+        members: List[OrganizationMember] = []
+        docs = (
+            self._client()
+            .collection(self._organization_members_collection)
+            .where("organization_id", "==", organization_id)
+            .stream()
+        )
+        for doc in docs:
+            members.append(OrganizationMember.model_validate(doc.to_dict() or {}))
+        return sorted(members, key=lambda member: member.joined_at)
+
+    def get_organization_member(self, organization_id: str, user_id: str) -> Optional[OrganizationMember]:
+        doc_id = f"{organization_id}_{user_id}"
+        doc = self._client().collection(self._organization_members_collection).document(doc_id).get()
+        if not doc.exists:
+            return None
+        return OrganizationMember.model_validate(doc.to_dict() or {})
+
+    def get_organization_member_by_email(self, organization_id: str, email: str) -> Optional[OrganizationMember]:
+        normalized = email.strip().lower()
+        for member in self.list_organization_members(organization_id):
+            if member.email and member.email.strip().lower() == normalized:
+                return member
+        return None
+
+    def update_organization_member(self, member: OrganizationMember) -> OrganizationMember:
+        doc_id = f"{member.organization_id}_{member.user_id}"
+        self._client().collection(self._organization_members_collection).document(doc_id).set(
+            self._serialize(member)
+        )
+        return member
+
+    def remove_organization_member(self, organization_id: str, user_id: str) -> None:
+        doc_id = f"{organization_id}_{user_id}"
+        self._client().collection(self._organization_members_collection).document(doc_id).delete()
+
+    def create_organization_invite(self, invite: OrganizationInvite) -> OrganizationInvite:
+        self._client().collection(self._organization_invites_collection).document(invite.id).set(
+            self._serialize(invite)
+        )
+        return invite
+
+    def get_organization_invite(self, organization_id: str, invite_id: str) -> Optional[OrganizationInvite]:
+        doc = self._client().collection(self._organization_invites_collection).document(invite_id).get()
+        if not doc.exists:
+            return None
+        invite = OrganizationInvite.model_validate(doc.to_dict() or {})
+        if invite.organization_id != organization_id:
+            return None
+        return invite
+
+    def list_organization_invites(
+        self,
+        organization_id: str,
+        *,
+        status: OrganizationInviteStatus = OrganizationInviteStatus.pending,
+    ) -> List[OrganizationInvite]:
+        invites: List[OrganizationInvite] = []
+        docs = (
+            self._client()
+            .collection(self._organization_invites_collection)
+            .where("organization_id", "==", organization_id)
+            .where("status", "==", status.value)
+            .stream()
+        )
+        for doc in docs:
+            invites.append(OrganizationInvite.model_validate(doc.to_dict() or {}))
+        return sorted(invites, key=lambda invite: invite.created_at)
+
+    def list_pending_invites_for_email(self, email: str) -> List[OrganizationInvite]:
+        normalized = email.strip().lower()
+        invites: List[OrganizationInvite] = []
+        docs = (
+            self._client()
+            .collection(self._organization_invites_collection)
+            .where("email", "==", normalized)
+            .where("status", "==", OrganizationInviteStatus.pending.value)
+            .stream()
+        )
+        for doc in docs:
+            invites.append(OrganizationInvite.model_validate(doc.to_dict() or {}))
+        return invites
+
+    def get_pending_invite_for_email(self, organization_id: str, email: str) -> Optional[OrganizationInvite]:
+        normalized = email.strip().lower()
+        for invite in self.list_organization_invites(organization_id, status=OrganizationInviteStatus.pending):
+            if invite.email == normalized:
+                return invite
+        return None
+
+    def update_organization_invite(self, invite: OrganizationInvite) -> OrganizationInvite:
+        self._client().collection(self._organization_invites_collection).document(invite.id).set(
+            self._serialize(invite)
+        )
+        return invite
+
+    def get_organization_sso_config(self, organization_id: str) -> Optional[OrganizationSsoConfig]:
+        doc = self._client().collection(self._organization_sso_collection).document(organization_id).get()
+        if not doc.exists:
+            return None
+        return OrganizationSsoConfig.model_validate(doc.to_dict() or {})
+
+    def save_organization_sso_config(self, config: OrganizationSsoConfig) -> OrganizationSsoConfig:
+        self._client().collection(self._organization_sso_collection).document(config.organization_id).set(
+            self._serialize(config)
+        )
+        return config
+
+    def delete_organization_sso_config(self, organization_id: str) -> None:
+        self._client().collection(self._organization_sso_collection).document(organization_id).delete()
+
+    def list_enabled_sso_configs(self) -> List[OrganizationSsoConfig]:
+        configs: List[OrganizationSsoConfig] = []
+        docs = (
+            self._client()
+            .collection(self._organization_sso_collection)
+            .where("enabled", "==", True)
+            .stream()
+        )
+        for doc in docs:
+            configs.append(OrganizationSsoConfig.model_validate(doc.to_dict() or {}))
+        return configs
+
+    def create_sso_exchange_code(
+        self,
+        *,
+        code: str,
+        user_id: str,
+        organization_id: str,
+        email: str,
+        return_to: str,
+        expires_at: datetime,
+    ) -> None:
+        self._client().collection(self._sso_exchange_collection).document(code).set(
+            {
+                "code": code,
+                "user_id": user_id,
+                "organization_id": organization_id,
+                "email": email,
+                "return_to": return_to,
+                "expires_at": expires_at.isoformat(),
+                "used": False,
+            }
+        )
+
+    def consume_sso_exchange_code(self, code: str) -> Optional[dict[str, Any]]:
+        doc_ref = self._client().collection(self._sso_exchange_collection).document(code)
+        doc = doc_ref.get()
+        if not doc.exists:
+            return None
+        data = doc.to_dict() or {}
+        if data.get("used"):
+            return None
+        expires_raw = data.get("expires_at")
+        if expires_raw:
+            expires_at = datetime.fromisoformat(str(expires_raw))
+            if expires_at < datetime.utcnow():
+                return None
+        doc_ref.update({"used": True})
+        return data
+
+    def update_organization(self, organization_id: str, payload: OrganizationUpdate) -> Optional[Organization]:
+        org = self.get_organization(organization_id)
+        if org is None:
+            return None
+        updates: dict[str, Any] = {"name": payload.name.strip()}
+        if payload.compliance_contact_email is not None:
+            contact = payload.compliance_contact_email.strip()
+            updates["compliance_contact_email"] = contact or None
+        updated = org.model_copy(update=updates)
+        self._client().collection(self._organizations_collection).document(organization_id).set(
+            self._serialize(updated)
+        )
+        return updated
+
+    @staticmethod
+    def _encrypt_integration_fields(doc: dict[str, Any]) -> dict[str, Any]:
+        out = dict(doc)
+        for field in ("github_access_token", "slack_bot_token"):
+            if out.get(field):
+                out[field] = encrypt_secret(str(out[field]))
+        return out
+
+    @staticmethod
+    def _decrypt_integration_fields(doc: dict[str, Any]) -> dict[str, Any]:
+        out = dict(doc)
+        for field in ("github_access_token", "slack_bot_token"):
+            if out.get(field):
+                out[field] = decrypt_secret(str(out[field]))
+        return out
+
     # --- Systems ---
-    def create_system(self, data: AISystemCreate, user_id: str) -> AISystem:
-        system_id = self._next_id("system")
+    def create_system(self, data: AISystemCreate, user_id: str, organization_id: str) -> AISystem:
+        system_id = self._next_id("system", organization_id)
         now = datetime.utcnow()
 
         required_policies = self._derive_policies(data.risk_tier)
 
         system = AISystem(
             id=system_id,
+            organization_id=organization_id,
             created_at=now,
             updated_at=now,
             required_policies=required_policies,
@@ -98,23 +340,27 @@ class FirestoreStore:
             event_type=AuditEventType.system_created,
             target_id=system_id,
             user_id=user_id,
+            organization_id=organization_id,
             summary=f"System created: {system.name}",
         )
         return system
 
-    def list_systems(self) -> List[AISystem]:
+    def list_systems(self, organization_id: str) -> List[AISystem]:
         systems: List[AISystem] = []
         for doc in self._client().collection(self._systems_collection).stream():
             payload = doc.to_dict() or {}
+            if not self._matches_org(payload, organization_id):
+                continue
             payload["id"] = int(doc.id)
+            payload.setdefault("organization_id", organization_id)
             systems.append(AISystem.model_validate(payload))
         return sorted(systems, key=lambda system: system.id)
 
-    def link_scan_to_systems(self, scan_record) -> None:
+    def link_scan_to_systems(self, scan_record, organization_id: str) -> None:
         """Update all AI systems that have a GitHub-related integration with the latest scan results.
         Called automatically after every scan completes."""
         github_keywords = {"github", "copilot", "github copilot"}
-        systems = self.list_systems()
+        systems = self.list_systems(organization_id)
         for system in systems:
             integrations_lower = {i.lower() for i in system.external_integrations}
             # Also match systems with model_type LLM or any github keyword in integrations
@@ -127,16 +373,25 @@ class FirestoreStore:
                     "updated_at": datetime.utcnow().isoformat(),
                 })
 
-    def get_system(self, system_id: int) -> Optional[AISystem]:
+    def get_system(self, system_id: int, organization_id: str) -> Optional[AISystem]:
         doc = self._client().collection(self._systems_collection).document(str(system_id)).get()
         if not doc.exists:
             return None
         payload = doc.to_dict() or {}
+        if not self._matches_org(payload, organization_id):
+            return None
         payload["id"] = system_id
+        payload.setdefault("organization_id", organization_id)
         return AISystem.model_validate(payload)
 
-    def update_system(self, system_id: int, data: AISystemUpdate, user_id: str) -> Optional[AISystem]:
-        system = self.get_system(system_id)
+    def update_system(
+        self,
+        system_id: int,
+        data: AISystemUpdate,
+        user_id: str,
+        organization_id: str,
+    ) -> Optional[AISystem]:
+        system = self.get_system(system_id, organization_id)
         if system is None:
             return None
 
@@ -155,6 +410,7 @@ class FirestoreStore:
             event_type=AuditEventType.system_updated,
             target_id=system_id,
             user_id=user_id,
+            organization_id=organization_id,
             summary=f"System updated: {system.name}",
         )
 
@@ -164,6 +420,7 @@ class FirestoreStore:
                 event_type=AuditEventType.risk_tier_changed,
                 target_id=system_id,
                 user_id=user_id,
+                organization_id=organization_id,
                 summary=(
                     f"Risk tier changed from {old_risk_tier or 'None'} "
                     f"to {system.risk_tier} (justification: {system.risk_justification})"
@@ -172,8 +429,8 @@ class FirestoreStore:
         self._client().collection(self._systems_collection).document(str(system_id)).set(self._serialize(system))
         return system
 
-    def delete_system(self, system_id: int, user_id: str) -> bool:
-        system = self.get_system(system_id)
+    def delete_system(self, system_id: int, user_id: str, organization_id: str) -> bool:
+        system = self.get_system(system_id, organization_id)
         if system is None:
             return False
         self._delete_system_chat_subcollection(system_id)
@@ -183,19 +440,21 @@ class FirestoreStore:
             event_type=AuditEventType.system_deleted,
             target_id=system_id,
             user_id=user_id,
+            organization_id=organization_id,
             summary=f"System deleted: {system.name}",
         )
         return True
 
     # --- Events ---
-    def create_event(self, data: ActivityEventCreate) -> ActivityEvent:
-        event_id = self._next_id("event")
-        event = ActivityEvent(id=event_id, **data.model_dump())
+    def create_event(self, data: ActivityEventCreate, organization_id: str) -> ActivityEvent:
+        event_id = self._next_id("event", organization_id)
+        event = ActivityEvent(id=event_id, organization_id=organization_id, **data.model_dump())
         self._client().collection(self._events_collection).document(str(event_id)).set(self._serialize(event))
         return event
 
     def list_events(
         self,
+        organization_id: str,
         system_id: Optional[int] = None,
         event_type: Optional[str] = None,
         start: Optional[datetime] = None,
@@ -204,7 +463,10 @@ class FirestoreStore:
         events: List[ActivityEvent] = []
         for doc in self._client().collection(self._events_collection).stream():
             payload = doc.to_dict() or {}
+            if not self._matches_org(payload, organization_id):
+                continue
             payload["id"] = int(doc.id)
+            payload.setdefault("organization_id", organization_id)
             events.append(ActivityEvent.model_validate(payload))
         if system_id is not None:
             events = [e for e in events if e.system_id == system_id]
@@ -222,11 +484,13 @@ class FirestoreStore:
         event_type: AuditEventType,
         target_id: Optional[int],
         user_id: str,
+        organization_id: str,
         summary: str,
     ) -> None:
-        audit_id = self._next_id("audit")
+        audit_id = self._next_id("audit", organization_id)
         audit = AuditEvent(
             id=audit_id,
+            organization_id=organization_id,
             event_type=event_type,
             target_id=target_id,
             user_id=user_id,
@@ -235,17 +499,25 @@ class FirestoreStore:
         )
         self._client().collection(self._audits_collection).document(str(audit_id)).set(self._serialize(audit))
 
-    def list_audits(self) -> List[AuditEvent]:
+    def list_audits(self, organization_id: str) -> List[AuditEvent]:
         audits: List[AuditEvent] = []
         for doc in self._client().collection(self._audits_collection).stream():
             payload = doc.to_dict() or {}
+            if not self._matches_org(payload, organization_id):
+                continue
             payload["id"] = int(doc.id)
+            payload.setdefault("organization_id", organization_id)
             audits.append(AuditEvent.model_validate(payload))
         return sorted(audits, key=lambda audit: audit.id)
 
     # --- LLM Logs ---
-    def log_llm_interaction(self, log: LLMInteractionLog) -> LLMInteractionLog:
-        log_id = self._next_id("llm_log")
+    def log_llm_interaction(
+        self,
+        log: LLMInteractionLog,
+        organization_id: str | None = None,
+    ) -> LLMInteractionLog:
+        org_id = organization_id or settings.default_organization_id
+        log_id = self._next_id("llm_log", org_id)
         stored = log.model_copy(update={"id": log_id})
         self._client().collection(self._llm_logs_collection).document(str(log_id)).set(self._serialize(stored))
         return stored
@@ -313,8 +585,9 @@ class FirestoreStore:
         self,
         system_id: int,
         user_id: str,
+        organization_id: str,
     ) -> Optional[List[AIChatMessage]]:
-        if self.get_system(system_id) is None:
+        if self.get_system(system_id, organization_id) is None:
             return None
 
         messages: List[AIChatMessage] = []
@@ -331,8 +604,9 @@ class FirestoreStore:
         system_id: int,
         user_id: str,
         data: AIChatMessageCreate,
+        organization_id: str,
     ) -> Optional[AIChatMessage]:
-        if self.get_system(system_id) is None:
+        if self.get_system(system_id, organization_id) is None:
             return None
 
         now = datetime.utcnow()
@@ -347,8 +621,8 @@ class FirestoreStore:
         ref.set(message.model_dump(mode="json"))
         return message
 
-    def list_system_policies(self, system_id: int) -> Optional[List[GovernancePolicy]]:
-        if self.get_system(system_id) is None:
+    def list_system_policies(self, system_id: int, organization_id: str) -> Optional[List[GovernancePolicy]]:
+        if self.get_system(system_id, organization_id) is None:
             return None
         policies: List[GovernancePolicy] = []
         for doc in self._system_policies_collection(system_id).stream():
@@ -362,8 +636,9 @@ class FirestoreStore:
         system_id: int,
         data: GovernancePolicyCreate,
         user_id: str,
+        organization_id: str,
     ) -> Optional[GovernancePolicy]:
-        if self.get_system(system_id) is None:
+        if self.get_system(system_id, organization_id) is None:
             return None
         now = datetime.utcnow()
         ref = self._system_policies_collection(system_id).document()
@@ -389,11 +664,12 @@ class FirestoreStore:
             event_type=AuditEventType.policy_created,
             target_id=system_id,
             user_id=user_id,
+            organization_id=organization_id,
             summary=f"Governance policy saved: {data.name} ({policy_id})",
         )
         return policy
 
-    def list_all_active_governance_policies(self) -> List[GovernancePolicy]:
+    def list_all_active_governance_policies(self, organization_id: str) -> List[GovernancePolicy]:
         """Return all active governance policies across every system via a collection group query."""
         results: List[GovernancePolicy] = []
         try:
@@ -403,9 +679,12 @@ class FirestoreStore:
                 .where("status", "==", "active")
                 .stream()
             )
+            org_system_ids = {str(system.id) for system in self.list_systems(organization_id)}
             for doc in docs:
                 raw = doc.to_dict() or {}
                 raw["id"] = doc.id
+                if str(raw.get("system_id")) not in org_system_ids:
+                    continue
                 try:
                     results.append(
                         GovernancePolicy.model_validate(self._normalize_policy_payload(raw))
@@ -422,8 +701,9 @@ class FirestoreStore:
         policy_id: str,
         data: GovernancePolicyUpdate,
         user_id: str,
+        organization_id: str,
     ) -> Optional[GovernancePolicy]:
-        if self.get_system(system_id) is None:
+        if self.get_system(system_id, organization_id) is None:
             return None
         ref = self._system_policies_collection(system_id).document(policy_id)
         snap = ref.get()
@@ -447,13 +727,14 @@ class FirestoreStore:
             event_type=AuditEventType.policy_updated,
             target_id=system_id,
             user_id=user_id,
+            organization_id=organization_id,
             summary=f"Governance policy updated: {current.name} ({policy_id}) status={data.status.value}",
         )
         return updated
 
     # --- Dashboard ---
-    def dashboard_summary(self) -> DashboardSummary:
-        systems = self.list_systems()
+    def dashboard_summary(self, organization_id: str) -> DashboardSummary:
+        systems = self.list_systems(organization_id)
         total_systems = len(systems)
 
         risk_counter: Counter[RiskTier] = Counter()
@@ -464,7 +745,7 @@ class FirestoreStore:
             if s.missing_required_controls:
                 missing_controls += 1
 
-        events = self.list_events()
+        events = self.list_events(organization_id)
         total_events = len(events)
         events_per_system_counter: Counter[int] = Counter(e.system_id for e in events)
 
@@ -487,13 +768,13 @@ class FirestoreStore:
         "Manage":  {"controls": 4, "categories": {"cost_management"}},
     }
 
-    def nist_coverage(self) -> NistCoverage:
+    def nist_coverage(self, organization_id: str) -> NistCoverage:
         """
         Aggregate governance policies across all systems into NIST AI RMF function coverage.
         Each policy's category is mapped to a NIST function; active/draft/inactive counts
         are tallied and missing slots are inferred from the fixed control totals.
         """
-        systems = self.list_systems()
+        systems = self.list_systems(organization_id)
 
         counts: dict[str, dict[str, int]] = {
             fn: {"active": 0, "draft": 0, "inactive": 0}
@@ -501,7 +782,7 @@ class FirestoreStore:
         }
 
         for system in systems:
-            policies = self.list_system_policies(system.id)
+            policies = self.list_system_policies(system.id, organization_id)
             for policy in policies:
                 for fn, meta in self._NIST_FUNCTIONS.items():
                     if policy.category.value in meta["categories"]:
@@ -619,12 +900,12 @@ class FirestoreStore:
         },
     ]
 
-    def get_scan_policies(self, user_id: str) -> list:
+    def get_scan_policies(self, organization_id: str) -> list:
         from app.domain.models import ScanPolicy, GovernancePolicySeverity
         docs = (
             self._client()
             .collection("scan_policies")
-            .where("user_id", "==", user_id)
+            .where("organization_id", "==", organization_id)
             .stream()
         )
         results = [ScanPolicy.model_validate(d.to_dict()) for d in docs]
@@ -643,26 +924,26 @@ class FirestoreStore:
                 severity=GovernancePolicySeverity(p["severity"]),
                 enabled=True,
                 tier=p.get("tier", "personal"),
-                user_id=user_id,
+                user_id=organization_id,
                 created_at=now,
                 updated_at=now,
             )
-            doc_id = f"{user_id}_{p['check_id']}"
-            self._client().collection("scan_policies").document(doc_id).set(
-                policy.model_dump(mode="json")
-            )
+            doc_id = f"{organization_id}_{p['check_id']}"
+            payload = policy.model_dump(mode="json")
+            payload["organization_id"] = organization_id
+            self._client().collection("scan_policies").document(doc_id).set(payload)
             results.append(policy)
 
         return sorted(results, key=lambda p: p.check_id)
 
-    def update_scan_policy(self, user_id: str, check_id: str, enabled: bool):
+    def update_scan_policy(self, organization_id: str, check_id: str, enabled: bool):
         from app.domain.models import ScanPolicy
-        doc_id = f"{user_id}_{check_id}"
+        doc_id = f"{organization_id}_{check_id}"
         doc_ref = self._client().collection("scan_policies").document(doc_id)
         doc = doc_ref.get()
         if not doc.exists:
             # Seed first, then update
-            self.get_scan_policies(user_id)
+            self.get_scan_policies(organization_id)
             doc_ref = self._client().collection("scan_policies").document(doc_id)
         doc_ref.update({"enabled": enabled, "updated_at": datetime.utcnow().isoformat()})
         updated = doc_ref.get().to_dict()
@@ -670,34 +951,33 @@ class FirestoreStore:
 
     # --- Scans ---
 
-    def save_scan(self, user_id: str, record) -> None:
-        from app.domain.models import ScanRecord
+    def save_scan(self, user_id: str, organization_id: str, record) -> None:
         doc = record.model_dump(mode="json")
         doc["user_id"] = user_id
+        doc["organization_id"] = organization_id
         self._client().collection("scans").document(record.scan_id).set(doc)
 
-    def list_scans(self, user_id: str) -> list:
+    def list_scans(self, organization_id: str) -> list:
         from app.domain.models import ScanRecord
         results = []
-        # Avoid composite index requirement by filtering + sorting in Python
-        docs = (
-            self._client()
-            .collection("scans")
-            .where("user_id", "==", user_id)
-            .limit(50)
-            .stream()
-        )
+        docs = self._client().collection("scans").limit(200).stream()
         for doc in docs:
-            results.append(ScanRecord.model_validate(doc.to_dict()))
+            payload = doc.to_dict() or {}
+            if not self._matches_org(payload, organization_id):
+                continue
+            results.append(ScanRecord.model_validate(payload))
         results.sort(key=lambda r: r.timestamp, reverse=True)
-        return results
+        return results[:50]
 
-    def get_scan(self, scan_id: str):
+    def get_scan(self, scan_id: str, organization_id: str | None = None):
         from app.domain.models import ScanRecord
         doc = self._client().collection("scans").document(scan_id).get()
         if not doc.exists:
             return None
-        return ScanRecord.model_validate(doc.to_dict())
+        payload = doc.to_dict() or {}
+        if organization_id is not None and not self._matches_org(payload, organization_id):
+            return None
+        return ScanRecord.model_validate(payload)
 
     # --- Framework Compliance Results ---
 
@@ -736,20 +1016,31 @@ class FirestoreStore:
             pass
         return results
 
-    def save_attestation(self, user_id: str, framework_id: str, req_id: str, item_index: int, value: bool) -> None:
+    def save_attestation(
+        self,
+        organization_id: str,
+        user_id: str,
+        framework_id: str,
+        req_id: str,
+        item_index: int,
+        value: bool,
+    ) -> None:
         """Save a single manual checklist attestation."""
-        doc_id = f"{user_id}_{framework_id}"
+        doc_id = f"{organization_id}_{framework_id}"
         field = f"{req_id}_{item_index}"
         (
             self._client()
             .collection("attestations")
             .document(doc_id)
-            .set({field: value, "updated_at": datetime.utcnow().isoformat()}, merge=True)
+            .set(
+                {field: value, "updated_at": datetime.utcnow().isoformat(), "user_id": user_id},
+                merge=True,
+            )
         )
 
-    def get_attestations(self, user_id: str, framework_id: str) -> dict:
-        """Return all attestations for a user+framework as {req_id_item_index: bool}."""
-        doc_id = f"{user_id}_{framework_id}"
+    def get_attestations(self, organization_id: str, framework_id: str) -> dict:
+        """Return all attestations for an organization+framework as {req_id_item_index: bool}."""
+        doc_id = f"{organization_id}_{framework_id}"
         doc = self._client().collection("attestations").document(doc_id).get()
         if not doc.exists:
             return {}
@@ -759,8 +1050,9 @@ class FirestoreStore:
 
     # --- GitHub Integration ---
 
-    def save_github_connection(self, user_id: str, token: str, user_info: dict) -> None:
+    def save_github_connection(self, organization_id: str, token: str, user_info: dict) -> None:
         doc = {
+            "organization_id": organization_id,
             "github_access_token": token,
             "github_login": user_info.get("login", ""),
             "github_name": user_info.get("name"),
@@ -769,15 +1061,18 @@ class FirestoreStore:
             "github_orgs": user_info.get("orgs", []),
             "github_connected_at": datetime.utcnow().isoformat(),
         }
-        self._client().collection(self._integrations_collection).document(user_id).set(doc, merge=True)
+        encrypted = self._encrypt_integration_fields(doc)
+        self._client().collection(self._integrations_collection).document(organization_id).set(
+            encrypted, merge=True
+        )
 
-    def get_github_connection(self, user_id: str) -> Optional[dict]:
-        doc = self._client().collection(self._integrations_collection).document(user_id).get()
+    def get_github_connection(self, organization_id: str) -> Optional[dict]:
+        doc = self._client().collection(self._integrations_collection).document(organization_id).get()
         if not doc.exists:
             return None
-        return doc.to_dict()
+        return self._decrypt_integration_fields(doc.to_dict() or {})
 
-    def delete_github_connection(self, user_id: str) -> None:
+    def delete_github_connection(self, organization_id: str) -> None:
         fields_to_remove = {
             "github_access_token": firestore.DELETE_FIELD,
             "github_login": firestore.DELETE_FIELD,
@@ -787,7 +1082,7 @@ class FirestoreStore:
             "github_orgs": firestore.DELETE_FIELD,
             "github_connected_at": firestore.DELETE_FIELD,
         }
-        doc_ref = self._client().collection(self._integrations_collection).document(user_id)
+        doc_ref = self._client().collection(self._integrations_collection).document(organization_id)
         if doc_ref.get().exists:
             doc_ref.update(fields_to_remove)
 
@@ -795,39 +1090,43 @@ class FirestoreStore:
 
     def save_slack_connection(
         self,
-        user_id: str,
+        organization_id: str,
         bot_token: str,
         team_name: str,
         channel_id: str,
         channel_name: str,
     ) -> None:
         doc = {
+            "organization_id": organization_id,
             "slack_bot_token": bot_token,
             "slack_team_name": team_name,
             "slack_channel_id": channel_id,
             "slack_channel_name": channel_name,
             "slack_connected_at": datetime.utcnow().isoformat(),
         }
-        self._client().collection(self._integrations_collection).document(user_id).set(doc, merge=True)
+        encrypted = self._encrypt_integration_fields(doc)
+        self._client().collection(self._integrations_collection).document(organization_id).set(
+            encrypted, merge=True
+        )
 
-    def get_slack_connection(self, user_id: str) -> Optional[dict]:
-        doc = self._client().collection(self._integrations_collection).document(user_id).get()
+    def get_slack_connection(self, organization_id: str) -> Optional[dict]:
+        doc = self._client().collection(self._integrations_collection).document(organization_id).get()
         if not doc.exists:
             return None
-        data = doc.to_dict() or {}
+        data = self._decrypt_integration_fields(doc.to_dict() or {})
         if not data.get("slack_bot_token"):
             return None
         return data
 
-    def update_slack_channel(self, user_id: str, channel_id: str, channel_name: str) -> None:
-        doc_ref = self._client().collection(self._integrations_collection).document(user_id)
+    def update_slack_channel(self, organization_id: str, channel_id: str, channel_name: str) -> None:
+        doc_ref = self._client().collection(self._integrations_collection).document(organization_id)
         if doc_ref.get().exists:
             doc_ref.update({
                 "slack_channel_id": channel_id,
                 "slack_channel_name": channel_name,
             })
 
-    def delete_slack_connection(self, user_id: str) -> None:
+    def delete_slack_connection(self, organization_id: str) -> None:
         fields_to_remove = {
             "slack_bot_token": firestore.DELETE_FIELD,
             "slack_team_name": firestore.DELETE_FIELD,
@@ -835,7 +1134,7 @@ class FirestoreStore:
             "slack_channel_name": firestore.DELETE_FIELD,
             "slack_connected_at": firestore.DELETE_FIELD,
         }
-        doc_ref = self._client().collection(self._integrations_collection).document(user_id)
+        doc_ref = self._client().collection(self._integrations_collection).document(organization_id)
         if doc_ref.get().exists:
             doc_ref.update(fields_to_remove)
 
@@ -843,23 +1142,24 @@ class FirestoreStore:
 
     def save_aws_connection(
         self,
-        user_id: str,
+        organization_id: str,
         role_arn: str,
         account_id: str,
         account_alias: str,
         region: str,
     ) -> None:
         doc = {
+            "organization_id": organization_id,
             "aws_role_arn": role_arn,
             "aws_account_id": account_id,
             "aws_account_alias": account_alias,
             "aws_region": region,
             "aws_connected_at": datetime.utcnow().isoformat(),
         }
-        self._client().collection(self._integrations_collection).document(user_id).set(doc, merge=True)
+        self._client().collection(self._integrations_collection).document(organization_id).set(doc, merge=True)
 
-    def get_aws_connection(self, user_id: str) -> Optional[dict]:
-        doc = self._client().collection(self._integrations_collection).document(user_id).get()
+    def get_aws_connection(self, organization_id: str) -> Optional[dict]:
+        doc = self._client().collection(self._integrations_collection).document(organization_id).get()
         if not doc.exists:
             return None
         data = doc.to_dict() or {}
@@ -867,7 +1167,7 @@ class FirestoreStore:
             return None
         return data
 
-    def delete_aws_connection(self, user_id: str) -> None:
+    def delete_aws_connection(self, organization_id: str) -> None:
         fields_to_remove = {
             "aws_role_arn": firestore.DELETE_FIELD,
             "aws_account_id": firestore.DELETE_FIELD,
@@ -875,37 +1175,37 @@ class FirestoreStore:
             "aws_region": firestore.DELETE_FIELD,
             "aws_connected_at": firestore.DELETE_FIELD,
         }
-        doc_ref = self._client().collection(self._integrations_collection).document(user_id)
+        doc_ref = self._client().collection(self._integrations_collection).document(organization_id)
         if doc_ref.get().exists:
             doc_ref.update(fields_to_remove)
 
-    def save_aws_scan(self, user_id: str, record) -> None:
-        from app.domain.models import AwsScanRecord
+    def save_aws_scan(self, user_id: str, organization_id: str, record) -> None:
         doc = record.model_dump(mode="json")
         doc["user_id"] = user_id
+        doc["organization_id"] = organization_id
         self._client().collection("aws_scans").document(record.scan_id).set(doc)
 
-    def list_aws_scans(self, user_id: str) -> list:
+    def list_aws_scans(self, organization_id: str) -> list:
         from app.domain.models import AwsScanRecord
         results = []
-        docs = (
-            self._client()
-            .collection("aws_scans")
-            .where("user_id", "==", user_id)
-            .limit(50)
-            .stream()
-        )
+        docs = self._client().collection("aws_scans").limit(200).stream()
         for doc in docs:
-            results.append(AwsScanRecord.model_validate(doc.to_dict()))
+            payload = doc.to_dict() or {}
+            if not self._matches_org(payload, organization_id):
+                continue
+            results.append(AwsScanRecord.model_validate(payload))
         results.sort(key=lambda r: r.timestamp, reverse=True)
-        return results
+        return results[:50]
 
-    def get_aws_scan(self, scan_id: str):
+    def get_aws_scan(self, scan_id: str, organization_id: str | None = None):
         from app.domain.models import AwsScanRecord
         doc = self._client().collection("aws_scans").document(scan_id).get()
         if not doc.exists:
             return None
-        return AwsScanRecord.model_validate(doc.to_dict())
+        payload = doc.to_dict() or {}
+        if organization_id is not None and not self._matches_org(payload, organization_id):
+            return None
+        return AwsScanRecord.model_validate(payload)
 
     # --- Helpers ---
     @staticmethod

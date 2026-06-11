@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import logging
 from typing import List, Optional
 from urllib.parse import urlencode
@@ -8,6 +7,7 @@ from urllib.parse import urlencode
 import httpx
 
 from app.core.config import settings
+from app.core.oauth_state import decode_oauth_state, encode_oauth_state
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +30,12 @@ def build_oauth_url(state: str) -> str:
     return f"{SLACK_OAUTH_BASE}/oauth/v2/authorize?{params}"
 
 
-def encode_state(user_id: str) -> str:
-    return base64.urlsafe_b64encode(user_id.encode()).decode()
+def encode_state(user_id: str, organization_id: str) -> str:
+    return encode_oauth_state(user_id, organization_id)
 
 
-def decode_state(state: str) -> str:
-    return base64.urlsafe_b64decode(state.encode()).decode()
+def decode_state(state: str) -> tuple[str, str]:
+    return decode_oauth_state(state)
 
 
 async def exchange_code_for_token(code: str) -> dict:

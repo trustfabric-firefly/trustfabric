@@ -2,6 +2,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# xmlsec1 is required by python3-saml for SAML signature verification
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends xmlsec1 libxmlsec1-openssl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy requirements and install
 COPY requirements.txt .
 

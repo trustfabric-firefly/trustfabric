@@ -5,12 +5,14 @@ import { usePathname } from "next/navigation";
 import LogoutOutlinedIcon from "@mui/icons-material/LogoutOutlined";
 import { motion } from "motion/react";
 import { useAuth } from "@/providers/AuthProvider";
+import { useOrganization } from "@/providers/OrganizationProvider";
 import { APP_MAIN_NAV } from "@/lib/navigation";
 import { usePrefetchAppRoutes } from "@/hooks/usePrefetchAppRoutes";
 
 export function Sidebar() {
     const pathname = usePathname();
     const { user, logOut } = useAuth();
+    const { activeOrganization } = useOrganization();
     usePrefetchAppRoutes();
 
     const initials = user?.email
@@ -78,7 +80,10 @@ export function Sidebar() {
                     <div className="sidebar__avatar">{initials}</div>
                     <div className="sidebar__user-info">
                         <div className="sidebar__user-name">{user?.email ?? "Local dev"}</div>
-                        <div className="sidebar__user-role">Sign out</div>
+                        <div className="sidebar__user-role">
+                            {activeOrganization?.organization.name ?? "Workspace"}
+                            {activeOrganization?.role ? ` · ${activeOrganization.role}` : ""}
+                        </div>
                     </div>
                     <LogoutOutlinedIcon sx={{ fontSize: 14, color: "var(--c-text-muted)" }} />
                 </div>

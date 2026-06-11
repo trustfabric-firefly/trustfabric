@@ -49,3 +49,46 @@ def verify_firebase_token(id_token: str) -> dict[str, Any]:
             )
 
     return decoded
+
+
+def get_or_create_user_by_email(email: str, *, display_name: str | None = None) -> str:
+    """Return Firebase uid for an email, creating the account if needed."""
+    normalized = email.strip().lower()
+    existing = lookup_user_id_by_email(normalized)
+    if existing:
+        return existing
+    if not settings.firebase_project_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Firebase Auth is required for SSO sign-in",
+        )
+    _ensure_firebase_app()
+    user = auth.create_user(email=normalized, display_name=display_name)
+    return str(user.uid)
+
+
+def create_custom_token(user_id: str, *, organization_id: str | None = None) -> str:
+    claims: dict[str, str] = {}
+    if organization_id:
+        claims["organization_id"] = organization_id
+    _ensure_firebase_app()
+    return auth.create_custom_token(user_id, claims).decode("utf-8")
+
+
+def lookup_user_id_by_email(email: str) -> str | None:
+    """Resolve a Firebase Auth uid from an email address, if the account exists."""
+    normalized = email.strip().lower()
+    if not normalized:
+        return None
+    if not settings.firebase_project_id:
+        return None
+    try:
+        _ensure_firebase_app()
+        user = auth.get_user_by_email(normalized)
+        return str(user.uid)
+    except auth.UserNotFoundError:
+        return None
+    except HTTPException:
+        return None
+    except Exception:
+        return None

@@ -146,8 +146,8 @@ Return only JSON.
 """.strip()
 
 
-def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
-    system = store.get_system(system_id)
+def generate_recommendations_for_system(system_id: int, user_id: str, organization_id: str) -> dict:
+    system = store.get_system(system_id, organization_id)
     if system is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
 
@@ -246,7 +246,12 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
     }
 
 
-def generate_policy_recommendation(prompt: str, user_id: str, history: list[str] | None = None) -> dict:
+def generate_policy_recommendation(
+    prompt: str,
+    user_id: str,
+    history: list[str] | None = None,
+    organization_id: str | None = None,
+) -> dict:
     if not settings.openai_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

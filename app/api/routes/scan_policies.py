@@ -18,8 +18,8 @@ class ScanPolicyToggle(BaseModel):
 
 @router.get("/", response_model=List[ScanPolicy])
 def list_scan_policies(actor: Actor = Depends(get_actor)) -> List[ScanPolicy]:
-    """Return scan policies for the current user, seeding defaults if none exist."""
-    return store.get_scan_policies(actor.user_id)
+    """Return scan policies for the current organization, seeding defaults if none exist."""
+    return store.get_scan_policies(actor.organization_id)
 
 
 @router.patch("/{check_id}", response_model=ScanPolicy)
@@ -30,6 +30,6 @@ def toggle_scan_policy(
 ) -> ScanPolicy:
     """Enable or disable a scan policy check."""
     try:
-        return store.update_scan_policy(actor.user_id, check_id, body.enabled)
+        return store.update_scan_policy(actor.organization_id, check_id, body.enabled)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))

@@ -129,10 +129,15 @@ for _chk in CHECKS:
     _chk.setdefault("tier", "personal")
 
 
-async def run_scan(user_id: str, github_org: str, triggered_by: str) -> ScanRecord:
+async def run_scan(
+    user_id: str,
+    organization_id: str,
+    github_org: str,
+    triggered_by: str,
+) -> ScanRecord:
     start = time.monotonic()
 
-    conn = store.get_github_connection(user_id)
+    conn = store.get_github_connection(organization_id)
     if not conn or not conn.get("github_access_token"):
         raise ValueError("GitHub is not connected. Connect your GitHub account in Settings first.")
     token = conn["github_access_token"]
@@ -219,7 +224,7 @@ async def run_scan(user_id: str, github_org: str, triggered_by: str) -> ScanReco
     seats_data = await gh.get_copilot_seats(token, github_org) if copilot else None
 
     # --- Determine which checks to run based on active scan policies ---
-    active_policies = store.get_scan_policies(user_id)
+    active_policies = store.get_scan_policies(organization_id)
     enabled_check_ids = {p.check_id for p in active_policies if p.enabled}
     active_checks = [c for c in CHECKS if c["id"] in enabled_check_ids]
 
@@ -327,6 +332,7 @@ async def run_scan(user_id: str, github_org: str, triggered_by: str) -> ScanReco
             },
         )
         custom_results = await evaluate_all_active_policies(
+            organization_id=organization_id,
             github_snapshot=github_snapshot,
             api_key=settings.claude_api_key,
             model=settings.anthropic_model,
@@ -371,6 +377,6 @@ async def run_scan(user_id: str, github_org: str, triggered_by: str) -> ScanReco
         status=ScanStatus.completed,
     )
 
-    store.save_scan(user_id, record)
-    store.link_scan_to_systems(record)
+    store.save_scan(user_id, organization_id, record)
+    store.link_scan_to_systems(record, organization_id)
     return record

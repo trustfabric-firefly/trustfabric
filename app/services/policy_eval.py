@@ -169,6 +169,7 @@ async def evaluate_policy(
 
 
 async def evaluate_all_active_policies(
+    organization_id: str,
     github_snapshot: dict,
     api_key: str,
     model: str,
@@ -180,7 +181,7 @@ async def evaluate_all_active_policies(
     """
     from app.services.store import store
 
-    policies = store.list_all_active_governance_policies()
+    policies = store.list_all_active_governance_policies(organization_id)
     if not policies:
         return []
 

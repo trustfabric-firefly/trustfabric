@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from app.core.config import settings
-from app.core.security import Actor, get_actor
+from app.core.security import Actor, get_actor, require_admin
 from app.domain.models import (
     AwsConnectionInfo,
     AwsConnectRequest,
@@ -37,11 +37,11 @@ router = APIRouter()
 
 
 @router.get("/github/connect")
-async def github_connect(actor: Actor = Depends(get_actor)) -> dict:
+async def github_connect(actor: Actor = Depends(require_admin)) -> dict:
     """Return the GitHub OAuth URL. Frontend navigates the browser to this URL."""
     if not settings.github_client_id:
         raise HTTPException(status_code=501, detail="GitHub OAuth not configured — set GITHUB_CLIENT_ID in .env")
-    state = encode_state(actor.user_id)
+    state = encode_state(actor.user_id, actor.organization_id)
     return {"url": build_oauth_url(state)}
 
 
@@ -50,12 +50,12 @@ async def github_callback(code: str = Query(...), state: str = Query(...)):
     """GitHub OAuth callback. GitHub redirects here after user authorises the app."""
     frontend = settings.frontend_url
     try:
-        user_id = decode_state(state)
+        user_id, organization_id = decode_state(state)
         token = await exchange_code_for_token(code)
         user_info = await get_user_info(token)
         orgs = await get_user_orgs(token)
         user_info["orgs"] = orgs
-        store.save_github_connection(user_id, token, user_info)
+        store.save_github_connection(organization_id, token, user_info)
         return RedirectResponse(url=f"{frontend}/settings?github=connected")
     except Exception as exc:
         safe = str(exc)[:120].replace("&", "and")
@@ -65,7 +65,7 @@ async def github_callback(code: str = Query(...), state: str = Query(...)):
 @router.get("/github/status", response_model=GitHubIntegrationStatus)
 async def github_status(actor: Actor = Depends(get_actor)) -> GitHubIntegrationStatus:
     """Check whether GitHub is connected for the authenticated user."""
-    conn = store.get_github_connection(actor.user_id)
+    conn = store.get_github_connection(actor.organization_id)
     if not conn or not conn.get("github_access_token"):
         return GitHubIntegrationStatus(connected=False)
     return GitHubIntegrationStatus(
@@ -82,9 +82,9 @@ async def github_status(actor: Actor = Depends(get_actor)) -> GitHubIntegrationS
 
 
 @router.delete("/github")
-async def github_disconnect(actor: Actor = Depends(get_actor)) -> dict:
+async def github_disconnect(actor: Actor = Depends(require_admin)) -> dict:
     """Remove the stored GitHub token for the authenticated user."""
-    store.delete_github_connection(actor.user_id)
+    store.delete_github_connection(actor.organization_id)
     return {"message": "GitHub disconnected"}
 
 
@@ -97,11 +97,11 @@ class SlackChannelUpdate(BaseModel):
 
 
 @router.get("/slack/connect")
-async def slack_connect(actor: Actor = Depends(get_actor)) -> dict:
+async def slack_connect(actor: Actor = Depends(require_admin)) -> dict:
     """Return the Slack OAuth URL. Frontend navigates the browser to this URL."""
     if not settings.slack_client_id:
         raise HTTPException(status_code=501, detail="Slack OAuth not configured — set SLACK_CLIENT_ID in .env")
-    state = slack_integration.encode_state(actor.user_id)
+    state = slack_integration.encode_state(actor.user_id, actor.organization_id)
     return {"url": slack_integration.build_oauth_url(state)}
 
 
@@ -118,7 +118,7 @@ async def slack_callback(
     if not code or not state:
         return RedirectResponse(url=f"{frontend}/settings?slack=error&detail=missing+code+or+state")
     try:
-        user_id = slack_integration.decode_state(state)
+        user_id, organization_id = slack_integration.decode_state(state)
         data = await slack_integration.exchange_code_for_token(code)
 
         bot_token = data["access_token"]
@@ -134,7 +134,7 @@ async def slack_callback(
             channel_name = ""
 
         store.save_slack_connection(
-            user_id=user_id,
+            organization_id=organization_id,
             bot_token=bot_token,
             team_name=team_name,
             channel_id=channel_id,
@@ -149,7 +149,7 @@ async def slack_callback(
 @router.get("/slack/status", response_model=SlackIntegrationStatus)
 async def slack_status(actor: Actor = Depends(get_actor)) -> SlackIntegrationStatus:
     """Check whether Slack is connected for the authenticated user."""
-    conn = store.get_slack_connection(actor.user_id)
+    conn = store.get_slack_connection(actor.organization_id)
     if not conn:
         return SlackIntegrationStatus(connected=False)
     return SlackIntegrationStatus(
@@ -166,7 +166,7 @@ async def slack_status(actor: Actor = Depends(get_actor)) -> SlackIntegrationSta
 @router.get("/slack/channels")
 async def slack_channels(actor: Actor = Depends(get_actor)) -> List[dict]:
     """List channels the Slack bot can post to."""
-    conn = store.get_slack_connection(actor.user_id)
+    conn = store.get_slack_connection(actor.organization_id)
     if not conn:
         raise HTTPException(status_code=400, detail="Slack not connected")
     return await slack_integration.list_channels(conn["slack_bot_token"])
@@ -175,20 +175,20 @@ async def slack_channels(actor: Actor = Depends(get_actor)) -> List[dict]:
 @router.patch("/slack/channel")
 async def slack_update_channel(
     body: SlackChannelUpdate,
-    actor: Actor = Depends(get_actor),
+    actor: Actor = Depends(require_admin),
 ) -> dict:
     """Update the notification channel for the connected Slack workspace."""
-    conn = store.get_slack_connection(actor.user_id)
+    conn = store.get_slack_connection(actor.organization_id)
     if not conn:
         raise HTTPException(status_code=400, detail="Slack not connected")
-    store.update_slack_channel(actor.user_id, body.channel_id, body.channel_name)
+    store.update_slack_channel(actor.organization_id, body.channel_id, body.channel_name)
     return {"message": f"Channel updated to #{body.channel_name}"}
 
 
 @router.post("/slack/test")
-async def slack_test(actor: Actor = Depends(get_actor)) -> dict:
+async def slack_test(actor: Actor = Depends(require_admin)) -> dict:
     """Send a test notification to the configured Slack channel."""
-    conn = store.get_slack_connection(actor.user_id)
+    conn = store.get_slack_connection(actor.organization_id)
     if not conn:
         raise HTTPException(status_code=400, detail="Slack not connected")
     channel_id = conn.get("slack_channel_id")
@@ -205,9 +205,9 @@ async def slack_test(actor: Actor = Depends(get_actor)) -> dict:
 
 
 @router.delete("/slack")
-async def slack_disconnect(actor: Actor = Depends(get_actor)) -> dict:
+async def slack_disconnect(actor: Actor = Depends(require_admin)) -> dict:
     """Remove the stored Slack token for the authenticated user."""
-    store.delete_slack_connection(actor.user_id)
+    store.delete_slack_connection(actor.organization_id)
     return {"message": "Slack disconnected"}
 
 
@@ -215,7 +215,7 @@ async def slack_disconnect(actor: Actor = Depends(get_actor)) -> dict:
 
 
 @router.post("/aws/connect", response_model=AwsIntegrationStatus)
-async def aws_connect(body: AwsConnectRequest, actor: Actor = Depends(get_actor)) -> AwsIntegrationStatus:
+async def aws_connect(body: AwsConnectRequest, actor: Actor = Depends(require_admin)) -> AwsIntegrationStatus:
     """Validate the IAM Role ARN via STS AssumeRole and save the connection."""
     try:
         account_info = aws_integration.validate_connection(body.role_arn, body.region)
@@ -226,7 +226,7 @@ async def aws_connect(body: AwsConnectRequest, actor: Actor = Depends(get_actor)
         )
 
     store.save_aws_connection(
-        user_id=actor.user_id,
+        organization_id=actor.organization_id,
         role_arn=body.role_arn,
         account_id=account_info["account_id"],
         account_alias=account_info.get("account_alias", ""),
@@ -247,7 +247,7 @@ async def aws_connect(body: AwsConnectRequest, actor: Actor = Depends(get_actor)
 @router.get("/aws/status", response_model=AwsIntegrationStatus)
 async def aws_status(actor: Actor = Depends(get_actor)) -> AwsIntegrationStatus:
     """Check whether AWS is connected for the authenticated user."""
-    conn = store.get_aws_connection(actor.user_id)
+    conn = store.get_aws_connection(actor.organization_id)
     if not conn or not conn.get("aws_role_arn"):
         return AwsIntegrationStatus(connected=False)
     return AwsIntegrationStatus(
@@ -263,9 +263,9 @@ async def aws_status(actor: Actor = Depends(get_actor)) -> AwsIntegrationStatus:
 
 
 @router.post("/aws/test")
-async def aws_test(actor: Actor = Depends(get_actor)) -> dict:
+async def aws_test(actor: Actor = Depends(require_admin)) -> dict:
     """Verify the stored AWS credentials still work."""
-    conn = store.get_aws_connection(actor.user_id)
+    conn = store.get_aws_connection(actor.organization_id)
     if not conn or not conn.get("aws_role_arn"):
         raise HTTPException(status_code=400, detail="AWS not connected")
     try:
@@ -279,7 +279,7 @@ async def aws_test(actor: Actor = Depends(get_actor)) -> dict:
 
 
 @router.delete("/aws")
-async def aws_disconnect(actor: Actor = Depends(get_actor)) -> dict:
+async def aws_disconnect(actor: Actor = Depends(require_admin)) -> dict:
     """Remove the stored AWS connection for the authenticated user."""
-    store.delete_aws_connection(actor.user_id)
+    store.delete_aws_connection(actor.organization_id)
     return {"message": "AWS disconnected"}

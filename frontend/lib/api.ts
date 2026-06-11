@@ -28,6 +28,7 @@ const RAW_BASE_URL =
     process.env.NEXT_PUBLIC_API_URL ??
     "http://localhost:8000";
 const LOCAL_TOKEN_KEY = "trustfabric_api_token";
+const LOCAL_ORG_KEY = "trustfabric_organization_id";
 
 function normalizeBaseUrl(value: string): string {
     const trimmed = value.trim();
@@ -45,20 +46,34 @@ export const RESOLVED_API_BASE_URL = normalizeBaseUrl(RAW_BASE_URL);
 const BASE_URL = RESOLVED_API_BASE_URL;
 
 
+function getOrganizationHeader(): HeadersInit {
+    if (typeof window === "undefined") return {};
+    const orgId = window.localStorage.getItem(LOCAL_ORG_KEY);
+    return orgId ? { "X-Organization-Id": orgId } : {};
+}
+
+export function setActiveOrganizationId(orgId: string) {
+    if (typeof window !== "undefined") {
+        window.localStorage.setItem(LOCAL_ORG_KEY, orgId);
+    }
+}
+
 async function getAuthHeaders(): Promise<HeadersInit> {
     const user = auth?.currentUser;
     if (user) {
         const token = await user.getIdToken();
-        return { Authorization: `Bearer ${token}` };
+        return { Authorization: `Bearer ${token}`, ...getOrganizationHeader() };
     }
     if (typeof window !== "undefined") {
         const localToken = window.localStorage.getItem(LOCAL_TOKEN_KEY);
-        if (localToken) return { Authorization: `Bearer ${localToken}` };
+        if (localToken) {
+            return { Authorization: `Bearer ${localToken}`, ...getOrganizationHeader() };
+        }
     }
     const devToken =
         process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN
         ?? process.env.NEXT_PUBLIC_DEV_VIEWER_TOKEN;
-    if (devToken) return { Authorization: `Bearer ${devToken}` };
+    if (devToken) return { Authorization: `Bearer ${devToken}`, ...getOrganizationHeader() };
     throw new Error("Not authenticated");
 }
 
@@ -264,6 +279,144 @@ export type ExplainMissingResponse = {
 
 export const settingsApi = {
     status: () => request<BackendStatus>("/api/v1/settings/status"),
+};
+
+export type OrganizationContext = {
+    primary_organization_id: string;
+    organizations: Array<{
+        organization: {
+            id: string;
+            name: string;
+            plan: string;
+            compliance_contact_email?: string | null;
+        };
+        role: string;
+        is_primary: boolean;
+    }>;
+};
+
+export type OrganizationMember = {
+    organization_id: string;
+    user_id: string;
+    role: string;
+    email?: string | null;
+    joined_at: string;
+};
+
+export type OrganizationInvite = {
+    id: string;
+    organization_id: string;
+    email: string;
+    role: string;
+    invited_by: string;
+    status: string;
+    created_at: string;
+    accepted_at?: string | null;
+};
+
+export type OrgRole = "owner" | "admin" | "security_admin" | "auditor" | "viewer";
+
+export type SsoDiscovery = {
+    sso_available: boolean;
+    organization_id?: string;
+    organization_name?: string;
+    enforced?: boolean;
+};
+
+export type OrganizationSsoSummary = {
+    enabled: boolean;
+    enforced: boolean;
+    idp_entity_id?: string;
+    idp_sso_url?: string;
+    idp_x509_cert_configured?: boolean;
+    email_domains: string[];
+    jit_provisioning: boolean;
+    default_role: OrgRole;
+    updated_at?: string;
+    sp_entity_id: string;
+    sp_acs_url: string;
+    metadata_url: string;
+    login_url: string;
+};
+
+export const ssoApi = {
+    discover: (email: string) =>
+        request<SsoDiscovery>("/api/v1/auth/sso/discover", {
+            method: "POST",
+            body: JSON.stringify({ email }),
+        }),
+    exchange: (code: string) =>
+        request<{
+            custom_token: string;
+            organization_id: string;
+            return_to: string;
+            email: string;
+        }>("/api/v1/auth/sso/exchange", {
+            method: "POST",
+            body: JSON.stringify({ code }),
+        }),
+    loginUrl: (organizationId: string, returnTo?: string) => {
+        const url = new URL(`/api/v1/auth/sso/${encodeURIComponent(organizationId)}/login`, `${BASE_URL}/`);
+        if (returnTo) url.searchParams.set("return_to", returnTo);
+        return url.toString();
+    },
+};
+
+export const organizationsApi = {
+    me: () => request<OrganizationContext>("/api/v1/organizations/me"),
+    current: () =>
+        request<{
+            organization: OrganizationContext["organizations"][number]["organization"];
+            role: string;
+            user_id: string;
+        }>("/api/v1/organizations/current"),
+    updateCurrent: (body: { name: string; compliance_contact_email?: string | null }) =>
+        request<{ organization: OrganizationContext["organizations"][number]["organization"] }>(
+            "/api/v1/organizations/current",
+            { method: "PATCH", body: JSON.stringify(body) }
+        ),
+    members: () => request<OrganizationMember[]>("/api/v1/organizations/current/members"),
+    updateMemberRole: (userId: string, role: OrgRole) =>
+        request<OrganizationMember>(`/api/v1/organizations/current/members/${encodeURIComponent(userId)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ role }),
+        }),
+    removeMember: (userId: string) =>
+        request<{ ok: boolean }>(`/api/v1/organizations/current/members/${encodeURIComponent(userId)}`, {
+            method: "DELETE",
+        }),
+    invites: () => request<OrganizationInvite[]>("/api/v1/organizations/current/invites"),
+    inviteMember: (body: { email: string; role: OrgRole }) =>
+        request<{ status: "invited" | "added"; invite?: OrganizationInvite; member?: OrganizationMember }>(
+            "/api/v1/organizations/current/invites",
+            { method: "POST", body: JSON.stringify(body) }
+        ),
+    revokeInvite: (inviteId: string) =>
+        request<{ ok: boolean }>(`/api/v1/organizations/current/invites/${encodeURIComponent(inviteId)}`, {
+            method: "DELETE",
+        }),
+    getSso: () => request<OrganizationSsoSummary>("/api/v1/organizations/current/sso"),
+    updateSso: (body: {
+        enabled: boolean;
+        enforced: boolean;
+        idp_entity_id: string;
+        idp_sso_url: string;
+        idp_x509_cert: string;
+        email_domains: string[];
+        jit_provisioning: boolean;
+        default_role: OrgRole;
+    }) =>
+        request<OrganizationSsoSummary>("/api/v1/organizations/current/sso", {
+            method: "PUT",
+            body: JSON.stringify(body),
+        }),
+    disableSso: () =>
+        request<OrganizationSsoSummary>("/api/v1/organizations/current/sso", { method: "DELETE" }),
+    create: (name: string) =>
+        request<{ organization: { id: string; name: string } }>("/api/v1/organizations/", {
+            method: "POST",
+            body: JSON.stringify({ name }),
+        }),
 };
 
 export const complianceApi = {

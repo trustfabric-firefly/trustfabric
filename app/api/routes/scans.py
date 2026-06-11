@@ -19,15 +19,16 @@ async def trigger_scan(body: ScanTriggerRequest, actor: Actor = Depends(get_acto
     try:
         record = await run_scan(
             user_id=actor.user_id,
+            organization_id=actor.organization_id,
             github_org=body.github_org,
             triggered_by=actor.user_id,
         )
-        # Fire-and-forget Slack notification
         from app.services.notifications import notify_scan_completed
+
         try:
-            await notify_scan_completed(actor.user_id, record)
+            await notify_scan_completed(actor.organization_id, record)
         except Exception:
-            pass  # never fail a scan due to notification error
+            pass
         return record
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -37,11 +38,9 @@ async def trigger_scan(body: ScanTriggerRequest, actor: Actor = Depends(get_acto
 
 @router.get("/", response_model=List[ScanRecord])
 def list_scans(actor: Actor = Depends(get_actor)) -> List[ScanRecord]:
-    """Return scan history for the current user."""
-    return store.list_scans(actor.user_id)
+    """Return scan history for the current organization."""
+    return store.list_scans(actor.organization_id)
 
-
-# ── AWS Scans (must be registered before `/{scan_id}` or "aws" is captured as a GitHub scan id) ─
 
 @router.post("/aws", response_model=AwsScanRecord)
 async def trigger_aws_scan(actor: Actor = Depends(get_actor)) -> AwsScanRecord:
@@ -50,9 +49,13 @@ async def trigger_aws_scan(actor: Actor = Depends(get_actor)) -> AwsScanRecord:
     from app.services.notifications import notify_aws_scan_completed
 
     try:
-        record = run_aws_scan(user_id=actor.user_id, triggered_by=actor.user_id)
+        record = run_aws_scan(
+            user_id=actor.user_id,
+            organization_id=actor.organization_id,
+            triggered_by=actor.user_id,
+        )
         try:
-            await notify_aws_scan_completed(actor.user_id, record)
+            await notify_aws_scan_completed(actor.organization_id, record)
         except Exception:
             pass
         return record
@@ -64,13 +67,13 @@ async def trigger_aws_scan(actor: Actor = Depends(get_actor)) -> AwsScanRecord:
 
 @router.get("/aws", response_model=List[AwsScanRecord])
 def list_aws_scans(actor: Actor = Depends(get_actor)) -> List[AwsScanRecord]:
-    """Return AWS scan history for the current user."""
-    return store.list_aws_scans(actor.user_id)
+    """Return AWS scan history for the current organization."""
+    return store.list_aws_scans(actor.organization_id)
 
 
 @router.get("/aws/{scan_id}", response_model=AwsScanRecord)
 def get_aws_scan(scan_id: str, actor: Actor = Depends(get_actor)) -> AwsScanRecord:
-    record = store.get_aws_scan(scan_id)
+    record = store.get_aws_scan(scan_id, actor.organization_id)
     if record is None:
         raise HTTPException(status_code=404, detail="AWS scan not found")
     return record
@@ -78,7 +81,7 @@ def get_aws_scan(scan_id: str, actor: Actor = Depends(get_actor)) -> AwsScanReco
 
 @router.get("/{scan_id}", response_model=ScanRecord)
 def get_scan(scan_id: str, actor: Actor = Depends(get_actor)) -> ScanRecord:
-    record = store.get_scan(scan_id)
+    record = store.get_scan(scan_id, actor.organization_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Scan not found")
     return record
@@ -87,7 +90,7 @@ def get_scan(scan_id: str, actor: Actor = Depends(get_actor)) -> ScanRecord:
 @router.get("/{scan_id}/report", response_class=HTMLResponse)
 def get_scan_report(scan_id: str, actor: Actor = Depends(get_actor)) -> HTMLResponse:
     """Return a print-ready HTML compliance report for a scan."""
-    record = store.get_scan(scan_id)
+    record = store.get_scan(scan_id, actor.organization_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Scan not found")
     return HTMLResponse(content=_build_report_html(record), status_code=200)

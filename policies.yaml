@@ -1,0 +1,13 @@
+policies:
+  - key: logging_required
+    description: Basic logging of AI system activity and model invocations is required.
+    risk_tiers: ["Tier 1", "Tier 2", "Tier 3"]
+
+  - key: human_review_required
+    description: Human review is required before high-impact AI-assisted decisions are finalized.
+    risk_tiers: ["Tier 2", "Tier 3"]
+
+  - key: pii_restrictions
+    description: Additional restrictions apply when handling personal or sensitive data (e.g., PII).
+    risk_tiers: ["Tier 3"]
+

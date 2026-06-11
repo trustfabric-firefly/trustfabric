@@ -66,12 +66,16 @@ def _policy_provider_fn(name: str) -> PolicyProviderFn:
     )
 
 
-def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
+def generate_recommendations_for_system(system_id: int, user_id: str, organization_id: str) -> dict:
     errors: list[str] = []
 
     for provider in _provider_order():
         try:
-            result = _provider_fn(provider)(system_id=system_id, user_id=user_id)
+            result = _provider_fn(provider)(
+                system_id=system_id,
+                user_id=user_id,
+                organization_id=organization_id,
+            )
             if "provider" not in result:
                 result["provider"] = provider
             return result
@@ -94,7 +98,12 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
     )
 
 
-def generate_policy_recommendation(prompt: str, user_id: str, history: list[str] | None = None) -> dict:
+def generate_policy_recommendation(
+    prompt: str,
+    user_id: str,
+    history: list[str] | None = None,
+    organization_id: str | None = None,
+) -> dict:
     errors: list[str] = []
 
     for provider in _provider_order():
@@ -103,6 +112,7 @@ def generate_policy_recommendation(prompt: str, user_id: str, history: list[str]
                 prompt=prompt,
                 user_id=user_id,
                 history=history,
+                organization_id=organization_id,
             )
             if "provider" not in result:
                 result["provider"] = provider
