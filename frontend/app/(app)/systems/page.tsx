@@ -692,190 +692,181 @@ function RegisterView({
     };
 
     return (
-        <div style={{ maxWidth: 720 }}>
+        <div className="register-view">
             <button className="btn btn--ghost btn--sm" style={{ marginBottom: "var(--s-4)", gap: 4 }} onClick={onCancel}>
                 <ArrowBackOutlinedIcon sx={{ fontSize: 14 }} /> Back to Systems
-                    </button>
+            </button>
 
             <div className="panel">
                 <div className="panel__header">
                     <span className="panel__title">Register New AI System</span>
                 </div>
-                <div className="panel__body" style={{ display: "flex", flexDirection: "column", gap: "var(--s-5)" }}>
-
-                    {/* Basic Information */}
-                    <div>
-                        <h4 className="form-section-title">Basic Information</h4>
-                        <div className="form-group">
-                            <label className="form-label">System Name *</label>
-                            <input
-                                className="input"
-                                placeholder='e.g., "GitHub Copilot for Engineering Team"'
-                                value={form.name}
-                                onChange={(e) => set("name", e.target.value)}
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">System Type *</label>
-                            <select className="input" value={form.type} onChange={(e) => set("type", e.target.value as AISystemType)}>
-                                {Object.entries(SYSTEM_TYPE_LABELS).map(([key, label]) => (
-                                    <option key={key} value={key}>{label}</option>
-                                ))}
-                            </select>
-                </div>
-                <div className="form-group">
-                    <label className="form-label">Description</label>
-                            <textarea
-                                className="input"
-                                rows={3}
-                                placeholder="What does this AI system do? How is it used?"
-                                value={form.description}
-                                onChange={(e) => set("description", e.target.value)}
-                            />
-                        </div>
-                </div>
-
-                    <div className="divider" />
-
-                    {/* Ownership */}
-                    <div>
-                        <h4 className="form-section-title">Ownership & Responsibility</h4>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--s-3)" }}>
-                    <div className="form-group">
-                                <label className="form-label">System Owner *</label>
-                                <input
-                                    className="input"
-                                    placeholder="e.g., Engineering Team"
-                                    value={form.owner}
-                                    onChange={(e) => set("owner", e.target.value)}
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Primary Contact</label>
-                                <input
-                                    className="input"
-                                    type="email"
-                                    placeholder="email@company.com"
-                                    value={form.contact_email}
-                                    onChange={(e) => set("contact_email", e.target.value)}
-                                />
-                            </div>
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">Department/Team</label>
-                            <select className="input" value={form.department} onChange={(e) => set("department", e.target.value)}>
-                                {DEPARTMENTS.map((d) => <option key={d}>{d}</option>)}
-                            </select>
-                        </div>
-                    </div>
-
-                    <div className="divider" />
-
-                    {/* Data & Risk */}
-                    <div>
-                        <h4 className="form-section-title">Data & Risk Assessment</h4>
-                        <div className="form-group">
-                            <label className="form-label">Data Sensitivity Level *</label>
-                            <div className="severity-radio">
-                                {(["Low", "Medium", "High"] as DataSensitivity[]).map((level) => (
-                                    <button
-                                        key={level}
-                                        type="button"
-                                        className={`severity-radio__option${form.data_sensitivity === level ? " active" : ""}`}
-                                        onClick={() => set("data_sensitivity", level)}
-                                    >
-                                        <span className="severity-radio__dot" />
-                                        {level}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">What data does this system access?</label>
-                            <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
-                                {(Object.entries(DATA_ACCESS_LABELS) as [DataAccessType, string][]).map(([key, label]) => (
-                                    <label key={key} className="checkbox-label">
+                <div className="panel__body register-form">
+                    <div className="register-form__grid">
+                        <div className="register-form__column">
+                            <section className="register-form__section">
+                                <h4 className="form-section-title">Basic Information</h4>
+                                <div className="register-form__row">
+                                    <div className="form-group">
+                                        <label className="form-label">System Name *</label>
                                         <input
-                                            type="checkbox"
-                                            checked={form.data_access_types.includes(key)}
-                                            onChange={() => toggleDataAccess(key)}
+                                            className="input"
+                                            placeholder='e.g., "GitHub Copilot for Engineering Team"'
+                                            value={form.name}
+                                            onChange={(e) => set("name", e.target.value)}
                                         />
-                                        <span>{label}</span>
-                                    </label>
-                                ))}
-                            </div>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">System Type *</label>
+                                        <select className="input" value={form.type} onChange={(e) => set("type", e.target.value as AISystemType)}>
+                                            {Object.entries(SYSTEM_TYPE_LABELS).map(([key, label]) => (
+                                                <option key={key} value={key}>{label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Description</label>
+                                    <textarea
+                                        className="input"
+                                        rows={4}
+                                        placeholder="What does this AI system do? How is it used?"
+                                        value={form.description}
+                                        onChange={(e) => set("description", e.target.value)}
+                                    />
+                                </div>
+                            </section>
+
+                            <section className="register-form__section">
+                                <h4 className="form-section-title">Ownership & Responsibility</h4>
+                                <div className="register-form__row">
+                                    <div className="form-group">
+                                        <label className="form-label">System Owner *</label>
+                                        <input
+                                            className="input"
+                                            placeholder="e.g., Engineering Team"
+                                            value={form.owner}
+                                            onChange={(e) => set("owner", e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Primary Contact</label>
+                                        <input
+                                            className="input"
+                                            type="email"
+                                            placeholder="email@company.com"
+                                            value={form.contact_email}
+                                            onChange={(e) => set("contact_email", e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Department/Team</label>
+                                    <select className="input" value={form.department} onChange={(e) => set("department", e.target.value)}>
+                                        {DEPARTMENTS.map((d) => <option key={d}>{d}</option>)}
+                                    </select>
+                                </div>
+                            </section>
+                        </div>
+
+                        <div className="register-form__column">
+                            <section className="register-form__section">
+                                <h4 className="form-section-title">Data & Risk Assessment</h4>
+                                <div className="form-group">
+                                    <label className="form-label">Data Sensitivity Level *</label>
+                                    <div className="severity-radio">
+                                        {(["Low", "Medium", "High"] as DataSensitivity[]).map((level) => (
+                                            <button
+                                                key={level}
+                                                type="button"
+                                                className={`severity-radio__option${form.data_sensitivity === level ? " active" : ""}`}
+                                                onClick={() => set("data_sensitivity", level)}
+                                            >
+                                                <span className="severity-radio__dot" />
+                                                {level}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">What data does this system access?</label>
+                                    <div className="register-form__checks">
+                                        {(Object.entries(DATA_ACCESS_LABELS) as [DataAccessType, string][]).map(([key, label]) => (
+                                            <label key={key} className="checkbox-label">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={form.data_access_types.includes(key)}
+                                                    onChange={() => toggleDataAccess(key)}
+                                                />
+                                                <span>{label}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section className="register-form__section">
+                                <h4 className="form-section-title">Integration & Models</h4>
+                                <div className="register-form__row">
+                                    <div className="form-group">
+                                        <label className="form-label">Platform/Service Provider</label>
+                                        <select className="input" value={form.platform} onChange={(e) => set("platform", e.target.value)}>
+                                            {PLATFORMS.map((p) => <option key={p}>{p}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">AI Models Used</label>
+                                        <input
+                                            className="input"
+                                            placeholder="GPT-4, Claude Sonnet (comma-separated)"
+                                            value={form.models_used}
+                                            onChange={(e) => set("models_used", e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">External Integrations</label>
+                                    <input
+                                        className="input"
+                                        placeholder="Slack, Jira, etc. (comma-separated)"
+                                        value={form.external_integrations}
+                                        onChange={(e) => set("external_integrations", e.target.value)}
+                                    />
+                                </div>
+                            </section>
+
+                            <section className="register-form__section">
+                                <h4 className="form-section-title">Connection (Optional)</h4>
+                                <label className="checkbox-label" style={{ padding: "var(--s-3)", background: "var(--c-surface-raised)", borderRadius: "var(--r-md)", border: "1px solid var(--c-border)" }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={form.connected}
+                                        onChange={(e) => set("connected", e.target.checked)}
+                                    />
+                                    <div>
+                                        <div style={{ fontWeight: "var(--fw-medium)", color: "var(--c-text)" }}>
+                                            Connect to GitHub API for automated monitoring
+                                        </div>
+                                        <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: 2 }}>
+                                            Requires GitHub integration in Settings
+                                        </div>
+                                    </div>
+                                </label>
+                                {form.connected && (
+                                    <div style={{ padding: "var(--s-3)", background: "var(--c-info-bg)", borderRadius: "var(--r-md)", fontSize: "var(--fs-12)", color: "var(--c-info-text)" }}>
+                                        <strong>If connected, TrustFabric can automatically:</strong>
+                                        <ul style={{ marginTop: "var(--s-1)", paddingLeft: "var(--s-4)" }}>
+                                            <li>Scan this system during compliance checks</li>
+                                            <li>Detect configuration changes</li>
+                                            <li>Monitor model usage</li>
+                                        </ul>
+                                    </div>
+                                )}
+                            </section>
                         </div>
                     </div>
 
-                    <div className="divider" />
-
-                    {/* Integration */}
-                    <div>
-                        <h4 className="form-section-title">Integration & Models</h4>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--s-3)" }}>
-                            <div className="form-group">
-                                <label className="form-label">Platform/Service Provider</label>
-                                <select className="input" value={form.platform} onChange={(e) => set("platform", e.target.value)}>
-                                    {PLATFORMS.map((p) => <option key={p}>{p}</option>)}
-                                </select>
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">AI Models Used</label>
-                                <input
-                                    className="input"
-                                    placeholder="GPT-4, Claude Sonnet (comma-separated)"
-                                    value={form.models_used}
-                                    onChange={(e) => set("models_used", e.target.value)}
-                                />
-                            </div>
-                    </div>
-                    <div className="form-group">
-                            <label className="form-label">External Integrations</label>
-                            <input
-                                className="input"
-                                placeholder="Slack, Jira, etc. (comma-separated)"
-                                value={form.external_integrations}
-                                onChange={(e) => set("external_integrations", e.target.value)}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="divider" />
-
-                    {/* Connection */}
-                    <div>
-                        <h4 className="form-section-title">Connection (Optional)</h4>
-                        <label className="checkbox-label" style={{ padding: "var(--s-3)", background: "var(--c-surface-raised)", borderRadius: "var(--r-md)", border: "1px solid var(--c-border)" }}>
-                            <input
-                                type="checkbox"
-                                checked={form.connected}
-                                onChange={(e) => set("connected", e.target.checked)}
-                            />
-                            <div>
-                                <div style={{ fontWeight: "var(--fw-medium)", color: "var(--c-text)" }}>
-                                    Connect to GitHub API for automated monitoring
-                                </div>
-                                <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: 2 }}>
-                                    Requires GitHub integration in Settings
-                                </div>
-                            </div>
-                        </label>
-                        {form.connected && (
-                            <div style={{ marginTop: "var(--s-3)", padding: "var(--s-3)", background: "var(--c-info-bg)", borderRadius: "var(--r-md)", fontSize: "var(--fs-12)", color: "var(--c-info-text)" }}>
-                                <strong>If connected, TrustFabric can automatically:</strong>
-                                <ul style={{ marginTop: "var(--s-1)", paddingLeft: "var(--s-4)" }}>
-                                    <li>Scan this system during compliance checks</li>
-                                    <li>Detect configuration changes</li>
-                                    <li>Monitor model usage</li>
-                                </ul>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="divider" />
-
-                    {/* Actions */}
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--s-2)" }}>
+                    <div className="register-form__actions">
                         <button className="btn btn--secondary" onClick={onCancel}>Cancel</button>
                         <button className="btn btn--secondary">Save as Draft</button>
                         <button className="btn btn--primary" disabled={!valid} onClick={handleSave}>

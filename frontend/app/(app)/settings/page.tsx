@@ -11,6 +11,7 @@ import CheckOutlinedIcon from "@mui/icons-material/CheckOutlined";
 import GitHubIcon from "@mui/icons-material/GitHub";
 import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
 import LinkOffOutlinedIcon from "@mui/icons-material/LinkOffOutlined";
+import BrushOutlinedIcon from "@mui/icons-material/BrushOutlined";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import BusinessOutlinedIcon from "@mui/icons-material/BusinessOutlined";
 import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
@@ -1353,6 +1354,37 @@ export default function SettingsPage() {
                             </button>
                         </>
                     )}
+                </SectionCard>
+
+                {/* ── 3d. Figma Integration ─────────────────────────────────── */}
+                <SectionCard>
+                    <SectionHeader
+                        icon={<BrushOutlinedIcon sx={{ fontSize: 24 }} />}
+                        title="Figma Integration"
+                        subtitle="Connect Figma to enable automated brand compliance scanning of marketing assets"
+                        badge={
+                            <span className="badge badge--live">Connected</span>
+                        }
+                    />
+
+                    <SettingRow label="Status" value="Connected via Personal Access Token" />
+                    <SettingRow label="Figma account" value="@Koshish — kxs3924@mavs.uta.edu" />
+                    <SettingRow label="Capabilities" value="Read files, list team projects, export frames" />
+
+                    <Divider />
+
+                    <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
+                        TrustFabric uses the configured Figma token to securely fetch design frames and evaluate them against your brand guidelines using Vision AI.
+                    </p>
+                    <button
+                        type="button"
+                        className="btn btn--secondary btn--sm"
+                        style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                        disabled
+                    >
+                        <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
+                        Disconnect Figma
+                    </button>
                 </SectionCard>
 
                 {/* ── 4. Scan Defaults ──────────────────────────────────────── */}
