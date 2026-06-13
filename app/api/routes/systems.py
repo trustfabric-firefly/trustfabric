@@ -4,6 +4,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
 from app.core.security import Actor, get_actor, require_admin
 from app.domain.models import (
     AISystem,
@@ -142,6 +143,7 @@ async def delete_system(system_id: int, actor: Actor = Depends(require_admin)) -
 @router.post(
     "/{system_id}/explain-missing",
     summary="Ask Claude to explain missing required controls for a system",
+    dependencies=[Depends(RateLimited(TIER_EXPENSIVE))],
 )
 def explain_missing(system_id: int, actor: Actor = Depends(get_actor)) -> dict:
     return claude_service.explain_missing_controls(

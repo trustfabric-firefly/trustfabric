@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 
-from app.core.rate_limit import rate_limit
+from app.core.rate_limit import RateLimited, TIER_DEFAULT, TIER_EXPENSIVE
 from app.core.security import Actor, get_actor
 from app.services.figma import (
     resolve_figma_token,
@@ -28,51 +28,43 @@ class BatchScanRequest(BaseModel):
     node_ids: list[str] = Field(default_factory=list, description="Node IDs to scan. If empty, scans all frames.")
 
 
-@router.get("/teams/{team_id}/projects")
+@router.get("/teams/{team_id}/projects", dependencies=[Depends(RateLimited(TIER_DEFAULT))])
 def list_team_projects(
     team_id: str,
-    request: Request,
     actor: Actor = Depends(get_actor),
 ) -> dict:
-    rate_limit(request)
     token = resolve_figma_token(actor.organization_id)
     projects = get_team_projects(token, team_id)
     return {"projects": projects}
 
 
-@router.get("/projects/{project_id}/files")
+@router.get("/projects/{project_id}/files", dependencies=[Depends(RateLimited(TIER_DEFAULT))])
 def list_project_files_route(
     project_id: str,
-    request: Request,
     actor: Actor = Depends(get_actor),
 ) -> dict:
-    rate_limit(request)
     token = resolve_figma_token(actor.organization_id)
     files = get_project_files(token, project_id)
     return {"files": files}
 
 
-@router.get("/files/{file_key}/frames")
+@router.get("/files/{file_key}/frames", dependencies=[Depends(RateLimited(TIER_DEFAULT))])
 def list_file_frames(
     file_key: str,
-    request: Request,
     actor: Actor = Depends(get_actor),
 ) -> dict:
     """List all top-level frames/artboards in a Figma file with thumbnail URLs."""
-    rate_limit(request)
     token = resolve_figma_token(actor.organization_id)
     frames = fetch_frames_with_thumbnails(token, file_key)
     return {"frames": frames, "count": len(frames)}
 
 
-@router.post("/scan")
+@router.post("/scan", dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 def batch_scan_figma_file(
     payload: BatchScanRequest,
-    request: Request,
     actor: Actor = Depends(get_actor),
 ) -> dict:
     """Scan frames from a Figma file for brand compliance."""
-    rate_limit(request)
     token = resolve_figma_token(actor.organization_id)
 
     if payload.node_ids:

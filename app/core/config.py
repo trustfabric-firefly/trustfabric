@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     vision_model: str = "meta/llama-4-maverick-17b-128e-instruct"
 
     rate_limit_per_minute: int = 60
+    rate_limit_expensive_per_minute: int = 10
+    rate_limit_auth_per_minute: int = 20
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [
             "http://localhost:3000",

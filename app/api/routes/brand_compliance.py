@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile, HTTPException, status
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, status
 
-from app.core.rate_limit import rate_limit
+from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
 from app.core.security import Actor, get_actor
 from app.services.brand_compliance import scan_image_compliance, get_default_guidelines
 
@@ -15,15 +15,12 @@ ALLOWED_MIME_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
-@router.post("/scan")
+@router.post("/scan", dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 async def scan_brand_compliance(
-    request: Request,
     file: UploadFile = File(...),
     actor: Actor = Depends(get_actor),
 ):
     """Upload a marketing image and receive a brand compliance analysis."""
-    rate_limit(request)
-
     if file.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

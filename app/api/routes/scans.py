@@ -5,6 +5,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse, Response
 
+from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
 from app.core.security import Actor, get_actor
 from app.domain.models import AwsScanRecord, ScanRecord, ScanTriggerRequest
 from app.services.scan import run_scan
@@ -14,7 +15,7 @@ from app.services.store import store
 router = APIRouter()
 
 
-@router.post("/", response_model=ScanRecord)
+@router.post("/", response_model=ScanRecord, dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 async def trigger_scan(body: ScanTriggerRequest, actor: Actor = Depends(get_actor)) -> ScanRecord:
     """Run a compliance scan against the connected GitHub account."""
     try:
@@ -43,7 +44,7 @@ def list_scans(actor: Actor = Depends(get_actor)) -> List[ScanRecord]:
     return store.list_scans(actor.organization_id)
 
 
-@router.post("/aws", response_model=AwsScanRecord)
+@router.post("/aws", response_model=AwsScanRecord, dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 async def trigger_aws_scan(actor: Actor = Depends(get_actor)) -> AwsScanRecord:
     """Run a compliance scan against the connected AWS account."""
     from app.services.aws_scan import run_aws_scan
@@ -97,7 +98,7 @@ def get_scan_report(scan_id: str, actor: Actor = Depends(get_actor)) -> HTMLResp
     return HTMLResponse(content=_build_report_html(record), status_code=200)
 
 
-@router.get("/{scan_id}/report.pdf")
+@router.get("/{scan_id}/report.pdf", dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 def get_scan_report_pdf(scan_id: str, actor: Actor = Depends(get_actor)) -> Response:
     """Return a downloadable PDF compliance report for a scan."""
     record = store.get_scan(scan_id, actor.organization_id)
