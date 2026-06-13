@@ -133,7 +133,42 @@ def create_organization_for_user(user_id: str, payload: OrganizationCreate, emai
     return org
 
 
+def ensure_dev_actor_membership(user_id: str, role: OrgRole) -> str:
+    """Ensure the default dev organization exists and the dev user belongs to it."""
+    org = ensure_default_organization()
+    if store.get_organization_member(org.id, user_id) is None:
+        store.add_organization_member(
+            OrganizationMember(
+                organization_id=org.id,
+                user_id=user_id,
+                role=role,
+                joined_at=datetime.utcnow(),
+            )
+        )
+    return org.id
+
+
 def get_organization_context(user_id: str, email: str | None = None) -> dict[str, Any]:
+    if settings.app_env != "production" and user_id in {"admin", "viewer"}:
+        org_id = ensure_dev_actor_membership(
+            user_id,
+            OrgRole.owner if user_id == "admin" else OrgRole.viewer,
+        )
+        org = store.get_organization(org_id)
+        if org is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+        role = OrgRole.owner if user_id == "admin" else OrgRole.viewer
+        return {
+            "primary_organization_id": org_id,
+            "organizations": [
+                {
+                    "organization": org,
+                    "role": role,
+                    "is_primary": True,
+                }
+            ],
+        }
+
     if email:
         from app.services.members import accept_pending_invites
 

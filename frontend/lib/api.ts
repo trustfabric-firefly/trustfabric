@@ -117,10 +117,10 @@ async function request<T>(
     return res.json() as Promise<T>;
 }
 
-async function requestText(
+async function requestBlob(
     path: string,
     options: RequestInit = {}
-): Promise<string> {
+): Promise<Blob> {
     const authHeaders = await getAuthHeaders();
     const endpoint = new URL(path, `${BASE_URL}/`).toString();
     const res = await fetch(endpoint, {
@@ -133,10 +133,22 @@ async function requestText(
 
     if (!res.ok) {
         const error = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(error.detail ?? "Request failed");
+        throw new Error(parseApiErrorDetail(error.detail, res.statusText || "Request failed"));
     }
 
-    return res.text();
+    return res.blob();
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
 }
 
 
@@ -218,7 +230,10 @@ export const scansApi = {
     list: () => request<ScanResult[]>("/api/v1/scans/"),
     get: (scanId: string) => request<ScanResult>(`/api/v1/scans/${scanId}`),
     reportUrl: (scanId: string) => `${RESOLVED_API_BASE_URL}/api/v1/scans/${scanId}/report`,
-    getReportHtml: (scanId: string) => requestText(`/api/v1/scans/${scanId}/report`),
+    downloadReportPdf: async (scanId: string) => {
+        const blob = await requestBlob(`/api/v1/scans/${scanId}/report.pdf`);
+        downloadBlob(blob, `trustfabric-scan-${scanId.slice(0, 8)}.pdf`);
+    },
 };
 
 export const awsScansApi = {
