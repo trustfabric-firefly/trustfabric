@@ -93,6 +93,8 @@ class Settings(BaseSettings):
     def check_production_secrets(self) -> "Settings":
         if self.app_env == "production":
             required = {
+                "admin_token": self.admin_token,
+                "viewer_token": self.viewer_token,
                 "encryption_key": self.encryption_key,
                 "oauth_state_secret": self.oauth_state_secret,
                 "firebase_project_id": self.firebase_project_id,
