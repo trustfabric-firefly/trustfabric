@@ -9,9 +9,9 @@ from app.services.store import store
 logger = logging.getLogger(__name__)
 
 
-def _get_slack(user_id: str) -> Optional[tuple[str, str]]:
-    """Return (bot_token, channel_id) if the user has Slack connected, else None."""
-    conn = store.get_slack_connection(user_id)
+def _get_slack(organization_id: str) -> Optional[tuple[str, str]]:
+    """Return (bot_token, channel_id) if the organization has Slack connected."""
+    conn = store.get_slack_connection(organization_id)
     if not conn:
         return None
     token = conn.get("slack_bot_token")
@@ -21,8 +21,8 @@ def _get_slack(user_id: str) -> Optional[tuple[str, str]]:
     return token, channel
 
 
-async def notify_scan_completed(user_id: str, scan_record) -> None:
-    pair = _get_slack(user_id)
+async def notify_scan_completed(organization_id: str, scan_record) -> None:
+    pair = _get_slack(organization_id)
     if not pair:
         return
     token, channel = pair
@@ -63,8 +63,8 @@ async def notify_scan_completed(user_id: str, scan_record) -> None:
     await slack_integration.send_notification(token, channel, text=text, blocks=blocks)
 
 
-async def notify_aws_scan_completed(user_id: str, scan_record) -> None:
-    pair = _get_slack(user_id)
+async def notify_aws_scan_completed(organization_id: str, scan_record) -> None:
+    pair = _get_slack(organization_id)
     if not pair:
         return
     token, channel = pair
@@ -105,8 +105,8 @@ async def notify_aws_scan_completed(user_id: str, scan_record) -> None:
     await slack_integration.send_notification(token, channel, text=text, blocks=blocks)
 
 
-async def notify_system_change(user_id: str, system, action: str) -> None:
-    pair = _get_slack(user_id)
+async def notify_system_change(organization_id: str, system, action: str) -> None:
+    pair = _get_slack(organization_id)
     if not pair:
         return
     token, channel = pair

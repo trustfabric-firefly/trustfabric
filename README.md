@@ -1,6 +1,6 @@
 ## TrustFabric
 
-FastAPI + Next.js app for AI **system inventory**, risk tiers, audit/events, and governance copilot features (NIST AI RMF–aligned). Data lives in **Firestore**. The API accepts **dev bearer tokens** and/or **Firebase ID tokens** when configured.
+FastAPI + Next.js **multi-tenant SaaS** for AI **system inventory**, risk tiers, audit/events, and governance copilot features (NIST AI RMF–aligned). Data lives in **Firestore** with **organization-scoped isolation**. The API accepts **dev bearer tokens** (non-production only) and/or **Firebase ID tokens** when configured.
 
 **System recommendations** (`POST /api/v1/copilot/systems/{id}/recommendations`) and **policy text generation** (`POST /api/v1/copilot/policies/recommendations`) can use an **OpenAI-compatible** endpoint, **Gemini**, **Claude**, or **auto** (OpenAI-compatible first, then Gemini, then Claude), controlled by `COPILOT_PROVIDER` in `.env`.
 
@@ -83,40 +83,42 @@ Do not commit real secrets (`.env`, `.env.local`, `service-firebase.json`).
 
 ### 6. GitHub Integration (optional)
 
-Connect GitHub to scan Copilot configuration, branch protection, vulnerability alerts, and Actions permissions.
+**Operator setup (once per TrustFabric deployment):** Register a single GitHub OAuth App. Enterprise customers only click **Connect GitHub** in Settings and approve access on GitHub — they never set `GITHUB_CLIENT_ID`.
 
 1. Go to **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**
-2. Set the **Authorization callback URL** to `http://localhost:8000/api/v1/integrations/github/callback`
-3. Add the following to your `.env`:
+2. Set **Authorization callback URL** to `{API_BASE_URL}/api/v1/integrations/github/callback` (e.g. `http://localhost:8000/api/v1/integrations/github/callback` for local dev)
+3. Add to backend `.env`:
 
 ```bash
 GITHUB_CLIENT_ID=your_client_id
 GITHUB_CLIENT_SECRET=your_client_secret
-GITHUB_REDIRECT_URI=http://localhost:8000/api/v1/integrations/github/callback
+API_BASE_URL=http://localhost:8000
 FRONTEND_URL=http://localhost:3000
+# GITHUB_REDIRECT_URI is optional — derived from API_BASE_URL when unset
 ```
 
-1. Restart the backend and click **"Connect GitHub"** in Settings
+4. Restart the backend. Workspace admins click **Connect GitHub** → sign in on GitHub → approve → redirected back to Settings.
 
 ---
 
 ### 7. Slack Integration (optional)
 
-Connect Slack to receive notifications when scans complete, violations are found, or AI systems change.
+**Operator setup (once per TrustFabric deployment):** Register one Slack app. Customers authorize their own workspace via **Connect Slack**.
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps) and create a new Slack App
 2. Under **OAuth & Permissions**, add bot token scopes: `chat:write`, `channels:read`
-3. Under **OAuth & Permissions → Redirect URLs**, add `http://localhost:8000/api/v1/integrations/slack/callback`
-4. Add the following to your `.env`:
+3. Under **Redirect URLs**, add `{API_BASE_URL}/api/v1/integrations/slack/callback`
+4. Add to backend `.env`:
 
 ```bash
 SLACK_CLIENT_ID=your_client_id
 SLACK_CLIENT_SECRET=your_client_secret
-SLACK_REDIRECT_URI=http://localhost:8000/api/v1/integrations/slack/callback
+API_BASE_URL=http://localhost:8000
+# SLACK_REDIRECT_URI optional — derived from API_BASE_URL when unset
 ```
 
-1. Restart the backend and click **"Connect Slack"** in Settings
-2. After authorizing, choose a notification channel from the dropdown and use **"Test Notification"** to verify
+5. Restart the backend. Workspace admins click **Connect Slack** → approve in Slack → return to Settings.
+6. Choose a notification channel and use **Test Notification** to verify.
 
 ---
 

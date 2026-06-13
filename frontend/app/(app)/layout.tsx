@@ -8,7 +8,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <AppAuthGate>
             <div className="layout">
                 <Sidebar />
-                <div className="layout__content animate-in">
+                <div className="layout__content">
                     <Suspense fallback={<RouteLoadingIndicator />}>{children}</Suspense>
                 </div>
             </div>

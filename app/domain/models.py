@@ -6,7 +6,120 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+class OrgRole(str, Enum):
+    owner = "owner"
+    admin = "admin"
+    security_admin = "security_admin"
+    auditor = "auditor"
+    viewer = "viewer"
+
+
+class Organization(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+    created_by: str
+    plan: str = "trial"
+    compliance_contact_email: Optional[str] = None
+
+
+class OrganizationCreate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=120)
+
+
+class OrganizationUpdate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=120)
+    compliance_contact_email: Optional[str] = Field(default=None, max_length=254)
+
+
+class OrganizationMember(BaseModel):
+    organization_id: str
+    user_id: str
+    role: OrgRole
+    email: Optional[str] = None
+    joined_at: datetime
+
+
+class OrganizationInviteStatus(str, Enum):
+    pending = "pending"
+    accepted = "accepted"
+    revoked = "revoked"
+
+
+class OrganizationInvite(BaseModel):
+    id: str
+    organization_id: str
+    email: str
+    role: OrgRole
+    invited_by: str
+    status: OrganizationInviteStatus = OrganizationInviteStatus.pending
+    created_at: datetime
+    accepted_at: Optional[datetime] = None
+
+
+class OrganizationInviteCreate(BaseModel):
+    email: str = Field(..., min_length=3, max_length=254)
+    role: OrgRole = OrgRole.viewer
+
+    @field_validator("role")
+    @classmethod
+    def reject_owner_invite(cls, role: OrgRole) -> OrgRole:
+        if role == OrgRole.owner:
+            raise ValueError("Owner role cannot be invited")
+        return role
+
+
+class OrganizationMemberUpdate(BaseModel):
+    role: OrgRole
+
+    @field_validator("role")
+    @classmethod
+    def reject_owner_assignment(cls, role: OrgRole) -> OrgRole:
+        if role == OrgRole.owner:
+            raise ValueError("Owner role cannot be assigned")
+        return role
+
+
+class OrganizationSsoConfig(BaseModel):
+    organization_id: str
+    enabled: bool = False
+    enforced: bool = False
+    idp_entity_id: str = ""
+    idp_sso_url: str = ""
+    idp_x509_cert: str = ""
+    email_domains: List[str] = Field(default_factory=list)
+    jit_provisioning: bool = True
+    default_role: OrgRole = OrgRole.viewer
+    updated_at: datetime
+
+
+class OrganizationSsoConfigUpdate(BaseModel):
+    enabled: bool = False
+    enforced: bool = False
+    idp_entity_id: str = Field(default="", max_length=512)
+    idp_sso_url: str = Field(default="", max_length=1024)
+    idp_x509_cert: str = ""
+    email_domains: List[str] = Field(default_factory=list)
+    jit_provisioning: bool = True
+    default_role: OrgRole = OrgRole.viewer
+
+    @field_validator("default_role")
+    @classmethod
+    def reject_owner_sso_default(cls, role: OrgRole) -> OrgRole:
+        if role == OrgRole.owner:
+            raise ValueError("Owner role cannot be the SSO default role")
+        return role
+
+
+class SsoDiscoverRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=254)
+
+
+class SsoExchangeRequest(BaseModel):
+    code: str = Field(..., min_length=8, max_length=128)
 
 
 class ModelType(str, Enum):
@@ -71,6 +184,7 @@ class AISystemUpdate(BaseModel):
 
 class AISystem(AISystemBase):
     id: int
+    organization_id: str
     created_at: datetime
     updated_at: datetime
     risk_tier: Optional[RiskTier] = None
@@ -103,6 +217,7 @@ class ActivityEventCreate(BaseModel):
 
 class ActivityEvent(ActivityEventCreate):
     id: int
+    organization_id: str
 
 
 class AuditEventType(str, Enum):
@@ -113,10 +228,15 @@ class AuditEventType(str, Enum):
     policy_mapping_changed = "policy_mapping_changed"
     policy_created = "policy_created"
     policy_updated = "policy_updated"
+    member_invited = "member_invited"
+    member_role_changed = "member_role_changed"
+    member_removed = "member_removed"
+    invite_revoked = "invite_revoked"
 
 
 class AuditEvent(BaseModel):
     id: int
+    organization_id: str
     event_type: AuditEventType
     target_id: Optional[int]
     user_id: str
@@ -323,6 +443,26 @@ class AwsIntegrationStatus(BaseModel):
 class AwsConnectRequest(BaseModel):
     role_arn: str = Field(..., min_length=20)
     region: str = Field(default="us-east-1")
+
+
+# --- Figma Integration ---
+
+
+class FigmaUserInfo(BaseModel):
+    id: str
+    email: str
+    handle: str
+    img_url: str = ""
+    connected_at: datetime
+
+
+class FigmaIntegrationStatus(BaseModel):
+    connected: bool
+    user: Optional[FigmaUserInfo] = None
+
+
+class FigmaConnectRequest(BaseModel):
+    access_token: str = Field(..., min_length=10)
 
 
 class AwsCheckResult(BaseModel):

@@ -1,4 +1,5 @@
 import { auth } from "./firebase";
+import { getDevBearerToken, IS_PRODUCTION_BUILD } from "./auth-config";
 import type {
     AIChatMessage,
     AISystem,
@@ -27,7 +28,7 @@ const RAW_BASE_URL =
     process.env.NEXT_PUBLIC_API_BASE_URL ??
     process.env.NEXT_PUBLIC_API_URL ??
     "http://localhost:8000";
-const LOCAL_TOKEN_KEY = "trustfabric_api_token";
+const LOCAL_ORG_KEY = "trustfabric_organization_id";
 
 function normalizeBaseUrl(value: string): string {
     const trimmed = value.trim();
@@ -45,23 +46,51 @@ export const RESOLVED_API_BASE_URL = normalizeBaseUrl(RAW_BASE_URL);
 const BASE_URL = RESOLVED_API_BASE_URL;
 
 
+function getOrganizationHeader(): HeadersInit {
+    if (typeof window === "undefined") return {};
+    const orgId = window.localStorage.getItem(LOCAL_ORG_KEY);
+    return orgId ? { "X-Organization-Id": orgId } : {};
+}
+
+export function setActiveOrganizationId(orgId: string) {
+    if (typeof window !== "undefined") {
+        window.localStorage.setItem(LOCAL_ORG_KEY, orgId);
+    }
+}
+
 async function getAuthHeaders(): Promise<HeadersInit> {
     const user = auth?.currentUser;
     if (user) {
         const token = await user.getIdToken();
-        return { Authorization: `Bearer ${token}` };
+        return { Authorization: `Bearer ${token}`, ...getOrganizationHeader() };
     }
-    if (typeof window !== "undefined") {
-        const localToken = window.localStorage.getItem(LOCAL_TOKEN_KEY);
-        if (localToken) return { Authorization: `Bearer ${localToken}` };
+    const devToken = getDevBearerToken();
+    if (devToken) {
+        return { Authorization: `Bearer ${devToken}`, ...getOrganizationHeader() };
     }
-    const devToken =
-        process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN
-        ?? process.env.NEXT_PUBLIC_DEV_VIEWER_TOKEN;
-    if (devToken) return { Authorization: `Bearer ${devToken}` };
+    if (IS_PRODUCTION_BUILD) {
+        throw new Error("Authentication required. Sign in to continue.");
+    }
     throw new Error("Not authenticated");
 }
 
+
+function parseApiErrorDetail(detail: unknown, fallback: string): string {
+    if (typeof detail === "string" && detail.trim()) return detail;
+    if (Array.isArray(detail)) {
+        const parts = detail
+            .map((item) => {
+                if (typeof item === "string") return item;
+                if (item && typeof item === "object" && "msg" in item) {
+                    return String((item as { msg: unknown }).msg);
+                }
+                return "";
+            })
+            .filter(Boolean);
+        if (parts.length) return parts.join("; ");
+    }
+    return fallback;
+}
 
 async function request<T>(
     path: string,
@@ -80,7 +109,7 @@ async function request<T>(
 
     if (!res.ok) {
         const error = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(error.detail ?? "Request failed");
+        throw new Error(parseApiErrorDetail(error.detail, res.statusText || "Request failed"));
     }
 
     // 204 No Content
@@ -232,6 +261,15 @@ export const integrationsApi = {
         request<{ message: string }>("/api/v1/integrations/aws/test", { method: "POST" }),
     disconnectAws: () =>
         request<{ message: string }>("/api/v1/integrations/aws", { method: "DELETE" }),
+    connectFigma: (access_token: string) =>
+        request<FigmaIntegrationStatus>("/api/v1/integrations/figma/connect", {
+            method: "POST",
+            body: JSON.stringify({ access_token }),
+        }),
+    getFigmaStatus: () =>
+        request<FigmaIntegrationStatus>("/api/v1/integrations/figma/status"),
+    disconnectFigma: () =>
+        request<{ message: string }>("/api/v1/integrations/figma", { method: "DELETE" }),
 };
 
 export type BackendStatus = {
@@ -264,6 +302,144 @@ export type ExplainMissingResponse = {
 
 export const settingsApi = {
     status: () => request<BackendStatus>("/api/v1/settings/status"),
+};
+
+export type OrganizationContext = {
+    primary_organization_id: string;
+    organizations: Array<{
+        organization: {
+            id: string;
+            name: string;
+            plan: string;
+            compliance_contact_email?: string | null;
+        };
+        role: string;
+        is_primary: boolean;
+    }>;
+};
+
+export type OrganizationMember = {
+    organization_id: string;
+    user_id: string;
+    role: string;
+    email?: string | null;
+    joined_at: string;
+};
+
+export type OrganizationInvite = {
+    id: string;
+    organization_id: string;
+    email: string;
+    role: string;
+    invited_by: string;
+    status: string;
+    created_at: string;
+    accepted_at?: string | null;
+};
+
+export type OrgRole = "owner" | "admin" | "security_admin" | "auditor" | "viewer";
+
+export type SsoDiscovery = {
+    sso_available: boolean;
+    organization_id?: string;
+    organization_name?: string;
+    enforced?: boolean;
+};
+
+export type OrganizationSsoSummary = {
+    enabled: boolean;
+    enforced: boolean;
+    idp_entity_id?: string;
+    idp_sso_url?: string;
+    idp_x509_cert_configured?: boolean;
+    email_domains: string[];
+    jit_provisioning: boolean;
+    default_role: OrgRole;
+    updated_at?: string;
+    sp_entity_id: string;
+    sp_acs_url: string;
+    metadata_url: string;
+    login_url: string;
+};
+
+export const ssoApi = {
+    discover: (email: string) =>
+        request<SsoDiscovery>("/api/v1/auth/sso/discover", {
+            method: "POST",
+            body: JSON.stringify({ email }),
+        }),
+    exchange: (code: string) =>
+        request<{
+            custom_token: string;
+            organization_id: string;
+            return_to: string;
+            email: string;
+        }>("/api/v1/auth/sso/exchange", {
+            method: "POST",
+            body: JSON.stringify({ code }),
+        }),
+    loginUrl: (organizationId: string, returnTo?: string) => {
+        const url = new URL(`/api/v1/auth/sso/${encodeURIComponent(organizationId)}/login`, `${BASE_URL}/`);
+        if (returnTo) url.searchParams.set("return_to", returnTo);
+        return url.toString();
+    },
+};
+
+export const organizationsApi = {
+    me: () => request<OrganizationContext>("/api/v1/organizations/me"),
+    current: () =>
+        request<{
+            organization: OrganizationContext["organizations"][number]["organization"];
+            role: string;
+            user_id: string;
+        }>("/api/v1/organizations/current"),
+    updateCurrent: (body: { name: string; compliance_contact_email?: string | null }) =>
+        request<{ organization: OrganizationContext["organizations"][number]["organization"] }>(
+            "/api/v1/organizations/current",
+            { method: "PATCH", body: JSON.stringify(body) }
+        ),
+    members: () => request<OrganizationMember[]>("/api/v1/organizations/current/members"),
+    updateMemberRole: (userId: string, role: OrgRole) =>
+        request<OrganizationMember>(`/api/v1/organizations/current/members/${encodeURIComponent(userId)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ role }),
+        }),
+    removeMember: (userId: string) =>
+        request<{ ok: boolean }>(`/api/v1/organizations/current/members/${encodeURIComponent(userId)}`, {
+            method: "DELETE",
+        }),
+    invites: () => request<OrganizationInvite[]>("/api/v1/organizations/current/invites"),
+    inviteMember: (body: { email: string; role: OrgRole }) =>
+        request<{ status: "invited" | "added"; invite?: OrganizationInvite; member?: OrganizationMember }>(
+            "/api/v1/organizations/current/invites",
+            { method: "POST", body: JSON.stringify(body) }
+        ),
+    revokeInvite: (inviteId: string) =>
+        request<{ ok: boolean }>(`/api/v1/organizations/current/invites/${encodeURIComponent(inviteId)}`, {
+            method: "DELETE",
+        }),
+    getSso: () => request<OrganizationSsoSummary>("/api/v1/organizations/current/sso"),
+    updateSso: (body: {
+        enabled: boolean;
+        enforced: boolean;
+        idp_entity_id: string;
+        idp_sso_url: string;
+        idp_x509_cert: string;
+        email_domains: string[];
+        jit_provisioning: boolean;
+        default_role: OrgRole;
+    }) =>
+        request<OrganizationSsoSummary>("/api/v1/organizations/current/sso", {
+            method: "PUT",
+            body: JSON.stringify(body),
+        }),
+    disableSso: () =>
+        request<OrganizationSsoSummary>("/api/v1/organizations/current/sso", { method: "DELETE" }),
+    create: (name: string) =>
+        request<{ organization: { id: string; name: string } }>("/api/v1/organizations/", {
+            method: "POST",
+            body: JSON.stringify({ name }),
+        }),
 };
 
 export const complianceApi = {
@@ -324,5 +500,95 @@ export const policyApi = {
         }>(`/api/v1/copilot/systems/${systemId}/policy-chat/generate`, {
             method: "POST",
             body: JSON.stringify({ prompt }),
+        }),
+};
+
+// --- Brand Compliance Scanner ---
+
+export type BrandCheck = {
+    id: string;
+    name: string;
+    category: "color" | "typography" | "logo" | "imagery" | "content" | "prohibited";
+    status: "pass" | "fail" | "warning" | "not_applicable";
+    severity: "low" | "medium" | "high" | "critical";
+    evidence: string;
+    recommendation: string;
+};
+
+export type BrandComplianceResult = {
+    overall_score: number;
+    overall_status: "compliant" | "needs_review" | "non_compliant";
+    summary: string;
+    checks: BrandCheck[];
+    recommendations: string[];
+    brand_name: string;
+    scanned_at: string;
+    model: string;
+    disclaimer: string;
+};
+
+export type BrandGuidelines = {
+    company_name: string;
+    primary_colors: { name: string; hex: string }[];
+    secondary_colors: { name: string; hex: string }[];
+    typography: { primary_font: string; body_font: string; rules: string };
+    logo_rules: string[];
+    imagery_style: string[];
+    content_tone: string[];
+    prohibited: string[];
+};
+
+export const brandComplianceApi = {
+    scan: async (file: File): Promise<BrandComplianceResult> => {
+        const authHeaders = await getAuthHeaders();
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const endpoint = new URL("/api/v1/brand-compliance/scan", `${BASE_URL}/`).toString();
+        const res = await fetch(endpoint, {
+            method: "POST",
+            headers: { ...authHeaders },
+            body: formData,
+        });
+
+        if (!res.ok) {
+            const error = await res.json().catch(() => ({ detail: res.statusText }));
+            throw new Error(error.detail ?? "Brand compliance scan failed");
+        }
+
+        return res.json();
+    },
+    getGuidelines: () => request<BrandGuidelines>("/api/v1/brand-compliance/guidelines"),
+};
+
+// --- Figma Integration ---
+
+export type FigmaUser = { id: string; email: string; handle: string; img_url: string; connected_at?: string };
+export type FigmaIntegrationStatus = { connected: boolean; user?: FigmaUser };
+export type FigmaStatus = FigmaIntegrationStatus & { error?: string };
+export type FigmaProject = { id: string; name: string };
+export type FigmaFile = { key: string; name: string; thumbnail_url?: string; last_modified?: string };
+export type FigmaFrame = {
+    id: string; name: string; type: string; page: string;
+    file_key: string; file_name: string;
+    width?: number; height?: number; thumbnail_url?: string;
+};
+export type FigmaScanResult = {
+    results: (BrandComplianceResult & { node_id: string; status: string; error?: string })[];
+    summary: {
+        total: number; scanned: number; errors: number;
+        average_score: number; compliant: number; needs_review: number; non_compliant: number;
+    };
+};
+
+export const figmaApi = {
+    status: () => integrationsApi.getFigmaStatus(),
+    teamProjects: (teamId: string) => request<{ projects: FigmaProject[] }>(`/api/v1/figma/teams/${teamId}/projects`),
+    projectFiles: (projectId: string) => request<{ files: FigmaFile[] }>(`/api/v1/figma/projects/${projectId}/files`),
+    fileFrames: (fileKey: string) => request<{ frames: FigmaFrame[]; count: number }>(`/api/v1/figma/files/${fileKey}/frames`),
+    batchScan: (fileKey: string, nodeIds: string[] = []) =>
+        request<FigmaScanResult>("/api/v1/figma/scan", {
+            method: "POST",
+            body: JSON.stringify({ file_key: fileKey, node_ids: nodeIds }),
         }),
 };

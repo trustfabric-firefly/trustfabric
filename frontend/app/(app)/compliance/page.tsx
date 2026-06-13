@@ -1,16 +1,12 @@
 "use client";
+import { CheckCircleOutlineIcon, CancelOutlinedIcon, RemoveCircleOutlineIcon, PendingOutlinedIcon, ExpandMoreIcon, ExpandLessIcon, RefreshIcon } from "@/lib/icons";
 
 import { useState, useCallback } from "react";
+import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
-import CancelOutlinedIcon from "@mui/icons-material/CancelOutlined";
-import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
-import PendingOutlinedIcon from "@mui/icons-material/PendingOutlined";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import { AIIcon } from "@/components/ui/AIIcon";
-import RefreshIcon from "@mui/icons-material/Refresh";
-import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
+import { TopBar } from "@/components/layout/TopBar";
+import { PageEmptyIllustration } from "@/components/ui/PageEmptyIllustration";
 import { complianceApi, scansApi } from "@/lib/api";
 import type {
   ComplianceEvaluationResponse,
@@ -118,7 +114,7 @@ function RequirementRow({
                 fontSize: 10,
                 padding: "2px 8px",
                 borderRadius: "var(--r-pill)",
-                background: "rgba(var(--c-accent-rgb, 124, 58, 237), 0.1)",
+                background: "var(--c-accent-subtle)",
                 color: "var(--c-accent-text)",
                 fontWeight: "var(--fw-bold)",
                 textTransform: "uppercase",
@@ -382,45 +378,55 @@ export default function CompliancePage() {
   // ── No scan state ──────────────────────────────────────────────────────────
   if (!activeScanId) {
     return (
-      <div style={{ padding: "var(--s-8)", maxWidth: 900, margin: "0 auto" }}>
-        <div style={{ marginBottom: "var(--s-6)" }}>
-          <h1 style={{ fontSize: "var(--fs-24)", fontWeight: "var(--fw-bold)", marginBottom: "var(--s-1)" }}>
-            Compliance Frameworks
-          </h1>
-          <p style={{ color: "var(--c-text-muted)", fontSize: "var(--fs-14)" }}>
-            EU AI Act · NIST AI RMF · NIST CSF · SOC 2
-          </p>
-        </div>
-        <div className="panel" style={{ textAlign: "center", padding: "var(--s-12) var(--s-8)" }}>
-          <VerifiedUserOutlinedIcon style={{ fontSize: 56, color: "var(--c-text-muted)", marginBottom: "var(--s-4)" }} />
-          <h2 style={{ fontSize: "var(--fs-18)", fontWeight: "var(--fw-semibold)", marginBottom: "var(--s-2)" }}>
-            Run a Compliance Scan First
-          </h2>
-          <p style={{ color: "var(--c-text-muted)", fontSize: "var(--fs-13)", maxWidth: 480, margin: "0 auto var(--s-6)" }}>
-            Framework evaluation requires scan data. Go to the Scans page, run a
-            scan against your GitHub organization, then return here for a full
-            compliance report across all four frameworks.
-          </p>
-          <a href="/scans" className="btn btn--primary">Go to Scans</a>
-        </div>
-      </div>
+      <>
+        <TopBar
+          title="Compliance Frameworks"
+          subtitle="EU AI Act · NIST AI RMF · NIST CSF · SOC 2"
+          actions={
+            <Link href="/scans" className="btn btn--primary">
+              Go to Scans
+            </Link>
+          }
+        />
+        <main className="page page--flex">
+          <div className="page-empty-shell">
+            <PageEmptyIllustration
+              src="/scan-comp.png"
+              title="No compliance data"
+              label="Run a scan to evaluate your frameworks"
+            />
+          </div>
+        </main>
+      </>
     );
   }
 
   // ── Loading ────────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div style={{ padding: "var(--s-8)", maxWidth: 900, margin: "0 auto" }}>
-        <h1 style={{ fontSize: "var(--fs-24)", fontWeight: "var(--fw-bold)", marginBottom: "var(--s-6)" }}>
-          Compliance Frameworks
-        </h1>
-        <div className="panel" style={{ textAlign: "center", padding: "var(--s-12)" }}>
-          <div className="scan-progress" style={{ display: "inline-block" }}>
-            <div className="loading-spinner" style={{ width: 40, height: 40, border: "3px solid var(--c-border)", borderTopColor: "var(--c-accent)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+      <>
+        <TopBar title="Compliance Frameworks" subtitle="Evaluating frameworks…" />
+        <main className="page page--flex">
+          <div className="page-empty-shell">
+            <div className="page-empty page-empty--in-panel">
+              <div
+                className="loading-spinner"
+                style={{
+                  width: 40,
+                  height: 40,
+                  border: "3px solid var(--c-border)",
+                  borderTopColor: "var(--c-accent)",
+                  borderRadius: "50%",
+                  animation: "spin 0.8s linear infinite",
+                  marginBottom: "var(--s-4)",
+                }}
+              />
+              <h2 className="page-empty__title">Evaluating frameworks</h2>
+              <p className="page-empty__label">This may take a moment</p>
+            </div>
           </div>
-          <p style={{ marginTop: "var(--s-4)", color: "var(--c-text-muted)" }}>Evaluating frameworks…</p>
-        </div>
-      </div>
+        </main>
+      </>
     );
   }
 

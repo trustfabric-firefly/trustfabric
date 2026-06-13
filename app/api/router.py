@@ -13,12 +13,22 @@ from app.api.routes.integrations import router as integrations_router
 from app.api.routes.scan_policies import router as scan_policies_router
 from app.api.routes.scans import router as scans_router
 from app.api.routes.compliance import router as compliance_router
+from app.api.routes.organizations import router as organizations_router
 from app.api.routes.settings import router as settings_router
+from app.api.routes.sso import router as sso_router
 from app.api.routes.systems import router as systems_router
+from app.api.routes.brand_compliance import router as brand_compliance_router
+from app.api.routes.figma import router as figma_router
 
 api_router = APIRouter()
 
 api_router.include_router(health_router, tags=["health"])
+api_router.include_router(sso_router, prefix="/api/v1/auth/sso", tags=["sso"])
+api_router.include_router(
+    organizations_router,
+    prefix="/api/v1/organizations",
+    tags=["organizations"],
+)
 api_router.include_router(systems_router, prefix="/api/v1/systems", tags=["systems"])
 api_router.include_router(events_router, prefix="/api/v1/events", tags=["events"])
 api_router.include_router(dashboard_router, prefix="/api/v1/dashboard", tags=["dashboard"])
@@ -29,3 +39,6 @@ api_router.include_router(scans_router, prefix="/api/v1/scans", tags=["scans"])
 api_router.include_router(scan_policies_router, prefix="/api/v1/scan-policies", tags=["scan-policies"])
 api_router.include_router(settings_router, prefix="/api/v1/settings", tags=["settings"])
 api_router.include_router(compliance_router, prefix="/api/v1", tags=["compliance"])
+api_router.include_router(brand_compliance_router, prefix="/api/v1/brand-compliance", tags=["brand-compliance"])
+api_router.include_router(figma_router, prefix="/api/v1/figma", tags=["figma"])
+

@@ -22,8 +22,8 @@ async def get_settings_status(actor: Actor = Depends(get_actor)):
         "claude_api_configured": bool(settings.claude_api_key),
         "gemini_api_configured": bool(settings.gemini_api_key),
         "firebase_configured": bool(settings.firebase_project_id),
-        "github_oauth_configured": bool(settings.github_client_id),
-        "slack_oauth_configured": bool(settings.slack_client_id),
+        "github_oauth_configured": settings.github_oauth_ready,
+        "slack_oauth_configured": settings.slack_oauth_ready,
         "aws_configured": bool(settings.aws_external_id),
         "rate_limit_per_minute": settings.rate_limit_per_minute,
     }

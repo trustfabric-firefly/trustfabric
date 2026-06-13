@@ -1,36 +1,15 @@
 "use client";
+import { DocumentScannerOutlinedIcon, PolicyOutlinedIcon, SmartToyOutlinedIcon, SettingsOutlinedIcon, PersonOutlinedIcon, SecurityOutlinedIcon, AssessmentOutlinedIcon, LockOutlinedIcon, SearchOutlinedIcon, FilterListOutlinedIcon, FileDownloadOutlinedIcon, ArrowBackOutlinedIcon, ContentCopyOutlinedIcon, ExpandMoreOutlinedIcon, CheckCircleOutlinedIcon, WarningAmberOutlinedIcon, ErrorOutlineOutlinedIcon, AccessTimeOutlinedIcon, ComputerOutlinedIcon, LocationOnOutlinedIcon, KeyOutlinedIcon, RefreshOutlinedIcon } from "@/lib/icons"
+import type { AppIconComponent } from "@/lib/icons";
 
 import { useState, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import DocumentScannerOutlinedIcon from "@mui/icons-material/DocumentScannerOutlined";
-import PolicyOutlinedIcon from "@mui/icons-material/PolicyOutlined";
-import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
-import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
-import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
-import SecurityOutlinedIcon from "@mui/icons-material/SecurityOutlined";
-import AssessmentOutlinedIcon from "@mui/icons-material/AssessmentOutlined";
-import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
-import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
-import FilterListOutlinedIcon from "@mui/icons-material/FilterListOutlined";
-import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
-import ArrowBackOutlinedIcon from "@mui/icons-material/ArrowBackOutlined";
-import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
-import ExpandMoreOutlinedIcon from "@mui/icons-material/ExpandMoreOutlined";
-import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
-import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
-import ErrorOutlineOutlinedIcon from "@mui/icons-material/ErrorOutlineOutlined";
-import AccessTimeOutlinedIcon from "@mui/icons-material/AccessTimeOutlined";
-import ComputerOutlinedIcon from "@mui/icons-material/ComputerOutlined";
-import LocationOnOutlinedIcon from "@mui/icons-material/LocationOnOutlined";
-import KeyOutlinedIcon from "@mui/icons-material/KeyOutlined";
-import RefreshOutlinedIcon from "@mui/icons-material/RefreshOutlined";
-import type { SvgIconComponent } from "@mui/icons-material";
 import { TopBar } from "@/components/layout/TopBar";
 import { auditApi } from "@/lib/api";
 import type { AuditEvent as BackendAuditEvent, AuditLogEntry, AuditActionCategory, AuditSeverity } from "@/types";
 
 
-const CATEGORY_ICONS: Record<AuditActionCategory, SvgIconComponent> = {
+const CATEGORY_ICONS: Record<AuditActionCategory, AppIconComponent> = {
     scan: DocumentScannerOutlinedIcon,
     policy: PolicyOutlinedIcon,
     system: SmartToyOutlinedIcon,
@@ -60,190 +39,6 @@ const DATE_RANGE_OPTIONS = [
     { value: "year", label: "This year" },
     { value: "all", label: "All time" },
 ];
-
-//mock data/
-
-const MOCK_AUDIT_LOG: AuditLogEntry[] = [
-    {
-        event_id: "evt_001",
-        timestamp: "2026-02-16T14:35:42Z",
-        user_id: "user_xyz789",
-        user_email: "john.doe@acme.com",
-        user_role: "Compliance Officer",
-        ip_address: "192.168.1.100",
-        user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/121.0.6167",
-        location: { city: "Dallas", region: "Texas", country: "US" },
-        event_type: "compliance_scan_completed",
-        action: "scan.run",
-        action_category: "scan",
-        severity: "info",
-        status: "success",
-        resource: { type: "github_organization", id: "acme-corp", name: "Acme Corporation" },
-        result: { compliance_score: 0.67, violations_count: 2, scan_duration: 28 },
-        metadata: { scan_id: "scan_xyz789", policies_checked: 3, duration_seconds: 28 },
-        api_calls: [
-            { service: "github", endpoint: "/orgs/acme-corp/copilot/settings", method: "GET", status: 200 },
-            { service: "anthropic", endpoint: "/v1/messages", method: "POST", status: 200 },
-        ],
-    },
-    {
-        event_id: "evt_002",
-        timestamp: "2026-02-16T10:15:00Z",
-        user_id: "user_admin",
-        user_email: "admin@acme.com",
-        user_role: "Administrator",
-        ip_address: "192.168.1.50",
-        user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-        event_type: "policy_created",
-        action: "policy.create",
-        action_category: "policy",
-        severity: "info",
-        status: "success",
-        resource: { type: "policy", id: "pol_abc123", name: "Restrict AI Models" },
-        metadata: { creation_method: "ai_generated", severity: "high", category: "model_restrictions" },
-    },
-    {
-        event_id: "evt_003",
-        timestamp: "2026-02-16T09:30:00Z",
-        user_id: "user_admin",
-        user_email: "admin@acme.com",
-        user_role: "Administrator",
-        ip_address: "192.168.1.50",
-        user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-        event_type: "api_key_rotated",
-        action: "integration.api_key_rotated",
-        action_category: "security",
-        severity: "critical",
-        status: "success",
-        resource: { type: "integration", id: "github_acme_corp", name: "GitHub (acme-corp)" },
-        changes: {
-            before: { token_prefix: "ghp_xxxx...xxx1234", status: "active" },
-            after: { token_prefix: "ghp_yyyy...yyy5678", status: "active" },
-        },
-        metadata: { rotation_reason: "Scheduled maintenance", expiration_days: 90 },
-    },
-    {
-        event_id: "evt_004",
-        timestamp: "2026-02-15T16:20:00Z",
-        user_id: "user_jane",
-        user_email: "jane.smith@acme.com",
-        user_role: "Compliance Officer",
-        ip_address: "192.168.1.75",
-        user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 Safari/17.2",
-        location: { city: "San Francisco", region: "California", country: "US" },
-        event_type: "ai_system_registered",
-        action: "system.create",
-        action_category: "system",
-        severity: "info",
-        status: "success",
-        resource: { type: "ai_system", id: "sys_chatgpt", name: "ChatGPT Enterprise - Customer Support" },
-        metadata: { risk_level: "critical", data_sensitivity: "High", department: "Customer Support" },
-    },
-    {
-        event_id: "evt_005",
-        timestamp: "2026-02-15T09:15:00Z",
-        user_id: "user_xyz789",
-        user_email: "john.doe@acme.com",
-        user_role: "Compliance Officer",
-        ip_address: "192.168.1.100",
-        user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/121.0.6167",
-        event_type: "compliance_scan_completed",
-        action: "scan.run",
-        action_category: "scan",
-        severity: "info",
-        status: "success",
-        resource: { type: "github_organization", id: "acme-corp", name: "Acme Corporation" },
-        result: { compliance_score: 1.0, violations_count: 0 },
-        metadata: { scan_id: "scan_abc456", policies_checked: 3 },
-    },
-    {
-        event_id: "evt_006",
-        timestamp: "2026-02-14T14:30:00Z",
-        user_id: "user_admin",
-        user_email: "admin@acme.com",
-        user_role: "Administrator",
-        ip_address: "192.168.1.50",
-        user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-        event_type: "integration_updated",
-        action: "settings.update",
-        action_category: "settings",
-        severity: "warning",
-        status: "success",
-        resource: { type: "integration", id: "github_main", name: "GitHub Integration" },
-        changes: {
-            before: { organization: "old-org" },
-            after: { organization: "acme-corp" },
-        },
-    },
-    {
-        event_id: "evt_007",
-        timestamp: "2026-02-14T11:05:00Z",
-        user_id: "user_admin",
-        user_email: "admin@acme.com",
-        user_role: "Administrator",
-        ip_address: "192.168.1.50",
-        user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-        event_type: "policy_updated",
-        action: "policy.update",
-        action_category: "policy",
-        severity: "info",
-        status: "success",
-        resource: { type: "policy", id: "pol_cli", name: "Disable Copilot CLI" },
-        changes: {
-            before: { severity: "low" },
-            after: { severity: "high" },
-        },
-    },
-    {
-        event_id: "evt_008",
-        timestamp: "2026-02-14T10:00:00Z",
-        user_id: "user_admin",
-        user_email: "admin@acme.com",
-        user_role: "Administrator",
-        ip_address: "192.168.1.50",
-        user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-        event_type: "user_invited",
-        action: "user.invite",
-        action_category: "user",
-        severity: "info",
-        status: "success",
-        resource: { type: "user", id: "user_jane", name: "jane.smith@acme.com" },
-        metadata: { role: "Compliance Officer", department: "Engineering" },
-    },
-    {
-        event_id: "evt_009",
-        timestamp: "2026-02-13T07:45:00Z",
-        user_id: "unknown",
-        user_email: "unknown@example.com",
-        ip_address: "203.0.113.42",
-        user_agent: "curl/7.88.1",
-        event_type: "login_failed",
-        action: "auth.login_failed",
-        action_category: "auth",
-        severity: "warning",
-        status: "failure",
-        resource: { type: "auth", id: "login_attempt", name: "Login Attempt" },
-        metadata: { reason: "User account does not exist", attempts_from_ip: 5 },
-    },
-    {
-        event_id: "evt_010",
-        timestamp: "2026-02-12T15:30:00Z",
-        user_id: "user_admin",
-        user_email: "admin@acme.com",
-        user_role: "Administrator",
-        ip_address: "192.168.1.50",
-        user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
-        event_type: "report_exported",
-        action: "report.export",
-        action_category: "report",
-        severity: "info",
-        status: "success",
-        resource: { type: "report", id: "rpt_compliance", name: "Compliance Report Q1 2026" },
-        metadata: { format: "PDF", pages: 24, recipients: ["cto@acme.com", "ciso@acme.com"] },
-    },
-];
-
-//main page
 
 type PageView = "list" | "details";
 
@@ -288,7 +83,7 @@ export default function AuditPage() {
                                 <ExpandMoreOutlinedIcon sx={{ fontSize: 16 }} />
                             </button>
                             {showExportMenu && (
-                                <ExportMenu onClose={() => setShowExportMenu(false)} />
+                                <ExportMenu events={events} onClose={() => setShowExportMenu(false)} />
                             )}
                         </div>
                     ) : undefined
@@ -808,19 +603,60 @@ function ActivityItem({
     );
 }
 
-function ExportMenu({ onClose }: { onClose: () => void }) {
+function downloadExport(filename: string, content: string, mimeType: string) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+}
+
+function auditEventsToCsv(events: AuditLogEntry[]): string {
+    const header = ["event_id", "timestamp", "user_email", "action", "action_category", "severity", "status", "resource_type", "resource_name"];
+    const rows = events.map((event) => [
+        event.event_id,
+        event.timestamp,
+        event.user_email,
+        event.action,
+        event.action_category,
+        event.severity,
+        event.status,
+        event.resource.type,
+        event.resource.name ?? "",
+    ].map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","));
+    return [header.join(","), ...rows].join("\n");
+}
+
+function ExportMenu({ events, onClose }: { events: AuditLogEntry[]; onClose: () => void }) {
+    const exportCsv = () => {
+        downloadExport(
+            `trustfabric-audit-${new Date().toISOString().slice(0, 10)}.csv`,
+            auditEventsToCsv(events),
+            "text/csv;charset=utf-8",
+        );
+        onClose();
+    };
+
+    const exportJson = () => {
+        downloadExport(
+            `trustfabric-audit-${new Date().toISOString().slice(0, 10)}.json`,
+            JSON.stringify(events, null, 2),
+            "application/json;charset=utf-8",
+        );
+        onClose();
+    };
+
     return (
         <>
             <div className="dropdown-overlay" onClick={onClose} />
             <div className="dropdown-menu" style={{ right: 0, top: "100%", marginTop: 4 }}>
-                <button className="dropdown-item">
+                <button type="button" className="dropdown-item" onClick={exportCsv} disabled={events.length === 0}>
                     <FileDownloadOutlinedIcon sx={{ fontSize: 16 }} /> Download CSV
                 </button>
-                <button className="dropdown-item">
+                <button type="button" className="dropdown-item" onClick={exportJson} disabled={events.length === 0}>
                     <FileDownloadOutlinedIcon sx={{ fontSize: 16 }} /> Download JSON
-                </button>
-                <button className="dropdown-item">
-                    <AssessmentOutlinedIcon sx={{ fontSize: 16 }} /> Generate PDF Report
                 </button>
             </div>
         </>
@@ -860,7 +696,7 @@ function DetailRow({
     value,
     copyable,
 }: {
-    icon?: SvgIconComponent;
+    icon?: AppIconComponent;
     label: string;
     value: React.ReactNode;
     copyable?: boolean;

@@ -1,0 +1,45 @@
+/* Policies page — borderless shell (tabs + content on page background) */
+
+.policies-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.policies-shell--flex {
+  overflow: hidden;
+}
+
+.policies-shell .tabs {
+  background: transparent;
+  border-bottom: 1px solid var(--c-border);
+  padding: 0;
+  margin-bottom: var(--s-4);
+  flex-shrink: 0;
+}
+
+.policies-shell .tabs__tab {
+  padding: var(--s-3) var(--s-1);
+  margin-right: var(--s-4);
+}
+
+.policies-shell .tabs__tab:first-child {
+  margin-left: 0;
+}
+
+.policies-shell .tabs__tab.active {
+  color: var(--c-text);
+  border-bottom-color: var(--c-text);
+}
+
+.policies-shell .tab-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.policies-shell--flex .tab-content {
+  overflow: hidden;
+}

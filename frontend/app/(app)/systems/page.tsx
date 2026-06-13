@@ -1,36 +1,20 @@
 "use client";
+import {
+    SmartToyOutlinedIcon, AddOutlinedIcon, SearchOutlinedIcon, ArrowBackOutlinedIcon,
+    CheckCircleOutlinedIcon, WarningAmberOutlinedIcon, RadioButtonUncheckedOutlinedIcon,
+    EditOutlinedIcon, ArchiveOutlinedIcon, DocumentScannerOutlinedIcon, VisibilityOutlinedIcon,
+    BusinessOutlinedIcon, PersonOutlinedIcon, EmailOutlinedIcon, CodeOutlinedIcon,
+    ChatOutlinedIcon, BrushOutlinedIcon, BarChartOutlinedIcon, CreateOutlinedIcon,
+    ExtensionOutlinedIcon, LinkOutlinedIcon, HistoryOutlinedIcon, AutoAwesomeOutlinedIcon, FileDownloadOutlinedIcon,
+    FileUploadOutlinedIcon, FilterListOutlinedIcon, ExpandMoreOutlinedIcon, SwapVertOutlinedIcon, MoreHorizOutlinedIcon,
+} from "@/lib/icons";
+import type { AppIconComponent } from "@/lib/icons";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { PageEmptyIllustration } from "@/components/ui/PageEmptyIllustration";
+import "./systems-page.css";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
-import AddOutlinedIcon from "@mui/icons-material/AddOutlined";
-import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
-import FilterListOutlinedIcon from "@mui/icons-material/FilterListOutlined";
-import ArrowBackOutlinedIcon from "@mui/icons-material/ArrowBackOutlined";
-import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
-import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
-import ErrorOutlineOutlinedIcon from "@mui/icons-material/ErrorOutlineOutlined";
-import RadioButtonUncheckedOutlinedIcon from "@mui/icons-material/RadioButtonUncheckedOutlined";
-import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
-import ArchiveOutlinedIcon from "@mui/icons-material/ArchiveOutlined";
-import DocumentScannerOutlinedIcon from "@mui/icons-material/DocumentScannerOutlined";
-import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
-import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
-import BusinessOutlinedIcon from "@mui/icons-material/BusinessOutlined";
-import PersonOutlinedIcon from "@mui/icons-material/PersonOutlined";
-import EmailOutlinedIcon from "@mui/icons-material/EmailOutlined";
-import CodeOutlinedIcon from "@mui/icons-material/CodeOutlined";
-import ChatOutlinedIcon from "@mui/icons-material/ChatOutlined";
-import BrushOutlinedIcon from "@mui/icons-material/BrushOutlined";
-import BarChartOutlinedIcon from "@mui/icons-material/BarChartOutlined";
-import CreateOutlinedIcon from "@mui/icons-material/CreateOutlined";
-import ExtensionOutlinedIcon from "@mui/icons-material/ExtensionOutlined";
-import LinkOutlinedIcon from "@mui/icons-material/LinkOutlined";
-import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
-import GitHubIcon from "@mui/icons-material/GitHub";
-import type { SvgIconComponent } from "@mui/icons-material";
-import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import { TopBar } from "@/components/layout/TopBar";
 import { Modal } from "@/components/ui/Modal";
 import { AIIcon } from "@/components/ui/AIIcon";
@@ -61,7 +45,7 @@ const SYSTEM_TYPE_LABELS: Record<AISystemType, string> = {
     custom: "Custom",
 };
 
-const SYSTEM_TYPE_ICONS: Record<AISystemType, SvgIconComponent> = {
+const SYSTEM_TYPE_ICONS: Record<AISystemType, AppIconComponent> = {
     code_assistant: CodeOutlinedIcon,
     chat_interface: ChatOutlinedIcon,
     design_tool: BrushOutlinedIcon,
@@ -107,145 +91,6 @@ const PLATFORMS = [
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════════
-   MOCK DATA
-   ═══════════════════════════════════════════════════════════════════════════════ */
-
-const MOCK_SYSTEMS: AISystemInventoryItem[] = [
-    {
-        id: "sys_001",
-        name: "ChatGPT Enterprise",
-        type: "chat_interface",
-        description: "Enterprise ChatGPT subscription for customer support team to handle inquiries and generate responses.",
-        owner: "Support Team",
-        contact_email: "support-lead@acme-corp.com",
-        department: "Customer Support",
-        risk_level: "critical",
-        data_sensitivity: "High",
-        data_access_types: ["customer_data", "pii"],
-        platform: "OpenAI",
-        provider: "OpenAI",
-        models_used: ["GPT-4", "GPT-4 Turbo"],
-        external_integrations: ["Zendesk", "Slack"],
-        connected: false,
-        active_violations: 2,
-        scan_status: "violations",
-        last_scan_date: "2026-02-15T14:35:00Z",
-        compliance_score: 67,
-        status: "active",
-        registered_by: "admin@acme-corp.com",
-        registered_at: "2026-01-10T10:00:00Z",
-        updated_at: "2026-02-15T14:35:00Z",
-    },
-    {
-        id: "sys_002",
-        name: "GitHub Copilot",
-        type: "code_assistant",
-        description: "AI-powered code completion and suggestions for the engineering team across all repositories.",
-        owner: "Engineering Team",
-        contact_email: "engineering@acme-corp.com",
-        department: "Engineering",
-        risk_level: "high",
-        data_sensitivity: "High",
-        data_access_types: ["proprietary_source_code"],
-        platform: "GitHub",
-        provider: "GitHub",
-        models_used: ["Claude 3.5 Sonnet", "GPT-3.5 Turbo"],
-        external_integrations: ["Slack", "Jira"],
-        connected: true,
-        connection_type: "github_api",
-        active_violations: 0,
-        scan_status: "compliant",
-        last_scan_date: "2026-02-16T14:35:00Z",
-        compliance_score: 100,
-        status: "active",
-        registered_by: "admin@acme-corp.com",
-        registered_at: "2026-01-05T09:00:00Z",
-        updated_at: "2026-02-16T14:35:00Z",
-    },
-    {
-        id: "sys_003",
-        name: "Midjourney",
-        type: "design_tool",
-        description: "AI image generation for marketing materials and brand assets.",
-        owner: "Design Team",
-        contact_email: "design@acme-corp.com",
-        department: "Marketing",
-        risk_level: "high",
-        data_sensitivity: "Medium",
-        data_access_types: ["internal_docs"],
-        platform: "Discord",
-        provider: "Midjourney",
-        models_used: ["Midjourney v6"],
-        external_integrations: ["Figma"],
-        connected: false,
-        active_violations: 0,
-        scan_status: "not_scanned",
-        status: "active",
-        registered_by: "design@acme-corp.com",
-        registered_at: "2026-01-20T11:00:00Z",
-        updated_at: "2026-01-20T11:00:00Z",
-    },
-    {
-        id: "sys_004",
-        name: "Grammarly Business",
-        type: "writing_assistant",
-        description: "AI writing assistant for content creation and editing.",
-        owner: "Content Team",
-        contact_email: "content@acme-corp.com",
-        department: "Marketing",
-        risk_level: "low",
-        data_sensitivity: "Low",
-        data_access_types: ["public_data"],
-        platform: "Grammarly",
-        provider: "Grammarly",
-        models_used: ["Grammarly AI"],
-        external_integrations: ["Google Docs", "Microsoft Word"],
-        connected: false,
-        active_violations: 0,
-        scan_status: "compliant",
-        last_scan_date: "2026-02-14T10:00:00Z",
-        compliance_score: 100,
-        status: "active",
-        registered_by: "marketing@acme-corp.com",
-        registered_at: "2026-01-25T14:00:00Z",
-        updated_at: "2026-02-14T10:00:00Z",
-    },
-    {
-        id: "sys_005",
-        name: "Notion AI",
-        type: "productivity",
-        description: "AI features in Notion for documentation and meeting notes.",
-        owner: "IT Department",
-        contact_email: "it@acme-corp.com",
-        department: "All Teams",
-        risk_level: "low",
-        data_sensitivity: "Medium",
-        data_access_types: ["internal_docs"],
-        platform: "Notion",
-        provider: "Notion",
-        models_used: ["Claude", "GPT-4"],
-        external_integrations: ["Slack", "Google Calendar"],
-        connected: false,
-        active_violations: 0,
-        scan_status: "compliant",
-        last_scan_date: "2026-02-15T09:00:00Z",
-        compliance_score: 100,
-        status: "active",
-        registered_by: "it@acme-corp.com",
-        registered_at: "2026-02-01T10:00:00Z",
-        updated_at: "2026-02-15T09:00:00Z",
-    },
-];
-
-const MOCK_AUDIT_LOG: SystemAuditEntry[] = [
-    { id: "aud_001", timestamp: "2026-02-16T14:35:00Z", event: "Compliance scan passed (100%)" },
-    { id: "aud_002", timestamp: "2026-02-15T09:15:00Z", event: "Compliance scan passed (100%)" },
-    { id: "aud_003", timestamp: "2026-02-10T11:30:00Z", event: "Configuration updated", details: "CLI features disabled" },
-    { id: "aud_004", timestamp: "2026-02-05T14:20:00Z", event: "Compliance scan failed (67%)", details: "2 policy violations detected" },
-    { id: "aud_005", timestamp: "2026-01-15T10:00:00Z", event: "System registered" },
-];
-
-/* ═══════════════════════════════════════════════════════════════════════════════
    MAIN PAGE
    ═══════════════════════════════════════════════════════════════════════════════ */
 
@@ -283,8 +128,6 @@ export default function SystemsPage() {
         setSystems(backendSystems.map(mapBackendSystemToInventory));
     }, [backendSystems]);
 
-    const hasSystems = systems.length > 0;
-
     const handleRegister = useCallback(() => {
         setView("register");
     }, []);
@@ -319,12 +162,12 @@ export default function SystemsPage() {
     }, [runScanMutation]);
 
     const handleOpenComplianceScans = useCallback(() => {
-        router.push("/scans?start=config");
+        router.push("/scans?app=github&start=config");
     }, [router]);
 
     const handleViewScanHistory = useCallback((system: AISystemInventoryItem) => {
         if (system.last_scan_id) {
-            router.push(`/scans?scanId=${encodeURIComponent(system.last_scan_id)}`);
+            router.push(`/scans?app=github&scanId=${encodeURIComponent(system.last_scan_id)}`);
             return;
         }
         router.push("/scans");
@@ -338,36 +181,43 @@ export default function SystemsPage() {
         runScanMutation.reset();
     }, [runScanMutation]);
 
-    // Stats
-    const criticalCount = systems.filter((s) => s.risk_level === "critical").length;
-    const highCount = systems.filter((s) => s.risk_level === "high").length;
-    const lowCount = systems.filter((s) => s.risk_level === "low").length;
+    const topBarTitle =
+        view === "list" ? "AI Systems" : view === "register" ? "Register AI System" : "System Details";
+
+    const topBarSubtitle =
+        view === "list"
+            ? `${systems.length} system${systems.length !== 1 ? "s" : ""}`
+            : view === "details" && selectedSystem
+                ? selectedSystem.name
+                : undefined;
 
     return (
         <>
             <TopBar
-                title="AI Systems Inventory"
-                subtitle={hasSystems ? `${systems.length} systems registered` : undefined}
+                title={topBarTitle}
+                subtitle={topBarSubtitle}
                 actions={
-                    view === "list" && hasSystems ? (
-                        <button className="btn btn--primary" onClick={handleRegister}>
-                            <AddOutlinedIcon sx={{ fontSize: 16 }} /> Register New System
-                </button>
+                    view === "list" ? (
+                        <button type="button" className="btn btn--primary" onClick={handleRegister}>
+                            <AddOutlinedIcon sx={{ fontSize: 16 }} /> Add AI System
+                        </button>
                     ) : undefined
                 }
             />
 
-            <main className="page">
+            <main
+                className={
+                    view === "list"
+                        ? `systems-page${systems.length === 0 ? " systems-page--empty" : ""}`
+                        : "page"
+                }
+            >
                 {view === "list" && (
                     <ListView
                         systems={systems}
-                        hasSystems={hasSystems}
-                        criticalCount={criticalCount}
-                        highCount={highCount}
-                        lowCount={lowCount}
-                        onRegister={handleRegister}
                         onViewDetails={handleViewDetails}
                         onRunScan={handleRunScan}
+                        onViewScanHistory={handleViewScanHistory}
                     />
                 )}
 
@@ -437,182 +287,393 @@ export default function SystemsPage() {
 
 function ListView({
     systems,
-    hasSystems,
-    criticalCount,
-    highCount,
-    lowCount,
-    onRegister,
     onViewDetails,
     onRunScan,
+    onViewScanHistory,
 }: {
     systems: AISystemInventoryItem[];
-    hasSystems: boolean;
-    criticalCount: number;
-    highCount: number;
-    lowCount: number;
-    onRegister: () => void;
     onViewDetails: (system: AISystemInventoryItem) => void;
     onRunScan: (system: AISystemInventoryItem) => void;
+    onViewScanHistory: (system: AISystemInventoryItem) => void;
 }) {
     const [search, setSearch] = useState("");
     const [riskFilter, setRiskFilter] = useState<"all" | RiskLevel>("all");
+    const [deptFilter, setDeptFilter] = useState("all");
+    const [complianceFilter, setComplianceFilter] = useState<"all" | AISystemInventoryItem["scan_status"]>("all");
+    const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+    const [filterOpen, setFilterOpen] = useState(false);
+    const filterRef = useRef<HTMLDivElement>(null);
+
+    const departments = useMemo(
+        () => [...new Set(systems.map((s) => s.department).filter(Boolean))].sort(),
+        [systems],
+    );
 
     const filtered = useMemo(() => {
         return systems
             .filter((s) => riskFilter === "all" || s.risk_level === riskFilter)
+            .filter((s) => deptFilter === "all" || s.department === deptFilter)
+            .filter((s) => complianceFilter === "all" || s.scan_status === complianceFilter)
             .filter((s) =>
                 !search ||
                 s.name.toLowerCase().includes(search.toLowerCase()) ||
                 s.description.toLowerCase().includes(search.toLowerCase()) ||
-                s.owner.toLowerCase().includes(search.toLowerCase())
+                s.owner.toLowerCase().includes(search.toLowerCase()) ||
+                s.platform.toLowerCase().includes(search.toLowerCase()) ||
+                s.department.toLowerCase().includes(search.toLowerCase())
             );
-    }, [systems, riskFilter, search]);
+    }, [systems, riskFilter, deptFilter, complianceFilter, search]);
 
-    const criticalSystems = filtered.filter((s) => s.risk_level === "critical");
-    const highSystems = filtered.filter((s) => s.risk_level === "high");
-    const lowSystems = filtered.filter((s) => s.risk_level === "low");
+    const compliantPct = systems.length
+        ? Math.round((systems.filter((s) => s.scan_status === "compliant").length / systems.length) * 100)
+        : 0;
 
-    if (!hasSystems) {
-        return (
-            <div className="panel">
-                <EmptyState onRegister={onRegister} />
-            </div>
-        );
-    }
+    const allFilteredSelected = filtered.length > 0 && filtered.every((s) => selected.has(s.id));
+
+    const toggleAll = () => {
+        if (allFilteredSelected) {
+            setSelected(new Set());
+        } else {
+            setSelected(new Set(filtered.map((s) => s.id)));
+        }
+    };
+
+    const toggleOne = (id: string) => {
+        setSelected((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    useEffect(() => {
+        if (!filterOpen) return;
+        const onDoc = (e: MouseEvent) => {
+            if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+                setFilterOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", onDoc);
+        return () => document.removeEventListener("mousedown", onDoc);
+    }, [filterOpen]);
+
+    const activeFilterCount = [riskFilter !== "all", deptFilter !== "all", complianceFilter !== "all"].filter(Boolean).length;
+
+    const exportCsv = () => {
+        const rows = (selected.size ? filtered.filter((s) => selected.has(s.id)) : filtered);
+        const header = ["Name", "Type", "Owner", "Department", "Platform", "Risk", "Compliance", "Last Scanned"];
+        const lines = rows.map((s) => [
+            s.name,
+            SYSTEM_TYPE_LABELS[s.type],
+            s.owner,
+            s.department,
+            s.platform,
+            s.risk_level,
+            s.scan_status,
+            s.last_scan_date ? formatDate(s.last_scan_date) : "—",
+        ].map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","));
+        const blob = new Blob([[header.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `trustfabric-ai-systems-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
 
     return (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
-            {/* Overview Stats */}
-            <div className="stats-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-                <div className="stat-card stat-card--info">
-                    <div className="stat-card__label">Total Systems</div>
-                    <div className="stat-card__value">{systems.length}</div>
+        <>
+            {systems.length === 0 ? (
+                <div className="page-empty-shell">
+                    <EmptyState />
                 </div>
-                <div className="stat-card stat-card--danger">
-                    <div className="stat-card__label">Critical + High Risk</div>
-                    <div className="stat-card__value">{criticalCount + highCount}</div>
-                </div>
-                <div className="stat-card stat-card--success">
-                    <div className="stat-card__label">Low Risk</div>
-                    <div className="stat-card__value">{lowCount}</div>
-                </div>
-            </div>
-
-            {/* Risk Distribution */}
-            <div className="panel">
-                <div className="panel__header">
-                    <span className="panel__title">Risk Distribution</span>
-                </div>
-                <div className="panel__body">
-                    <RiskDistributionBar
-                        critical={criticalCount}
-                        high={highCount}
-                        low={lowCount}
-                        total={systems.length}
-                    />
-                </div>
-            </div>
-
-            {/* Systems List */}
-                <div className="panel">
-                <div className="panel__header">
-                    <span className="panel__title">Registered Systems</span>
-                </div>
-
-                {/* Search & Filter */}
-                <div style={{ padding: "var(--s-3) var(--s-4)", borderBottom: "1px solid var(--c-border)", display: "flex", gap: "var(--s-3)", alignItems: "center" }}>
-                    <div className="search-bar" style={{ flex: 1 }}>
-                        <span className="search-bar__icon"><SearchOutlinedIcon sx={{ fontSize: 16 }} /></span>
-                        <input className="input" placeholder="Search systems..." value={search} onChange={(e) => setSearch(e.target.value)} />
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "var(--s-2)" }}>
-                        <FilterListOutlinedIcon sx={{ fontSize: 16, color: "var(--c-text-muted)" }} />
-                        <select
-                            className="input"
-                            style={{ width: 140, padding: "6px 10px" }}
-                            value={riskFilter}
-                            onChange={(e) => setRiskFilter(e.target.value as typeof riskFilter)}
+            ) : (
+            <div className="systems-card">
+                <div className="systems-card__summary">
+                    <p className="systems-card__summary-text">
+                        <strong>{compliantPct}%</strong> compliant with active scans
+                    </p>
+                    <div className="systems-card__summary-actions">
+                        <button type="button" className="systems-btn systems-btn--outline" disabled title="Import CSV (coming soon)">
+                            <FileUploadOutlinedIcon sx={{ fontSize: 16 }} />
+                            Import
+                        </button>
+                        <button
+                            type="button"
+                            className="systems-btn systems-btn--outline"
+                            onClick={exportCsv}
                         >
-                            <option value="all">All Risk Levels</option>
-                            <option value="critical">Critical</option>
-                            <option value="high">High</option>
-                            <option value="low">Low</option>
-                        </select>
+                            <FileDownloadOutlinedIcon sx={{ fontSize: 16 }} />
+                            Export
+                        </button>
+                    </div>
+                    <div className="systems-card__filters" ref={filterRef}>
+                        <button
+                            type="button"
+                            className="systems-filter-btn"
+                            onClick={() => setFilterOpen((o) => !o)}
+                            aria-expanded={filterOpen}
+                        >
+                            <FilterListOutlinedIcon sx={{ fontSize: 16 }} />
+                            Add filter
+                            {activeFilterCount > 0 && ` (${activeFilterCount})`}
+                            <ExpandMoreOutlinedIcon sx={{ fontSize: 16 }} />
+                        </button>
+                        {filterOpen && (
+                            <div className="systems-filter-panel">
+                                <div>
+                                    <div className="systems-filter-panel__label">Risk level</div>
+                                    <select
+                                        className="systems-filter-select"
+                                        value={riskFilter}
+                                        onChange={(e) => setRiskFilter(e.target.value as typeof riskFilter)}
+                                        aria-label="Filter by risk"
+                                    >
+                                        <option value="all">All risk levels</option>
+                                        <option value="critical">Critical risk</option>
+                                        <option value="high">High risk</option>
+                                        <option value="low">Low risk</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <div className="systems-filter-panel__label">Department</div>
+                                    <select
+                                        className="systems-filter-select"
+                                        value={deptFilter}
+                                        onChange={(e) => setDeptFilter(e.target.value)}
+                                        aria-label="Filter by department"
+                                    >
+                                        <option value="all">All departments</option>
+                                        {departments.map((d) => (
+                                            <option key={d} value={d}>{d}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <div className="systems-filter-panel__label">Compliance</div>
+                                    <select
+                                        className="systems-filter-select"
+                                        value={complianceFilter}
+                                        onChange={(e) => setComplianceFilter(e.target.value as typeof complianceFilter)}
+                                        aria-label="Filter by compliance"
+                                    >
+                                        <option value="all">All compliance</option>
+                                        <option value="compliant">Compliant</option>
+                                        <option value="violations">Violations</option>
+                                        <option value="not_scanned">Not scanned</option>
+                                    </select>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                    <div className="panel__body--flush">
-                    {filtered.length === 0 ? (
-                        <div className="empty-state" style={{ padding: "var(--s-6)" }}>
-                            <p className="empty-state__desc">No systems match your search.</p>
-                            </div>
-                        ) : (
-                        <>
-                            {criticalSystems.length > 0 && (
-                                <SystemGroup label="CRITICAL RISK" systems={criticalSystems} onViewDetails={onViewDetails} onRunScan={onRunScan} />
-                            )}
-                            {highSystems.length > 0 && (
-                                <SystemGroup label="HIGH RISK" systems={highSystems} onViewDetails={onViewDetails} onRunScan={onRunScan} />
-                            )}
-                            {lowSystems.length > 0 && (
-                                <SystemGroup label="LOW RISK" systems={lowSystems} onViewDetails={onViewDetails} onRunScan={onRunScan} />
-                            )}
-                        </>
-                    )}
-
-                    <div style={{ padding: "var(--s-3) var(--s-4)", fontSize: "var(--fs-11)", color: "var(--c-text-muted)", borderTop: "1px solid var(--c-border)" }}>
-                        Showing {filtered.length} of {systems.length} systems
+                <div className="systems-card__search-row">
+                    <div className="systems-search">
+                        <SearchOutlinedIcon sx={{ fontSize: 18, color: "var(--c-text-muted)" }} />
+                        <input
+                            type="search"
+                            placeholder="Search systems"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                        />
                     </div>
+                    <div className="systems-toolbar">
+                        <button type="button" className="systems-toolbar__btn" aria-label="Sort" title="Sort">
+                            <SwapVertOutlinedIcon sx={{ fontSize: 18 }} />
+                        </button>
+                        <button type="button" className="systems-toolbar__btn" aria-label="More options" title="More options">
+                            <MoreHorizOutlinedIcon sx={{ fontSize: 18 }} />
+                        </button>
+                    </div>
+                </div>
+
+                <div className="systems-table-wrap">
+                    {filtered.length === 0 ? (
+                        <div className="systems-empty systems-empty--compact">
+                            <p className="systems-empty__desc">No systems match your filters.</p>
+                        </div>
+                    ) : (
+                        <table className="systems-table">
+                            <thead>
+                                <tr>
+                                    <th className="systems-table__check">
+                                        <input
+                                            type="checkbox"
+                                            checked={allFilteredSelected}
+                                            onChange={toggleAll}
+                                            aria-label="Select all systems"
+                                        />
+                                    </th>
+                                    <th>AI System</th>
+                                    <th>Compliance status</th>
+                                    <th>Department</th>
+                                    <th>Provider</th>
+                                    <th>Risk level</th>
+                                    <th>Last scanned</th>
+                                    <th aria-label="Actions" />
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filtered.map((system) => (
+                                    <SystemsTableRow
+                                        key={system.id}
+                                        system={system}
+                                        selected={selected.has(system.id)}
+                                        menuOpen={openMenuId === system.id}
+                                        onToggleSelect={() => toggleOne(system.id)}
+                                        onOpenMenu={() => setOpenMenuId(system.id)}
+                                        onCloseMenu={() => setOpenMenuId(null)}
+                                        onViewDetails={() => onViewDetails(system)}
+                                        onRunScan={() => onRunScan(system)}
+                                        onViewScanHistory={() => onViewScanHistory(system)}
+                                    />
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+
+                <div className="systems-table__footer">
+                    Showing {filtered.length} of {systems.length} systems
+                    {selected.size > 0 && ` · ${selected.size} selected`}
                 </div>
             </div>
-        </div>
+            )}
+        </>
     );
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════════
-   EMPTY STATE
-   ═══════════════════════════════════════════════════════════════════════════════ */
+function SystemsTableRow({
+    system,
+    selected,
+    menuOpen,
+    onToggleSelect,
+    onOpenMenu,
+    onCloseMenu,
+    onViewDetails,
+    onRunScan,
+    onViewScanHistory,
+}: {
+    system: AISystemInventoryItem;
+    selected: boolean;
+    menuOpen: boolean;
+    onToggleSelect: () => void;
+    onOpenMenu: () => void;
+    onCloseMenu: () => void;
+    onViewDetails: () => void;
+    onRunScan: () => void;
+    onViewScanHistory: () => void;
+}) {
+    const menuRef = useRef<HTMLDivElement>(null);
+    const TypeIcon = SYSTEM_TYPE_ICONS[system.type];
 
-function EmptyState({ onRegister }: { onRegister: () => void }) {
+    useEffect(() => {
+        if (!menuOpen) return;
+        const onDoc = (e: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) onCloseMenu();
+        };
+        document.addEventListener("mousedown", onDoc);
+        return () => document.removeEventListener("mousedown", onDoc);
+    }, [menuOpen, onCloseMenu]);
+
     return (
-        <div className="scan-empty">
-            <div className="scan-empty__icon">
-                <SmartToyOutlinedIcon sx={{ fontSize: 32 }} />
-            </div>
-            <h2 className="scan-empty__title">Register Your First AI System</h2>
-            <p className="scan-empty__desc">
-                Begin compliance monitoring by cataloging the AI tools
-                your organization uses. Track risk, ownership, and policies.
-            </p>
-            <button className="btn btn--primary btn--lg" onClick={onRegister}>
-                <AddOutlinedIcon sx={{ fontSize: 18 }} /> Register AI System
-            </button>
+        <tr onClick={onViewDetails}>
+            <td className="systems-table__check" onClick={(e) => e.stopPropagation()}>
+                <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={onToggleSelect}
+                    aria-label={`Select ${system.name}`}
+                />
+            </td>
+            <td>
+                <div className="systems-table__system">
+                    <div className="systems-avatar" aria-hidden>
+                        <TypeIcon sx={{ fontSize: 16 }} />
+                    </div>
+                    <div>
+                        <div className="systems-table__name">{system.name}</div>
+                        <div className="systems-table__type">{SYSTEM_TYPE_LABELS[system.type]} · {system.owner}</div>
+                    </div>
+                </div>
+            </td>
+            <td>
+                <CompliancePill status={system.scan_status} violations={system.active_violations} />
+            </td>
+            <td>{system.department || "—"}</td>
+            <td>{system.platform || system.provider || "—"}</td>
+            <td>
+                <RiskPill level={system.risk_level} />
+            </td>
+            <td>{system.last_scan_date ? formatDate(system.last_scan_date) : "—"}</td>
+            <td onClick={(e) => e.stopPropagation()}>
+                <div className="systems-row-menu" ref={menuRef}>
+                    <button
+                        type="button"
+                        className="systems-row-menu__btn"
+                        aria-label="Open actions"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (menuOpen) onCloseMenu();
+                            else onOpenMenu();
+                        }}
+                    >
+                        <MoreHorizOutlinedIcon sx={{ fontSize: 18 }} />
+                    </button>
+                    {menuOpen && (
+                        <div className="systems-row-menu__dropdown">
+                            <button type="button" className="systems-row-menu__item" onClick={onViewDetails}>
+                                <VisibilityOutlinedIcon sx={{ fontSize: 16 }} /> View details
+                            </button>
+                            <button type="button" className="systems-row-menu__item" onClick={onRunScan}>
+                                <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} /> Generate recommendation
+                            </button>
+                            <button type="button" className="systems-row-menu__item" onClick={onViewScanHistory}>
+                                <HistoryOutlinedIcon sx={{ fontSize: 16 }} /> Scan history
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </td>
+        </tr>
+    );
+}
 
-            <div className="scan-info" style={{ marginTop: "var(--s-8)" }}>
-                <h4 className="scan-info__title">
-                    <InfoOutlinedIcon sx={{ fontSize: 16 }} /> What is an AI System?
-                </h4>
-                <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", lineHeight: 1.6, marginBottom: "var(--s-3)" }}>
-                    Any AI-powered tool or service your organization uses:
-                </p>
-                <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "var(--s-2)", marginBottom: "var(--s-4)" }}>
-                    {[
-                        { icon: CodeOutlinedIcon, text: "Code assistants (GitHub Copilot, Cursor)" },
-                        { icon: ChatOutlinedIcon, text: "Chat interfaces (ChatGPT, Claude)" },
-                        { icon: BrushOutlinedIcon, text: "Design tools (Midjourney, DALL-E)" },
-                        { icon: BarChartOutlinedIcon, text: "Analytics platforms (DataRobot, H2O.ai)" },
-                    ].map((item, i) => (
-                        <li key={i} style={{ display: "flex", alignItems: "center", gap: "var(--s-2)", fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
-                            <item.icon sx={{ fontSize: 16, color: "var(--c-text-muted)" }} />
-                            {item.text}
-                        </li>
-                    ))}
-                </ul>
-                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
-                    For each system, you&apos;ll define what it&apos;s used for, who owns it, what data it accesses, and its risk level.
-                </p>
-            </div>
-        </div>
+function CompliancePill({ status, violations }: { status: AISystemInventoryItem["scan_status"]; violations: number }) {
+    if (status === "compliant") {
+        return <span className="systems-pill systems-pill--success"><span className="systems-pill__dot" />Compliant</span>;
+    }
+    if (status === "violations") {
+        return (
+            <span className="systems-pill systems-pill--danger">
+                <span className="systems-pill__dot" />
+                {violations > 0 ? `${violations} violation${violations !== 1 ? "s" : ""}` : "Needs review"}
+            </span>
+        );
+    }
+    return <span className="systems-pill systems-pill--warning"><span className="systems-pill__dot" />Not scanned</span>;
+}
+
+function RiskPill({ level }: { level: RiskLevel }) {
+    const map = {
+        critical: { label: "Critical", className: "systems-pill--danger" },
+        high: { label: "High", className: "systems-pill--warning" },
+        low: { label: "Low", className: "systems-pill--success" },
+    } as const;
+    const c = map[level];
+    return <span className={`systems-pill ${c.className}`}><span className="systems-pill__dot" />{c.label}</span>;
+}
+
+function EmptyState() {
+    return (
+        <PageEmptyIllustration
+            src="/empty-file.png"
+            title="No AI systems"
+            label="Your inventory is empty"
+        />
     );
 }
 
@@ -692,192 +753,182 @@ function RegisterView({
     };
 
     return (
-        <div style={{ maxWidth: 720 }}>
+        <div className="register-view">
             <button className="btn btn--ghost btn--sm" style={{ marginBottom: "var(--s-4)", gap: 4 }} onClick={onCancel}>
                 <ArrowBackOutlinedIcon sx={{ fontSize: 14 }} /> Back to Systems
-                    </button>
+            </button>
 
             <div className="panel">
                 <div className="panel__header">
                     <span className="panel__title">Register New AI System</span>
                 </div>
-                <div className="panel__body" style={{ display: "flex", flexDirection: "column", gap: "var(--s-5)" }}>
-
-                    {/* Basic Information */}
-                    <div>
-                        <h4 className="form-section-title">Basic Information</h4>
-                        <div className="form-group">
-                            <label className="form-label">System Name *</label>
-                            <input
-                                className="input"
-                                placeholder='e.g., "GitHub Copilot for Engineering Team"'
-                                value={form.name}
-                                onChange={(e) => set("name", e.target.value)}
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">System Type *</label>
-                            <select className="input" value={form.type} onChange={(e) => set("type", e.target.value as AISystemType)}>
-                                {Object.entries(SYSTEM_TYPE_LABELS).map(([key, label]) => (
-                                    <option key={key} value={key}>{label}</option>
-                                ))}
-                            </select>
-                </div>
-                <div className="form-group">
-                    <label className="form-label">Description</label>
-                            <textarea
-                                className="input"
-                                rows={3}
-                                placeholder="What does this AI system do? How is it used?"
-                                value={form.description}
-                                onChange={(e) => set("description", e.target.value)}
-                            />
-                        </div>
-                </div>
-
-                    <div className="divider" />
-
-                    {/* Ownership */}
-                    <div>
-                        <h4 className="form-section-title">Ownership & Responsibility</h4>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--s-3)" }}>
-                    <div className="form-group">
-                                <label className="form-label">System Owner *</label>
-                                <input
-                                    className="input"
-                                    placeholder="e.g., Engineering Team"
-                                    value={form.owner}
-                                    onChange={(e) => set("owner", e.target.value)}
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Primary Contact</label>
-                                <input
-                                    className="input"
-                                    type="email"
-                                    placeholder="email@company.com"
-                                    value={form.contact_email}
-                                    onChange={(e) => set("contact_email", e.target.value)}
-                                />
-                            </div>
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">Department/Team</label>
-                            <select className="input" value={form.department} onChange={(e) => set("department", e.target.value)}>
-                                {DEPARTMENTS.map((d) => <option key={d}>{d}</option>)}
-                            </select>
-                        </div>
-                    </div>
-
-                    <div className="divider" />
-
-                    {/* Data & Risk */}
-                    <div>
-                        <h4 className="form-section-title">Data & Risk Assessment</h4>
-                        <div className="form-group">
-                            <label className="form-label">Data Sensitivity Level *</label>
-                            <div className="severity-radio">
-                                {(["Low", "Medium", "High"] as DataSensitivity[]).map((level) => (
-                                    <button
-                                        key={level}
-                                        type="button"
-                                        className={`severity-radio__option${form.data_sensitivity === level ? " active" : ""}`}
-                                        onClick={() => set("data_sensitivity", level)}
-                                    >
-                                        <span className="severity-radio__dot" />
-                                        {level}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                        <div className="form-group">
-                            <label className="form-label">What data does this system access?</label>
-                            <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
-                                {(Object.entries(DATA_ACCESS_LABELS) as [DataAccessType, string][]).map(([key, label]) => (
-                                    <label key={key} className="checkbox-label">
+                <div className="panel__body register-form">
+                    <div className="register-form__grid">
+                        <div className="register-form__column">
+                            <section className="register-form__section">
+                                <h4 className="form-section-title">Basic Information</h4>
+                                <div className="register-form__row">
+                                    <div className="form-group">
+                                        <label className="form-label">System Name *</label>
                                         <input
-                                            type="checkbox"
-                                            checked={form.data_access_types.includes(key)}
-                                            onChange={() => toggleDataAccess(key)}
+                                            className="input"
+                                            placeholder='e.g., "GitHub Copilot for Engineering Team"'
+                                            value={form.name}
+                                            onChange={(e) => set("name", e.target.value)}
                                         />
-                                        <span>{label}</span>
-                                    </label>
-                                ))}
-                            </div>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">System Type *</label>
+                                        <select className="input" value={form.type} onChange={(e) => set("type", e.target.value as AISystemType)}>
+                                            {Object.entries(SYSTEM_TYPE_LABELS).map(([key, label]) => (
+                                                <option key={key} value={key}>{label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Description</label>
+                                    <textarea
+                                        className="input"
+                                        rows={4}
+                                        placeholder="What does this AI system do? How is it used?"
+                                        value={form.description}
+                                        onChange={(e) => set("description", e.target.value)}
+                                    />
+                                </div>
+                            </section>
+
+                            <section className="register-form__section">
+                                <h4 className="form-section-title">Ownership & Responsibility</h4>
+                                <div className="register-form__row">
+                                    <div className="form-group">
+                                        <label className="form-label">System Owner *</label>
+                                        <input
+                                            className="input"
+                                            placeholder="e.g., Engineering Team"
+                                            value={form.owner}
+                                            onChange={(e) => set("owner", e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Primary Contact</label>
+                                        <input
+                                            className="input"
+                                            type="email"
+                                            placeholder="email@company.com"
+                                            value={form.contact_email}
+                                            onChange={(e) => set("contact_email", e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Department/Team</label>
+                                    <select className="input" value={form.department} onChange={(e) => set("department", e.target.value)}>
+                                        {DEPARTMENTS.map((d) => <option key={d}>{d}</option>)}
+                                    </select>
+                                </div>
+                            </section>
+                        </div>
+
+                        <div className="register-form__column">
+                            <section className="register-form__section">
+                                <h4 className="form-section-title">Data & Risk Assessment</h4>
+                                <div className="form-group">
+                                    <label className="form-label">Data Sensitivity Level *</label>
+                                    <div className="severity-radio">
+                                        {(["Low", "Medium", "High"] as DataSensitivity[]).map((level) => (
+                                            <button
+                                                key={level}
+                                                type="button"
+                                                className={`severity-radio__option${form.data_sensitivity === level ? " active" : ""}`}
+                                                onClick={() => set("data_sensitivity", level)}
+                                            >
+                                                <span className="severity-radio__dot" />
+                                                {level}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">What data does this system access?</label>
+                                    <div className="register-form__checks">
+                                        {(Object.entries(DATA_ACCESS_LABELS) as [DataAccessType, string][]).map(([key, label]) => (
+                                            <label key={key} className="checkbox-label">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={form.data_access_types.includes(key)}
+                                                    onChange={() => toggleDataAccess(key)}
+                                                />
+                                                <span>{label}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section className="register-form__section">
+                                <h4 className="form-section-title">Integration & Models</h4>
+                                <div className="register-form__row">
+                                    <div className="form-group">
+                                        <label className="form-label">Platform/Service Provider</label>
+                                        <select className="input" value={form.platform} onChange={(e) => set("platform", e.target.value)}>
+                                            {PLATFORMS.map((p) => <option key={p}>{p}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">AI Models Used</label>
+                                        <input
+                                            className="input"
+                                            placeholder="GPT-4, Claude Sonnet (comma-separated)"
+                                            value={form.models_used}
+                                            onChange={(e) => set("models_used", e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">External Integrations</label>
+                                    <input
+                                        className="input"
+                                        placeholder="Slack, Jira, etc. (comma-separated)"
+                                        value={form.external_integrations}
+                                        onChange={(e) => set("external_integrations", e.target.value)}
+                                    />
+                                </div>
+                            </section>
+
+                            <section className="register-form__section">
+                                <h4 className="form-section-title">Connection (Optional)</h4>
+                                <label className="checkbox-label" style={{ padding: "var(--s-3)", background: "var(--c-surface-raised)", borderRadius: "var(--r-md)", border: "1px solid var(--c-border)" }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={form.connected}
+                                        onChange={(e) => set("connected", e.target.checked)}
+                                    />
+                                    <div>
+                                        <div style={{ fontWeight: "var(--fw-medium)", color: "var(--c-text)" }}>
+                                            Connect to GitHub API for automated monitoring
+                                        </div>
+                                        <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: 2 }}>
+                                            Requires GitHub integration in Settings
+                                        </div>
+                                    </div>
+                                </label>
+                                {form.connected && (
+                                    <div style={{ padding: "var(--s-3)", background: "var(--c-info-bg)", borderRadius: "var(--r-md)", fontSize: "var(--fs-12)", color: "var(--c-info-text)" }}>
+                                        <strong>If connected, TrustFabric can automatically:</strong>
+                                        <ul style={{ marginTop: "var(--s-1)", paddingLeft: "var(--s-4)" }}>
+                                            <li>Scan this system during compliance checks</li>
+                                            <li>Detect configuration changes</li>
+                                            <li>Monitor model usage</li>
+                                        </ul>
+                                    </div>
+                                )}
+                            </section>
                         </div>
                     </div>
 
-                    <div className="divider" />
-
-                    {/* Integration */}
-                    <div>
-                        <h4 className="form-section-title">Integration & Models</h4>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--s-3)" }}>
-                            <div className="form-group">
-                                <label className="form-label">Platform/Service Provider</label>
-                                <select className="input" value={form.platform} onChange={(e) => set("platform", e.target.value)}>
-                                    {PLATFORMS.map((p) => <option key={p}>{p}</option>)}
-                                </select>
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">AI Models Used</label>
-                                <input
-                                    className="input"
-                                    placeholder="GPT-4, Claude Sonnet (comma-separated)"
-                                    value={form.models_used}
-                                    onChange={(e) => set("models_used", e.target.value)}
-                                />
-                            </div>
-                    </div>
-                    <div className="form-group">
-                            <label className="form-label">External Integrations</label>
-                            <input
-                                className="input"
-                                placeholder="Slack, Jira, etc. (comma-separated)"
-                                value={form.external_integrations}
-                                onChange={(e) => set("external_integrations", e.target.value)}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="divider" />
-
-                    {/* Connection */}
-                    <div>
-                        <h4 className="form-section-title">Connection (Optional)</h4>
-                        <label className="checkbox-label" style={{ padding: "var(--s-3)", background: "var(--c-surface-raised)", borderRadius: "var(--r-md)", border: "1px solid var(--c-border)" }}>
-                            <input
-                                type="checkbox"
-                                checked={form.connected}
-                                onChange={(e) => set("connected", e.target.checked)}
-                            />
-                            <div>
-                                <div style={{ fontWeight: "var(--fw-medium)", color: "var(--c-text)" }}>
-                                    Connect to GitHub API for automated monitoring
-                                </div>
-                                <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: 2 }}>
-                                    Requires GitHub integration in Settings
-                                </div>
-                            </div>
-                        </label>
-                        {form.connected && (
-                            <div style={{ marginTop: "var(--s-3)", padding: "var(--s-3)", background: "var(--c-info-bg)", borderRadius: "var(--r-md)", fontSize: "var(--fs-12)", color: "var(--c-info-text)" }}>
-                                <strong>If connected, TrustFabric can automatically:</strong>
-                                <ul style={{ marginTop: "var(--s-1)", paddingLeft: "var(--s-4)" }}>
-                                    <li>Scan this system during compliance checks</li>
-                                    <li>Detect configuration changes</li>
-                                    <li>Monitor model usage</li>
-                                </ul>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="divider" />
-
-                    {/* Actions */}
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--s-2)" }}>
+                    <div className="register-form__actions">
                         <button className="btn btn--secondary" onClick={onCancel}>Cancel</button>
-                        <button className="btn btn--secondary">Save as Draft</button>
                         <button className="btn btn--primary" disabled={!valid} onClick={handleSave}>
                             Register System
                         </button>
@@ -1176,97 +1227,6 @@ function DetailsView({
     );
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════════
-   SUB-COMPONENTS
-   ═══════════════════════════════════════════════════════════════════════════════ */
-
-function SystemGroup({
-    label,
-    systems,
-    onViewDetails,
-    onRunScan,
-}: {
-    label: string;
-    systems: AISystemInventoryItem[];
-    onViewDetails: (system: AISystemInventoryItem) => void;
-    onRunScan: (system: AISystemInventoryItem) => void;
-}) {
-    const riskColor = label.includes("CRITICAL") ? "var(--c-critical)" : label.includes("HIGH") ? "var(--c-high)" : "var(--c-live)";
-
-    return (
-        <div>
-        <div style={{
-                padding: "var(--s-2) var(--s-4)",
-                background: "var(--c-surface-raised)",
-                borderBottom: "1px solid var(--c-border)",
-                display: "flex",
-                alignItems: "center",
-                gap: "var(--s-2)",
-            }}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: riskColor }} />
-                <span style={{ fontSize: "var(--fs-11)", fontWeight: "var(--fw-semibold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                    {label}
-                </span>
-            </div>
-            {systems.map((system) => (
-                <SystemCard
-                    key={system.id}
-                    system={system}
-                    onViewDetails={() => onViewDetails(system)}
-                    onRunScan={() => onRunScan(system)}
-                />
-            ))}
-        </div>
-    );
-}
-
-function SystemCard({
-    system,
-    onViewDetails,
-    onRunScan,
-}: {
-    system: AISystemInventoryItem;
-    onViewDetails: () => void;
-    onRunScan: () => void;
-}) {
-    const TypeIcon = SYSTEM_TYPE_ICONS[system.type];
-
-    return (
-        <div className="system-card" onClick={onViewDetails}>
-            <div className="system-card__icon">
-                <TypeIcon sx={{ fontSize: 20 }} />
-            </div>
-            <div className="system-card__content">
-                <div className="system-card__name">{system.name}</div>
-                <div className="system-card__meta">
-                    <span>Type: {SYSTEM_TYPE_LABELS[system.type]}</span>
-                    <span>|</span>
-                    <span>Owner: {system.owner}</span>
-                </div>
-                <div className="system-card__details">
-                    <span>Data: {system.data_access_types.map(t => DATA_ACCESS_LABELS[t].split(" ")[0]).join(", ") || "Not specified"}</span>
-                    <span>|</span>
-                    <span>Models: {system.models_used.join(", ")}</span>
-                    <span>|</span>
-                    <span>Platform: {system.platform}</span>
-                </div>
-                <div className="system-card__status">
-                    <span style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)" }}>
-                        Last Scan: {system.last_scan_date ? formatDate(system.last_scan_date) : "Never"}
-                    </span>
-                    <ScanStatusBadge status={system.scan_status} violations={system.active_violations} />
-                </div>
-            </div>
-            <div className="system-card__actions">
-                <button className="btn btn--ghost btn--sm" onClick={(e) => { e.stopPropagation(); onViewDetails(); }}>View Details</button>
-                <button className="btn btn--ghost btn--sm" onClick={(e) => { e.stopPropagation(); onRunScan(); }}>Generate Recommendation</button>
-                <button className="btn btn--ghost btn--sm" onClick={(e) => e.stopPropagation()}>Edit</button>
-                <button className="btn btn--ghost btn--sm" onClick={(e) => e.stopPropagation()}>Archive</button>
-            </div>
-        </div>
-    );
-}
-
 function RecommendationResult({ recommendation }: { recommendation: CopilotRecommendation }) {
     const parsed = parseRecommendation(recommendation.raw_response);
 
@@ -1348,54 +1308,6 @@ function RecommendationMetric({ label, value }: { label: string; value: string }
     );
 }
 
-function RiskDistributionBar({
-    critical,
-    high,
-    low,
-    total,
-}: {
-    critical: number;
-    high: number;
-    low: number;
-    total: number;
-}) {
-    return (
-        <div>
-            <div style={{ display: "flex", height: 24, borderRadius: "var(--r-md)", overflow: "hidden", marginBottom: "var(--s-3)" }}>
-                {critical > 0 && (
-                    <div style={{ width: `${(critical / total) * 100}%`, background: "var(--c-critical)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "var(--fs-11)", fontWeight: "var(--fw-bold)", color: "white" }}>
-                        {Math.round((critical / total) * 100)}%
-                    </div>
-                )}
-                {high > 0 && (
-                    <div style={{ width: `${(high / total) * 100}%`, background: "var(--c-high)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "var(--fs-11)", fontWeight: "var(--fw-bold)", color: "white" }}>
-                        {Math.round((high / total) * 100)}%
-                    </div>
-                )}
-                {low > 0 && (
-                    <div style={{ width: `${(low / total) * 100}%`, background: "var(--c-live)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "var(--fs-11)", fontWeight: "var(--fw-bold)", color: "white" }}>
-                        {Math.round((low / total) * 100)}%
-                    </div>
-                )}
-            </div>
-            <div style={{ display: "flex", gap: "var(--s-4)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--fs-12)", color: "var(--c-text-secondary)" }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 2, background: "var(--c-critical)" }} />
-                    Critical ({critical})
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--fs-12)", color: "var(--c-text-secondary)" }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 2, background: "var(--c-high)" }} />
-                    High ({high})
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--fs-12)", color: "var(--c-text-secondary)" }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 2, background: "var(--c-live)" }} />
-                    Low ({low})
-                </div>
-            </div>
-        </div>
-    );
-}
-
 function RiskBadge({ level, size = "sm" }: { level: RiskLevel; size?: "sm" | "lg" }) {
     const config = {
         critical: { label: "CRITICAL", color: "var(--c-critical)", bg: "var(--c-critical-bg)" },
@@ -1446,7 +1358,7 @@ function ScanStatusBadge({ status, violations }: { status: "compliant" | "violat
     );
 }
 
-function DetailRow({ icon: Icon, label, value }: { icon: SvgIconComponent; label: string; value: string }) {
+function DetailRow({ icon: Icon, label, value }: { icon: AppIconComponent; label: string; value: string }) {
     return (
         <div style={{ display: "flex", alignItems: "center", gap: "var(--s-3)", padding: "var(--s-2) 0" }}>
             <Icon sx={{ fontSize: 16, color: "var(--c-text-muted)" }} />
@@ -1531,7 +1443,7 @@ function toBackendCreatePayload(data: Partial<AISystemInventoryItem>) {
         external_integrations: data.external_integrations ?? [],
         status: "Draft" as const,
         risk_tier: riskLevelToBackendTier(riskLevel),
-        risk_justification: "Registered from frontend systems page.",
+        risk_justification: `Initial risk tier from data sensitivity (${data.data_sensitivity ?? "Low"}) and access scope at registration.`,
     };
 }
 

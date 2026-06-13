@@ -1,35 +1,59 @@
 "use client";
+import { SettingsOutlinedIcon, LogoutOutlinedIcon, LinkOutlinedIcon, ContentCopyOutlinedIcon, CheckOutlinedIcon, GitHubIcon, CheckCircleOutlinedIcon, LinkOffOutlinedIcon, BrushOutlinedIcon, AutoAwesomeOutlinedIcon, BusinessOutlinedIcon, GroupOutlinedIcon, PersonRemoveOutlinedIcon, VpnKeyOutlinedIcon, NotificationsOutlinedIcon, SearchOutlinedIcon, InfoOutlinedIcon, WarningAmberOutlinedIcon, SendOutlinedIcon, TagOutlinedIcon, CloudOutlinedIcon } from "@/lib/icons";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
-import LogoutOutlinedIcon from "@mui/icons-material/LogoutOutlined";
-import LinkOutlinedIcon from "@mui/icons-material/LinkOutlined";
-import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
-import CheckOutlinedIcon from "@mui/icons-material/CheckOutlined";
-import GitHubIcon from "@mui/icons-material/GitHub";
-import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
-import LinkOffOutlinedIcon from "@mui/icons-material/LinkOffOutlined";
-import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
-import BusinessOutlinedIcon from "@mui/icons-material/BusinessOutlined";
-import NotificationsOutlinedIcon from "@mui/icons-material/NotificationsOutlined";
-import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
-import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
-import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
-import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
-import TagOutlinedIcon from "@mui/icons-material/TagOutlined";
-import CloudOutlinedIcon from "@mui/icons-material/CloudOutlined";
 import { TopBar } from "@/components/layout/TopBar";
 import { useAuth } from "@/providers/AuthProvider";
-import { RESOLVED_API_BASE_URL, integrationsApi, settingsApi } from "@/lib/api";
+import {
+    RESOLVED_API_BASE_URL,
+    integrationsApi,
+    organizationsApi,
+    settingsApi,
+    type OrgRole,
+} from "@/lib/api";
+import { useOrganization } from "@/providers/OrganizationProvider";
 import type { SlackChannel, AwsIntegrationStatus } from "@/types";
 import { isFirebaseConfigured } from "@/lib/firebase";
+import { IS_PRODUCTION_BUILD } from "@/lib/auth-config";
 
 // ─── Local storage keys ────────────────────────────────────────────────────────
-const LS_ORG_NAME = "tf_org_name";
-const LS_ORG_CONTACT = "tf_org_contact";
 const LS_DEFAULT_GITHUB_ORG = "tf_default_github_org";
+
+const ROLE_LABELS: Record<OrgRole, string> = {
+    owner: "Owner",
+    admin: "Admin",
+    security_admin: "Security admin",
+    auditor: "Auditor",
+    viewer: "Viewer",
+};
+
+function assignableRoles(actorRole: string): OrgRole[] {
+    if (actorRole === "owner" || actorRole === "admin") {
+        return ["admin", "security_admin", "auditor", "viewer"];
+    }
+    if (actorRole === "security_admin") {
+        return ["auditor", "viewer"];
+    }
+    return [];
+}
+
+function canManageMember(
+    actorRole: string,
+    targetRole: string,
+    targetUserId: string,
+    selfUserId: string
+): boolean {
+    if (!selfUserId || targetUserId === selfUserId) return false;
+    if (targetRole === "owner") return actorRole === "owner";
+    if (actorRole === "owner") return true;
+    if (actorRole === "admin") return targetRole !== "owner";
+    if (actorRole === "security_admin") {
+        return targetRole === "auditor" || targetRole === "viewer";
+    }
+    return false;
+}
 const LS_NOTIF_VIOLATIONS = "tf_notif_violations";
 const LS_NOTIF_SCANS = "tf_notif_scans";
 const LS_NOTIF_POLICY_CHANGES = "tf_notif_policy_changes";
@@ -100,6 +124,37 @@ function Divider() {
     return <div style={{ borderTop: "1px solid var(--c-border)", margin: "var(--s-4) 0" }} />;
 }
 
+function OAuthConnectSteps({ provider }: { provider: "GitHub" | "Slack" }) {
+    const steps =
+        provider === "GitHub"
+            ? [
+                "Click Connect GitHub below.",
+                "Sign in on GitHub (personal account or your company organization).",
+                "Review and approve TrustFabric's read-only access request.",
+                "You'll return here automatically when authorization completes.",
+            ]
+            : [
+                "Click Connect Slack below.",
+                "Choose your company's Slack workspace and sign in.",
+                "Approve TrustFabric to post notifications to channels you select.",
+                "You'll return here automatically when authorization completes.",
+            ];
+
+    return (
+        <ol style={{
+            margin: "0 0 var(--s-3)",
+            paddingLeft: "var(--s-5)",
+            fontSize: "var(--fs-12)",
+            color: "var(--c-text-muted)",
+            lineHeight: 1.6,
+        }}>
+            {steps.map((step) => (
+                <li key={step} style={{ marginBottom: 4 }}>{step}</li>
+            ))}
+        </ol>
+    );
+}
+
 function NotifToggle({ label, description, value, onChange }: {
     label: string;
     description: string;
@@ -148,6 +203,14 @@ function NotifToggle({ label, description, value, onChange }: {
 
 export default function SettingsPage() {
     const { user, isDevMode, logOut, loading } = useAuth();
+    const {
+        activeOrganization,
+        activeOrganizationId,
+        canAdmin,
+        context: orgContext,
+        switchOrganization,
+        refresh: refreshOrganizations,
+    } = useOrganization();
     const [copied, setCopied] = useState(false);
     const searchParams = useSearchParams();
     const queryClient = useQueryClient();
@@ -190,21 +253,192 @@ export default function SettingsPage() {
         queryFn: integrationsApi.getAwsStatus,
         retry: false,
     });
+    const { data: figmaStatus, isLoading: figmaLoading, refetch: refetchFigma } = useQuery({
+        queryKey: ["figma-status"],
+        queryFn: integrationsApi.getFigmaStatus,
+        retry: false,
+    });
     const { data: backendStatus, isLoading: statusLoading } = useQuery({
         queryKey: ["settings-status"],
         queryFn: settingsApi.status,
         retry: false,
     });
+    const { data: currentOrg } = useQuery({
+        queryKey: ["org-current", activeOrganizationId],
+        queryFn: organizationsApi.current,
+        enabled: !!activeOrganizationId,
+        retry: false,
+    });
+    const { data: members = [], isLoading: membersLoading, refetch: refetchMembers } = useQuery({
+        queryKey: ["org-members", activeOrganizationId],
+        queryFn: organizationsApi.members,
+        enabled: !!activeOrganizationId,
+        retry: false,
+    });
+    const { data: pendingInvites = [], refetch: refetchInvites } = useQuery({
+        queryKey: ["org-invites", activeOrganizationId],
+        queryFn: organizationsApi.invites,
+        enabled: !!activeOrganizationId && canAdmin,
+        retry: false,
+    });
+    const { data: ssoConfig, refetch: refetchSso } = useQuery({
+        queryKey: ["org-sso", activeOrganizationId],
+        queryFn: organizationsApi.getSso,
+        enabled: !!activeOrganizationId && canAdmin,
+        retry: false,
+    });
 
-    // Org profile (localStorage)
-    const [orgName, setOrgName] = useState(() => ls(LS_ORG_NAME));
-    const [orgContact, setOrgContact] = useState(() => ls(LS_ORG_CONTACT));
+    const selfUserId = currentOrg?.user_id ?? user?.uid ?? "";
+    const actorRole = activeOrganization?.role ?? "viewer";
+    const inviteRoles = useMemo(() => assignableRoles(actorRole), [actorRole]);
+
+    const [inviteEmail, setInviteEmail] = useState("");
+    const [inviteRole, setInviteRole] = useState<OrgRole>("viewer");
+    const [inviteSending, setInviteSending] = useState(false);
+    const [inviteError, setInviteError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (inviteRoles.length > 0 && !inviteRoles.includes(inviteRole)) {
+            setInviteRole(inviteRoles[0]);
+        }
+    }, [inviteRoles, inviteRole]);
+    const [memberActionError, setMemberActionError] = useState<string | null>(null);
+    const [memberUpdating, setMemberUpdating] = useState<string | null>(null);
+
+    const [ssoEnabled, setSsoEnabled] = useState(false);
+    const [ssoEnforced, setSsoEnforced] = useState(false);
+    const [ssoIdpEntityId, setSsoIdpEntityId] = useState("");
+    const [ssoIdpUrl, setSsoIdpUrl] = useState("");
+    const [ssoCert, setSsoCert] = useState("");
+    const [ssoDomains, setSsoDomains] = useState("");
+    const [ssoJit, setSsoJit] = useState(true);
+    const [ssoDefaultRole, setSsoDefaultRole] = useState<OrgRole>("viewer");
+    const [ssoSaving, setSsoSaving] = useState(false);
+    const [ssoSaved, setSsoSaved] = useState(false);
+    const [ssoError, setSsoError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!ssoConfig) return;
+        setSsoEnabled(ssoConfig.enabled);
+        setSsoEnforced(ssoConfig.enforced);
+        setSsoIdpEntityId(ssoConfig.idp_entity_id ?? "");
+        setSsoIdpUrl(ssoConfig.idp_sso_url ?? "");
+        setSsoDomains((ssoConfig.email_domains ?? []).join(", "));
+        setSsoJit(ssoConfig.jit_provisioning ?? true);
+        setSsoDefaultRole(ssoConfig.default_role ?? "viewer");
+    }, [ssoConfig]);
+
+    const saveSso = async () => {
+        if (!canAdmin) return;
+        setSsoSaving(true);
+        setSsoError(null);
+        try {
+            await organizationsApi.updateSso({
+                enabled: ssoEnabled,
+                enforced: ssoEnforced,
+                idp_entity_id: ssoIdpEntityId.trim(),
+                idp_sso_url: ssoIdpUrl.trim(),
+                idp_x509_cert: ssoCert.trim(),
+                email_domains: ssoDomains.split(",").map((d) => d.trim()).filter(Boolean),
+                jit_provisioning: ssoJit,
+                default_role: ssoDefaultRole,
+            });
+            await refetchSso();
+            setSsoSaved(true);
+            setTimeout(() => setSsoSaved(false), 2000);
+        } catch (err) {
+            setSsoError(err instanceof Error ? err.message : "Failed to save SSO settings");
+        } finally {
+            setSsoSaving(false);
+        }
+    };
+
+    const sendInvite = async () => {
+        if (!canAdmin || !inviteEmail.trim()) return;
+        setInviteSending(true);
+        setInviteError(null);
+        try {
+            await organizationsApi.inviteMember({
+                email: inviteEmail.trim(),
+                role: inviteRole,
+            });
+            setInviteEmail("");
+            await Promise.all([refetchMembers(), refetchInvites(), refreshOrganizations()]);
+        } catch (err) {
+            setInviteError(err instanceof Error ? err.message : "Failed to send invite");
+        } finally {
+            setInviteSending(false);
+        }
+    };
+
+    const changeMemberRole = async (userId: string, role: OrgRole) => {
+        setMemberUpdating(userId);
+        setMemberActionError(null);
+        try {
+            await organizationsApi.updateMemberRole(userId, role);
+            await refetchMembers();
+        } catch (err) {
+            setMemberActionError(err instanceof Error ? err.message : "Failed to update role");
+        } finally {
+            setMemberUpdating(null);
+        }
+    };
+
+    const removeMember = async (userId: string) => {
+        setMemberUpdating(userId);
+        setMemberActionError(null);
+        try {
+            await organizationsApi.removeMember(userId);
+            await refetchMembers();
+        } catch (err) {
+            setMemberActionError(err instanceof Error ? err.message : "Failed to remove member");
+        } finally {
+            setMemberUpdating(null);
+        }
+    };
+
+    const revokeInvite = async (inviteId: string) => {
+        setMemberUpdating(inviteId);
+        setInviteError(null);
+        try {
+            await organizationsApi.revokeInvite(inviteId);
+            await refetchInvites();
+        } catch (err) {
+            setInviteError(err instanceof Error ? err.message : "Failed to revoke invite");
+        } finally {
+            setMemberUpdating(null);
+        }
+    };
+
+    const [orgName, setOrgName] = useState("");
+    const [orgContact, setOrgContact] = useState("");
     const [orgSaved, setOrgSaved] = useState(false);
-    const saveOrg = () => {
-        localStorage.setItem(LS_ORG_NAME, orgName);
-        localStorage.setItem(LS_ORG_CONTACT, orgContact);
-        setOrgSaved(true);
-        setTimeout(() => setOrgSaved(false), 2000);
+    const [orgSaving, setOrgSaving] = useState(false);
+    const [orgError, setOrgError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!activeOrganization) return;
+        setOrgName(activeOrganization.organization.name);
+        setOrgContact(activeOrganization.organization.compliance_contact_email ?? "");
+    }, [activeOrganization]);
+
+    const saveOrg = async () => {
+        if (!canAdmin) return;
+        setOrgSaving(true);
+        setOrgError(null);
+        try {
+            await organizationsApi.updateCurrent({
+                name: orgName.trim(),
+                compliance_contact_email: orgContact.trim() || null,
+            });
+            await refreshOrganizations();
+            setOrgSaved(true);
+            setTimeout(() => setOrgSaved(false), 2000);
+        } catch (err) {
+            setOrgError(err instanceof Error ? err.message : "Failed to save organization");
+        } finally {
+            setOrgSaving(false);
+        }
     };
 
     // Scan defaults (localStorage)
@@ -223,12 +457,21 @@ export default function SettingsPage() {
     const saveNotif = (key: string, val: boolean) => localStorage.setItem(key, String(val));
 
     // GitHub actions
+    const [githubConnecting, setGithubConnecting] = useState(false);
+    const [githubConnectError, setGithubConnectError] = useState<string | null>(null);
     const connectGitHub = async () => {
+        setGithubConnecting(true);
+        setGithubConnectError(null);
         try {
             const { url } = await integrationsApi.getGitHubConnectUrl();
             window.location.href = url;
-        } catch {
-            setGithubNotice("error");
+        } catch (err) {
+            setGithubConnecting(false);
+            setGithubConnectError(
+                err instanceof Error
+                    ? err.message
+                    : "Could not start GitHub authorization. Try again or contact support.",
+            );
         }
     };
     const disconnectGitHub = async () => {
@@ -245,12 +488,21 @@ export default function SettingsPage() {
     const [slackTestSending, setSlackTestSending] = useState(false);
     const [slackTestResult, setSlackTestResult] = useState<"ok" | "error" | null>(null);
 
+    const [slackConnecting, setSlackConnecting] = useState(false);
+    const [slackConnectError, setSlackConnectError] = useState<string | null>(null);
     const connectSlack = async () => {
+        setSlackConnecting(true);
+        setSlackConnectError(null);
         try {
             const { url } = await integrationsApi.getSlackConnectUrl();
             window.location.href = url;
-        } catch {
-            setSlackNotice("error");
+        } catch (err) {
+            setSlackConnecting(false);
+            setSlackConnectError(
+                err instanceof Error
+                    ? err.message
+                    : "Could not start Slack authorization. Try again or contact support.",
+            );
         }
     };
     const disconnectSlack = async () => {
@@ -333,6 +585,31 @@ export default function SettingsPage() {
         setTimeout(() => setAwsTestResult(null), 3000);
     };
 
+    // Figma actions
+    const [figmaToken, setFigmaToken] = useState("");
+    const [figmaConnecting, setFigmaConnecting] = useState(false);
+    const [figmaError, setFigmaError] = useState<string | null>(null);
+
+    const connectFigma = async () => {
+        if (!figmaToken.trim()) return;
+        setFigmaConnecting(true);
+        setFigmaError(null);
+        try {
+            await integrationsApi.connectFigma(figmaToken.trim());
+            await refetchFigma();
+            setFigmaToken("");
+        } catch (err: unknown) {
+            setFigmaError(err instanceof Error ? err.message : "Failed to connect Figma");
+        }
+        setFigmaConnecting(false);
+    };
+    const disconnectFigma = async () => {
+        try {
+            await integrationsApi.disconnectFigma();
+            await refetchFigma();
+        } catch { /* ignore */ }
+    };
+
     const copyApiUrl = useCallback(() => {
         void navigator.clipboard.writeText(RESOLVED_API_BASE_URL).then(() => {
             setCopied(true);
@@ -340,8 +617,10 @@ export default function SettingsPage() {
         });
     }, []);
 
-    const authModeLabel = isDevMode ? "Local dev — stub user (Firebase not configured)" : "Firebase Authentication";
-    const hasDevBearer = Boolean(process.env.NEXT_PUBLIC_DEV_ADMIN_TOKEN) || Boolean(process.env.NEXT_PUBLIC_DEV_VIEWER_TOKEN);
+    const showDevDiagnostics = isDevMode && !IS_PRODUCTION_BUILD;
+    const actorRoleLabel = activeOrganization?.role
+        ? ROLE_LABELS[activeOrganization.role as OrgRole] ?? activeOrganization.role
+        : "—";
 
     // Determine active LLM model label
     const activeLlmLabel = () => {
@@ -426,29 +705,28 @@ export default function SettingsPage() {
                     <SectionHeader
                         icon={<SettingsOutlinedIcon sx={{ fontSize: 24 }} />}
                         title="Account"
-                        subtitle={authModeLabel}
+                        subtitle="Your profile and workspace access"
                     />
-                    <SettingRow label="Email" value={user?.email ?? (isDevMode ? "dev@local (stub)" : "—")} />
-                    <SettingRow label="User ID" value={user?.uid ?? "—"} mono />
-                    <SettingRow label="Role" value={isDevMode ? "Admin (dev)" : "Admin"} />
-
-                    {!isDevMode && (
-                        <button
-                            type="button"
-                            className="btn btn--secondary btn--sm"
-                            style={{ marginTop: "var(--s-3)", display: "inline-flex", alignItems: "center", gap: 8 }}
-                            disabled={loading}
-                            onClick={() => void logOut()}
-                        >
-                            <LogoutOutlinedIcon sx={{ fontSize: 16 }} />
-                            Sign out
-                        </button>
+                    <SettingRow label="Email" value={user?.email ?? "—"} />
+                    <SettingRow label="Workspace role" value={actorRoleLabel} />
+                    {showDevDiagnostics && (
+                        <>
+                            <SettingRow label="User ID" value={user?.uid ?? "—"} mono />
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-2)", lineHeight: 1.5 }}>
+                                Local development mode — configure Firebase in <code style={{ fontFamily: "monospace" }}>.env.local</code> for production authentication.
+                            </p>
+                        </>
                     )}
-                    {isDevMode && (
-                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-2)", lineHeight: 1.5 }}>
-                            Running in dev mode. Set <code style={{ fontFamily: "monospace" }}>NEXT_PUBLIC_FIREBASE_API_KEY</code> in <code style={{ fontFamily: "monospace" }}>.env.local</code> to enable real authentication.
-                        </p>
-                    )}
+                    <button
+                        type="button"
+                        className="btn btn--secondary btn--sm"
+                        style={{ marginTop: "var(--s-3)", display: "inline-flex", alignItems: "center", gap: 8 }}
+                        disabled={loading || !user}
+                        onClick={() => void logOut()}
+                    >
+                        <LogoutOutlinedIcon sx={{ fontSize: 16 }} />
+                        Sign out
+                    </button>
                 </SectionCard>
 
                 {/* ── 2. Organization Profile ───────────────────────────────── */}
@@ -456,15 +734,39 @@ export default function SettingsPage() {
                     <SectionHeader
                         icon={<BusinessOutlinedIcon sx={{ fontSize: 24 }} />}
                         title="Organization"
-                        subtitle="Used as context in scan reports and AI policy generation"
+                        subtitle="Workspace profile used in scan reports and AI policy generation"
                     />
+                    {(orgContext?.organizations.length ?? 0) > 1 && (
+                        <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                            <label className="form-label">Active workspace</label>
+                            <select
+                                className="input"
+                                value={activeOrganizationId ?? ""}
+                                onChange={(e) => switchOrganization(e.target.value)}
+                            >
+                                {orgContext?.organizations.map((entry) => (
+                                    <option key={entry.organization.id} value={entry.organization.id}>
+                                        {entry.organization.name} ({entry.role})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+                    {canAdmin && (
+                        <SettingRow
+                            label="Workspace ID"
+                            value={activeOrganizationId ?? "—"}
+                            mono
+                        />
+                    )}
                     <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
                         <label className="form-label">Organization name</label>
                         <input
                             className="input"
                             value={orgName}
                             onChange={e => setOrgName(e.target.value)}
-                            placeholder="e.g. Mouser Electronics"
+                            placeholder="Your company name"
+                            disabled={!canAdmin}
                         />
                     </div>
                     <div className="form-group" style={{ marginBottom: "var(--s-4)" }}>
@@ -475,16 +777,340 @@ export default function SettingsPage() {
                             value={orgContact}
                             onChange={e => setOrgContact(e.target.value)}
                             placeholder="e.g. governance@yourcompany.com"
+                            disabled={!canAdmin}
                         />
                     </div>
+                    {!canAdmin && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)" }}>
+                            Your role ({actorRoleLabel}) does not allow editing workspace settings.
+                        </p>
+                    )}
+                    {orgError && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-danger)", marginBottom: "var(--s-3)" }}>
+                            {orgError}
+                        </p>
+                    )}
                     <button
                         type="button"
                         className="btn btn--primary btn--sm"
-                        onClick={saveOrg}
+                        onClick={() => void saveOrg()}
+                        disabled={!canAdmin || orgSaving}
                         style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
                     >
-                        {orgSaved ? <><CheckOutlinedIcon sx={{ fontSize: 16 }} /> Saved</> : "Save"}
+                        {orgSaved ? <><CheckOutlinedIcon sx={{ fontSize: 16 }} /> Saved</> : orgSaving ? "Saving…" : "Save"}
                     </button>
+                </SectionCard>
+
+                {/* ── 2b. Team & access ─────────────────────────────────────── */}
+                <SectionCard>
+                    <SectionHeader
+                        icon={<GroupOutlinedIcon sx={{ fontSize: 24 }} />}
+                        title="Team & access"
+                        subtitle="Invite teammates and manage workspace roles"
+                    />
+
+                    {membersLoading && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>Loading members…</p>
+                    )}
+
+                    {!membersLoading && (
+                        <div style={{ marginBottom: "var(--s-4)" }}>
+                            <div style={{
+                                fontSize: "var(--fs-11)",
+                                color: "var(--c-text-muted)",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.04em",
+                                marginBottom: "var(--s-2)",
+                            }}>
+                                Members ({members.length})
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
+                                {members.map((member) => {
+                                    const manageable = canAdmin && canManageMember(
+                                        actorRole,
+                                        member.role,
+                                        member.user_id,
+                                        selfUserId,
+                                    );
+                                    return (
+                                        <div
+                                            key={member.user_id}
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "var(--s-3)",
+                                                padding: "var(--s-3)",
+                                                borderRadius: "var(--r-sm)",
+                                                border: "1px solid var(--c-border)",
+                                                background: "rgba(255,255,255,0.02)",
+                                            }}
+                                        >
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ fontSize: "var(--fs-13)", fontWeight: "var(--fw-medium)" }}>
+                                                    {member.email ?? member.user_id}
+                                                    {member.user_id === selfUserId ? " (you)" : ""}
+                                                </div>
+                                                <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: 2 }}>
+                                                    Joined {new Date(member.joined_at).toLocaleDateString()}
+                                                </div>
+                                            </div>
+                                            {manageable ? (
+                                                <select
+                                                    className="input"
+                                                    style={{ width: 160, flexShrink: 0 }}
+                                                    value={member.role}
+                                                    disabled={memberUpdating === member.user_id}
+                                                    onChange={(e) => void changeMemberRole(member.user_id, e.target.value as OrgRole)}
+                                                >
+                                                    {assignableRoles(actorRole).map((role) => (
+                                                        <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                                                    ))}
+                                                    {member.role === "owner" && (
+                                                        <option value="owner">{ROLE_LABELS.owner}</option>
+                                                    )}
+                                                </select>
+                                            ) : (
+                                                <span className="badge badge--neutral" style={{ fontSize: "var(--fs-11)" }}>
+                                                    {ROLE_LABELS[member.role as OrgRole] ?? member.role}
+                                                </span>
+                                            )}
+                                            {manageable && (
+                                                <button
+                                                    type="button"
+                                                    className="btn btn--secondary btn--sm"
+                                                    disabled={memberUpdating === member.user_id}
+                                                    onClick={() => void removeMember(member.user_id)}
+                                                    title="Remove member"
+                                                    style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}
+                                                >
+                                                    <PersonRemoveOutlinedIcon sx={{ fontSize: 16 }} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {canAdmin && pendingInvites.length > 0 && (
+                        <div style={{ marginBottom: "var(--s-4)" }}>
+                            <div style={{
+                                fontSize: "var(--fs-11)",
+                                color: "var(--c-text-muted)",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.04em",
+                                marginBottom: "var(--s-2)",
+                            }}>
+                                Pending invites ({pendingInvites.length})
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
+                                {pendingInvites.map((invite) => (
+                                    <div
+                                        key={invite.id}
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "var(--s-3)",
+                                            padding: "var(--s-3)",
+                                            borderRadius: "var(--r-sm)",
+                                            border: "1px dashed var(--c-border)",
+                                        }}
+                                    >
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: "var(--fs-13)" }}>{invite.email}</div>
+                                            <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: 2 }}>
+                                                {ROLE_LABELS[invite.role as OrgRole] ?? invite.role} · invited {new Date(invite.created_at).toLocaleDateString()}
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="btn btn--secondary btn--sm"
+                                            disabled={memberUpdating === invite.id}
+                                            onClick={() => void revokeInvite(invite.id)}
+                                        >
+                                            Revoke
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {canAdmin && inviteRoles.length > 0 && (
+                        <>
+                            <Divider />
+                            <div style={{ display: "flex", gap: "var(--s-2)", flexWrap: "wrap", alignItems: "flex-end" }}>
+                                <div className="form-group" style={{ flex: "1 1 220px", marginBottom: 0 }}>
+                                    <label className="form-label">Invite by email</label>
+                                    <input
+                                        className="input"
+                                        type="email"
+                                        value={inviteEmail}
+                                        onChange={(e) => { setInviteEmail(e.target.value); setInviteError(null); }}
+                                        placeholder="teammate@company.com"
+                                    />
+                                </div>
+                                <div className="form-group" style={{ width: 180, marginBottom: 0 }}>
+                                    <label className="form-label">Role</label>
+                                    <select
+                                        className="input"
+                                        value={inviteRole}
+                                        onChange={(e) => setInviteRole(e.target.value as OrgRole)}
+                                    >
+                                        {inviteRoles.map((role) => (
+                                            <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn btn--primary btn--sm"
+                                    disabled={inviteSending || !inviteEmail.trim()}
+                                    onClick={() => void sendInvite()}
+                                    style={{ marginBottom: 2 }}
+                                >
+                                    {inviteSending ? "Sending…" : "Send invite"}
+                                </button>
+                            </div>
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-3)", lineHeight: 1.5 }}>
+                                Existing users are added immediately. New users receive access when they sign up with the invited email.
+                            </p>
+                        </>
+                    )}
+
+                    {!canAdmin && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", lineHeight: 1.5 }}>
+                            Contact a workspace admin to invite teammates or change roles.
+                        </p>
+                    )}
+
+                    {(inviteError || memberActionError) && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-danger)", marginTop: "var(--s-3)" }}>
+                            {inviteError ?? memberActionError}
+                        </p>
+                    )}
+                </SectionCard>
+
+                {/* ── 2c. SAML SSO ──────────────────────────────────────────── */}
+                <SectionCard>
+                    <SectionHeader
+                        icon={<VpnKeyOutlinedIcon sx={{ fontSize: 24 }} />}
+                        title="SAML SSO"
+                        subtitle="Connect Okta, Azure AD, Google Workspace, or any SAML 2.0 identity provider"
+                        badge={
+                            ssoConfig?.enabled
+                                ? <span className="badge badge--live">Enabled</span>
+                                : <span className="badge badge--neutral">Disabled</span>
+                        }
+                    />
+
+                    {canAdmin && ssoConfig && (
+                        <>
+                            <SettingRow label="SP Entity ID" value={ssoConfig.sp_entity_id} mono />
+                            <SettingRow label="ACS URL" value={ssoConfig.sp_acs_url} mono />
+                            <SettingRow label="Metadata URL" value={ssoConfig.metadata_url} mono />
+
+                            <div style={{ display: "flex", gap: "var(--s-4)", flexWrap: "wrap", margin: "var(--s-4) 0" }}>
+                                <NotifToggle
+                                    label="Enable SAML SSO"
+                                    description="Allow users with matching email domains to sign in via your IdP"
+                                    value={ssoEnabled}
+                                    onChange={setSsoEnabled}
+                                />
+                                <NotifToggle
+                                    label="Enforce SSO"
+                                    description="Hide password sign-in for users on configured email domains"
+                                    value={ssoEnforced}
+                                    onChange={setSsoEnforced}
+                                />
+                                <NotifToggle
+                                    label="Just-in-time provisioning"
+                                    description="Automatically add SSO users to this workspace with the default role"
+                                    value={ssoJit}
+                                    onChange={setSsoJit}
+                                />
+                            </div>
+
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">Email domains</label>
+                                <input
+                                    className="input"
+                                    value={ssoDomains}
+                                    onChange={(e) => setSsoDomains(e.target.value)}
+                                    placeholder="company.com, subsidiary.com"
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">IdP Entity ID</label>
+                                <input
+                                    className="input"
+                                    value={ssoIdpEntityId}
+                                    onChange={(e) => setSsoIdpEntityId(e.target.value)}
+                                    placeholder="urn:example:idp"
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">IdP SSO URL</label>
+                                <input
+                                    className="input"
+                                    value={ssoIdpUrl}
+                                    onChange={(e) => setSsoIdpUrl(e.target.value)}
+                                    placeholder="https://idp.example.com/saml/sso"
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">IdP X.509 certificate</label>
+                                <textarea
+                                    className="input"
+                                    rows={5}
+                                    value={ssoCert}
+                                    onChange={(e) => setSsoCert(e.target.value)}
+                                    placeholder="Paste the IdP signing certificate (PEM)"
+                                    style={{ fontFamily: "ui-monospace, monospace", fontSize: "var(--fs-12)" }}
+                                />
+                                {ssoConfig.idp_x509_cert_configured && !ssoCert && (
+                                    <p style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: 4 }}>
+                                        A certificate is already saved. Paste a new one to rotate.
+                                    </p>
+                                )}
+                            </div>
+                            <div className="form-group" style={{ marginBottom: "var(--s-4)", maxWidth: 240 }}>
+                                <label className="form-label">Default role for new SSO users</label>
+                                <select
+                                    className="input"
+                                    value={ssoDefaultRole}
+                                    onChange={(e) => setSsoDefaultRole(e.target.value as OrgRole)}
+                                >
+                                    {(["admin", "security_admin", "auditor", "viewer"] as OrgRole[]).map((role) => (
+                                        <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {ssoError && (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-danger)", marginBottom: "var(--s-3)" }}>
+                                    {ssoError}
+                                </p>
+                            )}
+
+                            <button
+                                type="button"
+                                className="btn btn--primary btn--sm"
+                                disabled={ssoSaving}
+                                onClick={() => void saveSso()}
+                                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                            >
+                                {ssoSaved ? <><CheckOutlinedIcon sx={{ fontSize: 16 }} /> Saved</> : ssoSaving ? "Saving…" : "Save SSO settings"}
+                            </button>
+                        </>
+                    )}
+
+                    {!canAdmin && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", lineHeight: 1.5 }}>
+                            SAML SSO is managed by workspace administrators.
+                        </p>
+                    )}
                 </SectionCard>
 
                 {/* ── 3. GitHub Integration ─────────────────────────────────── */}
@@ -516,13 +1142,14 @@ export default function SettingsPage() {
                             <Divider />
 
                             <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
-                                TrustFabric stores a GitHub OAuth token in Firestore to read your organization's Copilot configuration and repository security settings. No code is ever read or modified.
+                                TrustFabric stores an encrypted GitHub OAuth token to read your organization&apos;s Copilot configuration and repository security settings. No code is ever read or modified.
                             </p>
 
                             <button
                                 type="button"
                                 className="btn btn--secondary btn--sm"
                                 style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                disabled={!canAdmin}
                                 onClick={() => void disconnectGitHub()}
                             >
                                 <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
@@ -533,30 +1160,54 @@ export default function SettingsPage() {
 
                     {!githubLoading && !githubStatus?.connected && (
                         <>
-                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
-                                Connect your GitHub account (personal or enterprise org) to scan Copilot configuration, branch protection, vulnerability alerts, and Actions permissions.
+                            <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", marginBottom: "var(--s-3)", lineHeight: 1.6 }}>
+                                Authorize TrustFabric to read Copilot settings, branch protection, vulnerability alerts, and Actions permissions.
+                                Each workspace connects its own GitHub account — your team does not configure API keys in TrustFabric.
                             </p>
-                            {!backendStatus?.github_oauth_configured && (
+                            {backendStatus?.github_oauth_configured ? (
+                                <OAuthConnectSteps provider="GitHub" />
+                            ) : (
                                 <div style={{
-                                    display: "flex", alignItems: "center", gap: "var(--s-2)",
+                                    display: "flex", alignItems: "flex-start", gap: "var(--s-2)",
                                     padding: "var(--s-3)", borderRadius: "var(--r-sm)",
                                     background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)",
                                     fontSize: "var(--fs-12)", color: "var(--c-warning, #f59e0b)", marginBottom: "var(--s-3)",
+                                    lineHeight: 1.5,
                                 }}>
-                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
-                                    GitHub OAuth not configured on the server. Set <code style={{ fontFamily: "monospace", margin: "0 4px" }}>GITHUB_CLIENT_ID</code> and <code style={{ fontFamily: "monospace", margin: "0 4px" }}>GITHUB_CLIENT_SECRET</code> in your backend <code style={{ fontFamily: "monospace" }}>.env</code>.
+                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0, marginTop: 2 }} />
+                                    {showDevDiagnostics ? (
+                                        <>
+                                            GitHub OAuth is not configured for this environment. Register a GitHub OAuth App and set{" "}
+                                            <code style={{ fontFamily: "monospace" }}>GITHUB_CLIENT_ID</code> and{" "}
+                                            <code style={{ fontFamily: "monospace" }}>GITHUB_CLIENT_SECRET</code> once on the TrustFabric backend
+                                            (not per customer). Callback URL:{" "}
+                                            <code style={{ fontFamily: "monospace" }}>{RESOLVED_API_BASE_URL}/api/v1/integrations/github/callback</code>
+                                        </>
+                                    ) : (
+                                        "GitHub connection is temporarily unavailable on this TrustFabric instance. Contact TrustFabric support — no action is required from your GitHub administrators beyond approving access when Connect is enabled."
+                                    )}
                                 </div>
+                            )}
+                            {githubConnectError && (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-critical)", marginBottom: "var(--s-3)" }}>
+                                    {githubConnectError}
+                                </p>
                             )}
                             <button
                                 type="button"
                                 className="btn btn--primary"
                                 style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
-                                disabled={!backendStatus?.github_oauth_configured}
+                                disabled={!canAdmin || !backendStatus?.github_oauth_configured || githubConnecting}
                                 onClick={() => void connectGitHub()}
                             >
                                 <GitHubIcon sx={{ fontSize: 18 }} />
-                                Connect GitHub
+                                {githubConnecting ? "Redirecting to GitHub…" : "Connect GitHub"}
                             </button>
+                            {!canAdmin && (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-2)" }}>
+                                    Only workspace administrators can connect integrations.
+                                </p>
+                            )}
                         </>
                     )}
                 </SectionCard>
@@ -589,7 +1240,7 @@ export default function SettingsPage() {
                                     className="input"
                                     value={slackStatus.info.channel_id}
                                     onChange={e => void changeSlackChannel(e.target.value)}
-                                    disabled={slackChannelsLoading}
+                                    disabled={!canAdmin || slackChannelsLoading}
                                     style={{ cursor: "pointer" }}
                                 >
                                     {slackChannelsLoading && <option>Loading channels…</option>}
@@ -613,7 +1264,7 @@ export default function SettingsPage() {
                                     type="button"
                                     className="btn btn--secondary btn--sm"
                                     style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-                                    disabled={slackTestSending}
+                                    disabled={!canAdmin || slackTestSending}
                                     onClick={() => void testSlack()}
                                 >
                                     <SendOutlinedIcon sx={{ fontSize: 16 }} />
@@ -623,6 +1274,7 @@ export default function SettingsPage() {
                                     type="button"
                                     className="btn btn--secondary btn--sm"
                                     style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                    disabled={!canAdmin}
                                     onClick={() => void disconnectSlack()}
                                 >
                                     <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
@@ -634,30 +1286,54 @@ export default function SettingsPage() {
 
                     {!slackLoading && !slackStatus?.connected && (
                         <>
-                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
-                                Connect your Slack workspace to receive real-time notifications when compliance scans complete, violations are detected, or AI systems change.
+                            <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", marginBottom: "var(--s-3)", lineHeight: 1.6 }}>
+                                Authorize your Slack workspace to receive notifications when scans complete, violations are detected, or AI systems change.
+                                Each workspace connects independently — no Slack app credentials are stored in your browser.
                             </p>
-                            {!backendStatus?.slack_oauth_configured && (
+                            {backendStatus?.slack_oauth_configured ? (
+                                <OAuthConnectSteps provider="Slack" />
+                            ) : (
                                 <div style={{
-                                    display: "flex", alignItems: "center", gap: "var(--s-2)",
+                                    display: "flex", alignItems: "flex-start", gap: "var(--s-2)",
                                     padding: "var(--s-3)", borderRadius: "var(--r-sm)",
                                     background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.3)",
                                     fontSize: "var(--fs-12)", color: "var(--c-warning, #f59e0b)", marginBottom: "var(--s-3)",
+                                    lineHeight: 1.5,
                                 }}>
-                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
-                                    Slack OAuth not configured on the server. Set <code style={{ fontFamily: "monospace", margin: "0 4px" }}>SLACK_CLIENT_ID</code> and <code style={{ fontFamily: "monospace", margin: "0 4px" }}>SLACK_CLIENT_SECRET</code> in your backend <code style={{ fontFamily: "monospace" }}>.env</code>.
+                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0, marginTop: 2 }} />
+                                    {showDevDiagnostics ? (
+                                        <>
+                                            Slack OAuth is not configured for this environment. Create a Slack app and set{" "}
+                                            <code style={{ fontFamily: "monospace" }}>SLACK_CLIENT_ID</code> and{" "}
+                                            <code style={{ fontFamily: "monospace" }}>SLACK_CLIENT_SECRET</code> once on the TrustFabric backend.
+                                            Redirect URL:{" "}
+                                            <code style={{ fontFamily: "monospace" }}>{RESOLVED_API_BASE_URL}/api/v1/integrations/slack/callback</code>
+                                        </>
+                                    ) : (
+                                        "Slack connection is temporarily unavailable on this TrustFabric instance. Contact TrustFabric support."
+                                    )}
                                 </div>
+                            )}
+                            {slackConnectError && (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-critical)", marginBottom: "var(--s-3)" }}>
+                                    {slackConnectError}
+                                </p>
                             )}
                             <button
                                 type="button"
                                 className="btn btn--primary"
                                 style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
-                                disabled={!backendStatus?.slack_oauth_configured}
+                                disabled={!canAdmin || !backendStatus?.slack_oauth_configured || slackConnecting}
                                 onClick={() => void connectSlack()}
                             >
                                 <TagOutlinedIcon sx={{ fontSize: 18 }} />
-                                Connect Slack
+                                {slackConnecting ? "Redirecting to Slack…" : "Connect Slack"}
                             </button>
+                            {!canAdmin && (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-2)" }}>
+                                    Only workspace administrators can connect integrations.
+                                </p>
+                            )}
                         </>
                     )}
                 </SectionCard>
@@ -700,7 +1376,7 @@ export default function SettingsPage() {
                                     type="button"
                                     className="btn btn--secondary btn--sm"
                                     style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-                                    disabled={awsTesting}
+                                    disabled={!canAdmin || awsTesting}
                                     onClick={() => void testAws()}
                                 >
                                     {awsTesting ? "Testing…" : awsTestResult === "ok" ? "Valid!" : awsTestResult === "error" ? "Failed" : "Test Connection"}
@@ -709,6 +1385,7 @@ export default function SettingsPage() {
                                     type="button"
                                     className="btn btn--secondary btn--sm"
                                     style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                    disabled={!canAdmin}
                                     onClick={() => void disconnectAws()}
                                 >
                                     <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
@@ -780,11 +1457,98 @@ export default function SettingsPage() {
                                 type="button"
                                 className="btn btn--primary"
                                 style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
-                                disabled={!awsRoleArn.startsWith("arn:aws:iam::") || awsConnecting}
+                                disabled={!canAdmin || !awsRoleArn.startsWith("arn:aws:iam::") || awsConnecting}
                                 onClick={() => void connectAws()}
                             >
                                 <CloudOutlinedIcon sx={{ fontSize: 18 }} />
                                 {awsConnecting ? "Connecting…" : "Connect AWS"}
+                            </button>
+                        </>
+                    )}
+                </SectionCard>
+
+                {/* ── 3d. Figma Integration ─────────────────────────────────── */}
+                <SectionCard>
+                    <SectionHeader
+                        icon={<BrushOutlinedIcon sx={{ fontSize: 24 }} />}
+                        title="Figma Integration"
+                        subtitle="Connect Figma to enable automated brand compliance scanning of marketing assets"
+                        badge={
+                            figmaStatus?.connected
+                                ? <span className="badge badge--live">Connected</span>
+                                : <span className="badge badge--neutral">Not connected</span>
+                        }
+                    />
+
+                    {figmaLoading && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>Checking status…</p>
+                    )}
+
+                    {!figmaLoading && figmaStatus?.connected && figmaStatus.user && (
+                        <>
+                            <SettingRow label="Figma account" value={`@${figmaStatus.user.handle} — ${figmaStatus.user.email}`} />
+                            <SettingRow
+                                label="Connected at"
+                                value={
+                                    figmaStatus.user.connected_at
+                                        ? new Date(figmaStatus.user.connected_at).toLocaleString()
+                                        : "—"
+                                }
+                            />
+                            <Divider />
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
+                                Tokens are encrypted at rest per workspace. TrustFabric uses your Figma token to fetch design frames and evaluate them against brand guidelines.
+                            </p>
+                            <button
+                                type="button"
+                                className="btn btn--secondary btn--sm"
+                                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                disabled={!canAdmin}
+                                onClick={() => void disconnectFigma()}
+                            >
+                                <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
+                                Disconnect Figma
+                            </button>
+                        </>
+                    )}
+
+                    {!figmaLoading && !figmaStatus?.connected && (
+                        <>
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
+                                Create a Figma personal access token with file read access, then paste it below. Each workspace stores its own token — nothing is shared across tenants.
+                            </p>
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">Figma personal access token</label>
+                                <input
+                                    className="input"
+                                    type="password"
+                                    value={figmaToken}
+                                    onChange={(e) => { setFigmaToken(e.target.value); setFigmaError(null); }}
+                                    placeholder="figd_..."
+                                    autoComplete="off"
+                                    style={{ fontFamily: "ui-monospace, monospace", fontSize: "var(--fs-12)" }}
+                                />
+                            </div>
+                            {figmaError && (
+                                <div style={{
+                                    display: "flex", alignItems: "center", gap: "var(--s-2)",
+                                    padding: "var(--s-3)", borderRadius: "var(--r-sm)",
+                                    background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)",
+                                    fontSize: "var(--fs-12)", color: "var(--c-critical, #ef4444)", marginBottom: "var(--s-3)",
+                                }}>
+                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
+                                    {figmaError}
+                                </div>
+                            )}
+                            <button
+                                type="button"
+                                className="btn btn--primary"
+                                style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                                disabled={!canAdmin || figmaToken.trim().length < 10 || figmaConnecting}
+                                onClick={() => void connectFigma()}
+                            >
+                                <BrushOutlinedIcon sx={{ fontSize: 18 }} />
+                                {figmaConnecting ? "Connecting…" : "Connect Figma"}
                             </button>
                         </>
                     )}
@@ -806,7 +1570,7 @@ export default function SettingsPage() {
                             placeholder={githubStatus?.user?.login ?? "your-github-username-or-org"}
                         />
                         <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-1)" }}>
-                            For personal accounts use your GitHub username. For enterprise use the org slug (e.g. <code style={{ fontFamily: "monospace" }}>mouser-electronics</code>).
+                            For personal accounts use your GitHub username. For enterprise use your organization slug (e.g. <code style={{ fontFamily: "monospace" }}>your-org</code>).
                         </p>
                     </div>
                     <button
@@ -872,14 +1636,20 @@ export default function SettingsPage() {
                                     <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", lineHeight: 1.5 }}>
                                         {policyEvalAvailable
                                             ? "Every compliance scan will automatically evaluate all your active governance policies (AI-generated, manual, or template) against the real GitHub configuration using Claude."
-                                            : "Set CLAUDE_API_KEY in your backend .env to enable LLM-based evaluation of custom governance policies during scans."}
+                                            : "Custom policy evaluation during scans requires Claude to be configured by your administrator."}
                                     </div>
                                 </div>
                             </div>
 
-                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-3)", lineHeight: 1.5 }}>
-                                To change the provider, set <code style={{ fontFamily: "monospace" }}>COPILOT_PROVIDER=openai|claude|gemini|auto</code> in your backend <code style={{ fontFamily: "monospace" }}>.env</code> and restart the server.
-                            </p>
+                            {showDevDiagnostics ? (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-3)", lineHeight: 1.5 }}>
+                                    To change the provider locally, set <code style={{ fontFamily: "monospace" }}>COPILOT_PROVIDER</code> in the backend environment and restart the server.
+                                </p>
+                            ) : (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-3)", lineHeight: 1.5 }}>
+                                    AI provider configuration is managed by your platform administrator.
+                                </p>
+                            )}
                         </>
                     )}
                 </SectionCard>
@@ -910,49 +1680,45 @@ export default function SettingsPage() {
                         onChange={v => { setNotifPolicyChanges(v); saveNotif(LS_NOTIF_POLICY_CHANGES, v); }}
                     />
                     <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-1)", lineHeight: 1.5 }}>
-                        Email delivery and webhook integrations are on the roadmap. Preferences are saved locally for now.
+                        Preferences are saved in this browser. Email and webhook delivery can be configured by your administrator via Slack.
                     </p>
                 </SectionCard>
 
-                {/* ── 7. API & Developer ────────────────────────────────────── */}
-                <SectionCard>
-                    <SectionHeader
-                        icon={<LinkOutlinedIcon sx={{ fontSize: 24 }} />}
-                        title="API & Developer"
-                        subtitle="Backend connection and authentication diagnostics"
-                    />
-                    <SettingRow label="API base URL" value={RESOLVED_API_BASE_URL} mono />
-                    <div style={{ display: "flex", gap: "var(--s-2)", marginBottom: "var(--s-3)" }}>
-                        <button type="button" className="btn btn--ghost btn--sm" style={{ gap: 6 }} onClick={copyApiUrl}>
-                            {copied ? <CheckOutlinedIcon sx={{ fontSize: 16 }} /> : <ContentCopyOutlinedIcon sx={{ fontSize: 16 }} />}
-                            {copied ? "Copied" : "Copy URL"}
-                        </button>
-                        <a
-                            href={`${RESOLVED_API_BASE_URL}/docs`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="btn btn--ghost btn--sm"
-                            style={{ gap: 6, textDecoration: "none" }}
-                        >
-                            Open API docs ↗
-                        </a>
-                    </div>
-
-                    <SettingRow
-                        label="Firebase client"
-                        value={isFirebaseConfigured ? "Configured" : "Not configured — using dev stub user"}
-                    />
-                    <SettingRow
-                        label="Dev bearer token"
-                        value={hasDevBearer ? "Set (NEXT_PUBLIC_DEV_ADMIN_TOKEN)" : "Not set"}
-                    />
-                    {backendStatus && (
-                        <>
-                            <SettingRow label="Backend environment" value={`${backendStatus.app_env} — v${backendStatus.app_version}`} />
-                            <SettingRow label="Rate limit" value={`${backendStatus.rate_limit_per_minute} requests / minute`} />
-                        </>
-                    )}
-                </SectionCard>
+                {showDevDiagnostics && (
+                    <SectionCard>
+                        <SectionHeader
+                            icon={<LinkOutlinedIcon sx={{ fontSize: 24 }} />}
+                            title="Developer diagnostics"
+                            subtitle="Local development connection details"
+                        />
+                        <SettingRow label="API base URL" value={RESOLVED_API_BASE_URL} mono />
+                        <div style={{ display: "flex", gap: "var(--s-2)", marginBottom: "var(--s-3)" }}>
+                            <button type="button" className="btn btn--ghost btn--sm" style={{ gap: 6 }} onClick={copyApiUrl}>
+                                {copied ? <CheckOutlinedIcon sx={{ fontSize: 16 }} /> : <ContentCopyOutlinedIcon sx={{ fontSize: 16 }} />}
+                                {copied ? "Copied" : "Copy URL"}
+                            </button>
+                            <a
+                                href={`${RESOLVED_API_BASE_URL}/docs`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="btn btn--ghost btn--sm"
+                                style={{ gap: 6, textDecoration: "none" }}
+                            >
+                                Open API docs ↗
+                            </a>
+                        </div>
+                        <SettingRow
+                            label="Firebase client"
+                            value={isFirebaseConfigured ? "Configured" : "Not configured"}
+                        />
+                        {backendStatus && (
+                            <>
+                                <SettingRow label="Backend environment" value={`${backendStatus.app_env} — v${backendStatus.app_version}`} />
+                                <SettingRow label="Rate limit" value={`${backendStatus.rate_limit_per_minute} requests / minute`} />
+                            </>
+                        )}
+                    </SectionCard>
+                )}
 
                 {/* ── 8. About ─────────────────────────────────────────────── */}
                 <SectionCard>
@@ -961,7 +1727,7 @@ export default function SettingsPage() {
                         title="About TrustFabric"
                     />
                     <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", lineHeight: 1.7, marginBottom: "var(--s-4)" }}>
-                        TrustFabric is an AI Governance SaaS platform that continuously monitors organizational AI tool configurations and ensures compliance with defined governance policies. Built as a senior design capstone project.
+                        TrustFabric helps enterprise security and compliance teams govern AI systems end to end — from inventory and policy enforcement to audit-ready evidence aligned with NIST AI RMF.
                     </p>
 
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--s-3)", marginBottom: "var(--s-4)" }}>

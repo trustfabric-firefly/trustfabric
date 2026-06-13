@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import base64
 from typing import List, Optional
 
 import httpx
 
 from app.core.config import settings
+from app.core.oauth_state import decode_oauth_state, encode_oauth_state
 
 GITHUB_API = "https://api.github.com"
 GITHUB_OAUTH_BASE = "https://github.com"
@@ -26,12 +26,12 @@ def build_oauth_url(state: str) -> str:
     )
 
 
-def encode_state(user_id: str) -> str:
-    return base64.urlsafe_b64encode(user_id.encode()).decode()
+def encode_state(user_id: str, organization_id: str) -> str:
+    return encode_oauth_state(user_id, organization_id)
 
 
-def decode_state(state: str) -> str:
-    return base64.urlsafe_b64decode(state.encode()).decode()
+def decode_state(state: str) -> tuple[str, str]:
+    return decode_oauth_state(state)
 
 
 async def exchange_code_for_token(code: str) -> str:

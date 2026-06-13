@@ -1,30 +1,19 @@
 "use client";
+import { DocumentScannerOutlinedIcon, PlayArrowOutlinedIcon, CheckCircleOutlinedIcon, WarningAmberOutlinedIcon, CancelOutlinedIcon, AccessTimeOutlinedIcon, BusinessOutlinedIcon, DescriptionOutlinedIcon, ChevronRightOutlinedIcon, FileDownloadOutlinedIcon, RefreshOutlinedIcon, TrendingUpOutlinedIcon, TrendingDownOutlinedIcon, RemoveOutlinedIcon, FilterListOutlinedIcon, BarChartOutlinedIcon, TipsAndUpdatesOutlinedIcon, VisibilityOutlinedIcon, CloudOutlinedIcon } from "@/lib/icons";
 
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useCallback, useMemo, useRef, useEffect, type ReactNode } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { scansApi, awsScansApi, integrationsApi } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
-import DocumentScannerOutlinedIcon from "@mui/icons-material/DocumentScannerOutlined";
-import PlayArrowOutlinedIcon from "@mui/icons-material/PlayArrowOutlined";
-import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
-import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
-import CancelOutlinedIcon from "@mui/icons-material/CancelOutlined";
-import AccessTimeOutlinedIcon from "@mui/icons-material/AccessTimeOutlined";
-import BusinessOutlinedIcon from "@mui/icons-material/BusinessOutlined";
-import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import ChevronRightOutlinedIcon from "@mui/icons-material/ChevronRightOutlined";
-import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
-import RefreshOutlinedIcon from "@mui/icons-material/RefreshOutlined";
-import TrendingUpOutlinedIcon from "@mui/icons-material/TrendingUpOutlined";
-import TrendingDownOutlinedIcon from "@mui/icons-material/TrendingDownOutlined";
-import RemoveOutlinedIcon from "@mui/icons-material/RemoveOutlined";
-import FilterListOutlinedIcon from "@mui/icons-material/FilterListOutlined";
-import BarChartOutlinedIcon from "@mui/icons-material/BarChartOutlined";
-import TipsAndUpdatesOutlinedIcon from "@mui/icons-material/TipsAndUpdatesOutlined";
-import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
-import CloudOutlinedIcon from "@mui/icons-material/CloudOutlined";
+import { PageEmptyIllustration } from "@/components/ui/PageEmptyIllustration";
 import { TopBar } from "@/components/layout/TopBar";
+import { IntegrationsHub } from "@/components/scans/IntegrationsHub";
+import { FigmaBrandScanPanel } from "@/components/scans/FigmaBrandScanPanel";
+import { isScanAppId } from "@/lib/scan-integrations";
+import "./scans-config.css";
+import "./scans-hub.css";
 import type {
     ScanResult,
     ScanProgress,
@@ -46,106 +35,14 @@ const SCAN_STEPS = [
     "Calculating risk scores",
 ];
 
-const MOCK_ORGS = [
-    { id: "acme-corp", name: "acme-corp", repos: 47, teams: 12 },
-    { id: "startup-io", name: "startup-io", repos: 23, teams: 5 },
-];
-
-const MOCK_POLICIES = [
-    { id: "pol_001", name: "Restrict AI Models", severity: "high" as PolicySeverity },
-    { id: "pol_002", name: "Disable Copilot CLI", severity: "medium" as PolicySeverity },
-    { id: "pol_003", name: "Require Code Review for AI Code", severity: "medium" as PolicySeverity },
-];
-
-const MOCK_SCAN_HISTORY: ScanResult[] = [
-    {
-        scan_id: "scan_004",
-        organization: "acme-corp",
-        timestamp: "2026-02-16T14:35:00Z",
-        config: { scope: "organization", policies_checked: ["pol_001", "pol_002", "pol_003"], github_org: "acme-corp" },
-        github_config: { enabled_models: ["gpt-4", "claude-sonnet-3.5"], cli_enabled: true, ide_features: { suggestions: true }, secret_scanning_enabled: true, code_review_required: true },
-        results: {
-            compliance_score: 67,
-            total_policies: 3,
-            violations: [
-                { policy_id: "pol_001", policy_name: "Restrict AI Models", status: "violation", severity: "high", evidence: "GPT-4 found in enabled_models", recommendation: "Remove GPT-4 from org settings", risk_score: 85 },
-                { policy_id: "pol_002", policy_name: "Disable Copilot CLI", status: "violation", severity: "medium", evidence: "cli_enabled: true", recommendation: "Disable CLI in settings", risk_score: 60 },
-            ],
-            compliant: [
-                { policy_id: "pol_003", policy_name: "Require Code Review for AI Code", status: "compliant", severity: "medium", evidence: "All repos have required reviewers configured", recommendation: "", risk_score: 0 },
-            ],
-        },
-        duration_seconds: 28,
-        triggered_by: "admin@trustfabric.io",
-        status: "completed",
-    },
-    {
-        scan_id: "scan_003",
-        organization: "acme-corp",
-        timestamp: "2026-02-15T09:15:00Z",
-        config: { scope: "organization", policies_checked: ["pol_001", "pol_002", "pol_003"], github_org: "acme-corp" },
-        github_config: { enabled_models: ["claude-sonnet-3.5"], cli_enabled: false, ide_features: { suggestions: true }, secret_scanning_enabled: true, code_review_required: true },
-        results: {
-            compliance_score: 100, total_policies: 3, violations: [], compliant: [
-                { policy_id: "pol_001", policy_name: "Restrict AI Models", status: "compliant", severity: "high", evidence: "Only approved models enabled", recommendation: "", risk_score: 0 },
-                { policy_id: "pol_002", policy_name: "Disable Copilot CLI", status: "compliant", severity: "medium", evidence: "CLI features disabled", recommendation: "", risk_score: 0 },
-                { policy_id: "pol_003", policy_name: "Require Code Review for AI Code", status: "compliant", severity: "medium", evidence: "All repos have required reviewers configured", recommendation: "", risk_score: 0 },
-            ]
-        },
-        duration_seconds: 31,
-        triggered_by: "admin@trustfabric.io",
-        status: "completed",
-    },
-    {
-        scan_id: "scan_002",
-        organization: "acme-corp",
-        timestamp: "2026-02-14T15:45:00Z",
-        config: { scope: "organization", policies_checked: ["pol_001", "pol_002", "pol_003"], github_org: "acme-corp" },
-        github_config: { enabled_models: ["gpt-4", "gpt-4-turbo", "claude-sonnet-3.5"], cli_enabled: true, ide_features: { suggestions: true }, secret_scanning_enabled: false, code_review_required: false },
-        results: {
-            compliance_score: 33,
-            total_policies: 3,
-            violations: [
-                { policy_id: "pol_001", policy_name: "Restrict AI Models", status: "violation", severity: "high", evidence: "GPT-4 and GPT-4 Turbo found in enabled_models", recommendation: "Remove GPT-4 variants from org settings", risk_score: 90 },
-                { policy_id: "pol_002", policy_name: "Disable Copilot CLI", status: "violation", severity: "medium", evidence: "cli_enabled: true", recommendation: "Disable CLI in settings", risk_score: 60 },
-            ],
-            compliant: [
-                { policy_id: "pol_003", policy_name: "Require Code Review for AI Code", status: "compliant", severity: "medium", evidence: "All repos have required reviewers configured", recommendation: "", risk_score: 0 },
-            ],
-        },
-        duration_seconds: 29,
-        triggered_by: "security@trustfabric.io",
-        status: "completed",
-    },
-    {
-        scan_id: "scan_001",
-        organization: "acme-corp",
-        timestamp: "2026-02-10T11:20:00Z",
-        config: { scope: "organization", policies_checked: ["pol_001", "pol_002", "pol_003"], github_org: "acme-corp" },
-        github_config: { enabled_models: ["gpt-4"], cli_enabled: true, ide_features: { suggestions: true }, secret_scanning_enabled: false, code_review_required: false },
-        results: {
-            compliance_score: 50,
-            total_policies: 3,
-            violations: [
-                { policy_id: "pol_001", policy_name: "Restrict AI Models", status: "violation", severity: "high", evidence: "GPT-4 found in enabled_models", recommendation: "Remove GPT-4 from org settings", risk_score: 85 },
-            ],
-            compliant: [
-                { policy_id: "pol_002", policy_name: "Disable Copilot CLI", status: "compliant", severity: "medium", evidence: "CLI features disabled", recommendation: "", risk_score: 0 },
-                { policy_id: "pol_003", policy_name: "Require Code Review for AI Code", status: "compliant", severity: "medium", evidence: "All repos have required reviewers configured", recommendation: "", risk_score: 0 },
-            ],
-        },
-        duration_seconds: 27,
-        triggered_by: "admin@trustfabric.io",
-        status: "completed",
-    },
-];
-
-
 type PageView = "main" | "config" | "scanning" | "results" | "trends";
 
 export default function ScansPage() {
     const queryClient = useQueryClient();
+    const router = useRouter();
     const searchParams = useSearchParams();
+    const activeAppParam = searchParams.get("app");
+    const activeApp = isScanAppId(activeAppParam) ? activeAppParam : null;
     const [view, setView] = useState<PageView>("main");
     const [currentScan, setCurrentScan] = useState<ScanResult | null>(null);
     const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
@@ -163,6 +60,12 @@ export default function ScansPage() {
     const { data: awsStatus } = useQuery({
         queryKey: ["aws-status"],
         queryFn: integrationsApi.getAwsStatus,
+        retry: false,
+    });
+
+    const { data: figmaStatus } = useQuery({
+        queryKey: ["figma-status"],
+        queryFn: integrationsApi.getFigmaStatus,
         retry: false,
     });
 
@@ -207,15 +110,27 @@ export default function ScansPage() {
     const requestedScanId = searchParams.get("scanId");
     const requestedStart = searchParams.get("start");
 
+    const goToHub = useCallback(() => {
+        router.push("/scans");
+    }, [router]);
+
     useEffect(() => {
-        if (requestedStart === "config") {
+        if ((requestedScanId || requestedStart) && !activeApp) {
+            const params = new URLSearchParams(searchParams.toString());
+            params.set("app", "github");
+            router.replace(`/scans?${params.toString()}`);
+        }
+    }, [requestedScanId, requestedStart, activeApp, searchParams, router]);
+
+    useEffect(() => {
+        if (requestedStart === "config" && (activeApp === "github" || !activeApp)) {
             setView("config");
             if (!configOrg) {
                 const saved = localStorage.getItem("tf_default_github_org");
                 setConfigOrg(saved || githubLogin);
             }
         }
-    }, [requestedStart, configOrg, githubLogin]);
+    }, [requestedStart, activeApp, configOrg, githubLogin]);
 
     useEffect(() => {
         if (!requestedScanId || scanHistory.length === 0) return;
@@ -325,27 +240,104 @@ export default function ScansPage() {
         }, 300);
     }, []);
 
-    return (
-        <>
-            <TopBar
-                title="Compliance Scans"
-                subtitle={hasScans ? `${scanHistory.length} scans completed` : undefined}
-                actions={
-                    view === "main" && hasScans ? (
-                        <div style={{ display: "flex", gap: "var(--s-2)" }}>
-                            <button className="btn btn--secondary" onClick={handleViewTrends}>
+    const hubView = !activeApp;
+    const isGithub = activeApp === "github";
+    const isAws = activeApp === "aws";
+    const isFigma = activeApp === "figma";
+
+    let topBarTitle = "Integrations";
+    let topBarSubtitle: string | undefined = "Run compliance scans across your connected apps";
+    let topBarActions: ReactNode;
+
+    if (isGithub) {
+        topBarTitle = "GitHub";
+        topBarSubtitle =
+            view === "config"
+                ? "Set organization, scope, and checks"
+                : hasScans
+                    ? `${scanHistory.length} scans completed`
+                    : "Repository governance scans";
+        topBarActions = (
+            <div style={{ display: "flex", gap: "var(--s-2)" }}>
+                <button type="button" className="btn btn--secondary" onClick={goToHub}>
+                    All integrations
+                </button>
+                {view === "main" ? (
+                    hasScans ? (
+                        <>
+                            <button type="button" className="btn btn--secondary" onClick={handleViewTrends}>
                                 <BarChartOutlinedIcon sx={{ fontSize: 16 }} /> View Trends
                             </button>
-                            <button className="btn btn--primary" onClick={handleStartConfig}>
+                            <button type="button" className="btn btn--primary" onClick={handleStartConfig}>
                                 <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} /> Run Scan
                             </button>
-                        </div>
-                    ) : undefined
-                }
-            />
+                        </>
+                    ) : (
+                        <button type="button" className="btn btn--primary" onClick={handleStartConfig}>
+                            <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} /> Run Scan
+                        </button>
+                    )
+                ) : null}
+            </div>
+        );
+    } else if (isAws) {
+        topBarTitle = "AWS";
+        topBarSubtitle = awsStatus?.connected
+            ? `Account ${awsStatus.info?.account_id ?? ""} · ${awsStatus.info?.region ?? "us-east-1"}`
+            : "Infrastructure compliance scans";
+        topBarActions = (
+            <div style={{ display: "flex", gap: "var(--s-2)" }}>
+                <button type="button" className="btn btn--secondary" onClick={goToHub}>
+                    All integrations
+                </button>
+                {awsStatus?.connected && !selectedAwsScan && (
+                    <button
+                        type="button"
+                        className="btn btn--primary"
+                        onClick={() => void handleAwsScan()}
+                        disabled={awsScanning}
+                    >
+                        <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} />
+                        {awsScanning ? "Scanning…" : "Run AWS Scan"}
+                    </button>
+                )}
+            </div>
+        );
+    } else if (isFigma) {
+        topBarTitle = "Figma";
+        topBarSubtitle = figmaStatus?.connected
+            ? "Brand compliance scans"
+            : "Connect Figma to scan design assets";
+        topBarActions = (
+            <div style={{ display: "flex", gap: "var(--s-2)" }}>
+                <button type="button" className="btn btn--secondary" onClick={goToHub}>
+                    All integrations
+                </button>
+                {!figmaStatus?.connected && (
+                    <Link href="/settings" className="btn btn--primary">
+                        Connect Figma
+                    </Link>
+                )}
+            </div>
+        );
+    }
+
+    return (
+        <>
+            <TopBar title={topBarTitle} subtitle={topBarSubtitle} actions={topBarActions} />
 
             <main className="page">
-                {view === "main" && (
+                {hubView && (
+                    <IntegrationsHub
+                        connected={{
+                            github: githubStatus?.connected ?? false,
+                            aws: awsStatus?.connected ?? false,
+                            figma: figmaStatus?.connected ?? false,
+                        }}
+                    />
+                )}
+
+                {isGithub && view === "main" && (
                     <MainView
                         hasScans={hasScans}
                         latestScan={latestScan}
@@ -357,7 +349,7 @@ export default function ScansPage() {
                     />
                 )}
 
-                {view === "config" && (
+                {isGithub && view === "config" && (
                     <ConfigView
                         configOrg={configOrg}
                         setConfigOrg={setConfigOrg}
@@ -372,11 +364,11 @@ export default function ScansPage() {
                     />
                 )}
 
-                {view === "scanning" && scanProgress && (
-                    <ScanningView progress={scanProgress} org={configOrg} />
+                {isGithub && view === "scanning" && scanProgress && (
+                    <ScanningView progress={scanProgress} org={configOrg} policiesCount={configPolicies.length} />
                 )}
 
-                {view === "results" && currentScan && (
+                {isGithub && view === "results" && currentScan && (
                     <ResultsView
                         scan={currentScan}
                         onRunAnother={handleStartConfig}
@@ -386,14 +378,11 @@ export default function ScansPage() {
                     />
                 )}
 
-                {view === "trends" && (
-                    <TrendsView
-                        scanHistory={scanHistory}
-                        onBack={handleBackFromTrends}
-                    />
+                {isGithub && view === "trends" && (
+                    <TrendsView scanHistory={scanHistory} onBack={handleBackFromTrends} />
                 )}
 
-                {view === "main" && (
+                {isAws && (
                     <AwsScanSection
                         awsConnected={awsStatus?.connected ?? false}
                         accountId={awsStatus?.info?.account_id}
@@ -407,6 +396,8 @@ export default function ScansPage() {
                         onClearScan={() => setSelectedAwsScan(null)}
                     />
                 )}
+
+                {isFigma && <FigmaBrandScanPanel />}
             </main>
         </>
     );
@@ -439,36 +430,12 @@ function MainView({
 
     if (!hasScans) {
         return (
-            <div className="panel">
-                <div className="scan-empty">
-                    <div className="scan-empty__icon">
-                        <DocumentScannerOutlinedIcon sx={{ fontSize: 32 }} />
-                    </div>
-                    <h2 className="scan-empty__title">Run Your First Scan</h2>
-                    <p className="scan-empty__desc">
-                        Check your GitHub AI tool configurations against your
-                        active policies. Identify compliance gaps and get
-                        actionable recommendations.
-                    </p>
-                    <p className="scan-empty__time">
-                        <AccessTimeOutlinedIcon sx={{ fontSize: 16 }} /> Takes ~30 seconds
-                    </p>
-                    <button className="btn btn--primary btn--lg" onClick={onStartConfig}>
-                        <PlayArrowOutlinedIcon sx={{ fontSize: 18 }} /> Run Compliance Scan Now
-                    </button>
-
-                    <div className="scan-info">
-                        <h4 className="scan-info__title">
-                            <TipsAndUpdatesOutlinedIcon sx={{ fontSize: 16 }} /> What happens during a scan?
-                        </h4>
-                        <ol className="scan-info__list">
-                            <li>Connects to GitHub API</li>
-                            <li>Retrieves AI configuration (models, features)</li>
-                            <li>Compares against your active policies</li>
-                            <li>Identifies violations and calculates risk</li>
-                        </ol>
-                    </div>
-                </div>
+            <div className="page-empty-shell page-empty-shell--section">
+                <PageEmptyIllustration
+                    src="/scan-comp.png"
+                    title="No scans"
+                    label="Your scan history is empty"
+                />
             </div>
         );
     }
@@ -510,9 +477,12 @@ function MainView({
                 </div>
                 <div className="panel__body--flush">
                     {filteredHistory.length === 0 ? (
-                        <div className="empty-state" style={{ padding: "var(--s-6)" }}>
-                            <p className="empty-state__desc">No scans match the filter.</p>
-                        </div>
+                        <PageEmptyIllustration
+                            src="/scan-comp.png"
+                            title="No scans"
+                            label="No scans match this filter"
+                            compact
+                        />
                     ) : (
                         <div className="scan-history">
                             {filteredHistory.map((scan) => (
@@ -566,110 +536,135 @@ function ConfigView({
     scanError: string | null;
 }) {
     const effectiveOrg = configOrg || githubLogin;
+    const canStart = configPolicies.length > 0;
 
     return (
-        <div className="panel" style={{ maxWidth: 640 }}>
-            <div className="panel__header">
-                <span className="panel__title">Configure Compliance Scan</span>
-            </div>
-            <div className="panel__body" style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
-                <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", lineHeight: 1.5 }}>
-                    Scan your GitHub repositories against the built-in governance checks.
+        <div className="scan-config-page">
+            <header className="scan-config-page__header">
+                <h2 className="scan-config-page__title">Configure compliance scan</h2>
+                <p className="scan-config-page__subtitle">
+                    Scan your GitHub organization against built-in governance checks for branch protection, reviews, and security settings.
                 </p>
+            </header>
 
-                {scanError && (
-                    <div style={{ padding: "var(--s-3)", borderRadius: "var(--r-md)", background: "rgba(239,68,68,0.08)", border: "1px solid var(--c-critical)", fontSize: "var(--fs-13)", color: "var(--c-critical)" }}>
-                        {scanError}
-                    </div>
-                )}
-
-                <div className="form-group">
-                    <label className="form-label">GitHub Username / Organization *</label>
-                    <input
-                        className="input"
-                        placeholder={githubLogin || "your-github-username"}
-                        value={configOrg}
-                        onChange={(e) => setConfigOrg(e.target.value)}
-                    />
-                    {githubLogin && !configOrg && (
-                        <p style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: 4 }}>
-                            Defaults to connected account: @{githubLogin}
-                        </p>
+            <div className="scan-config-page__body">
+            <div className="scan-config-page__layout">
+                <div className="scan-config-page__form">
+                    {scanError && (
+                        <div className="scan-config-page__error" role="alert">
+                            {scanError}
+                        </div>
                     )}
-                </div>
 
-                <div className="form-group">
-                    <label className="form-label">Checks to Run</label>
-                    <div className="scan-config__policies">
-                        <label className="scan-config__policy-option">
-                            <input
-                                type="checkbox"
-                                checked={configPolicies.length === BUILT_IN_CHECKS.length}
-                                onChange={(e) => setConfigPolicies(e.target.checked ? BUILT_IN_CHECKS.map(c => c.id) : [])}
-                            />
-                            <span>All checks ({BUILT_IN_CHECKS.length})</span>
-                        </label>
+                    <div className="form-group">
+                        <label className="form-label">GitHub username / organization *</label>
+                        <input
+                            className="input"
+                            placeholder={githubLogin || "your-github-username"}
+                            value={configOrg}
+                            onChange={(e) => setConfigOrg(e.target.value)}
+                        />
+                        {githubLogin && !configOrg && (
+                            <p className="form-hint">Defaults to connected account: @{githubLogin}</p>
+                        )}
                     </div>
-                </div>
 
-                <div className="form-group">
-                    <label className="form-label">Scope</label>
-                    <div className="scan-config__scope">
-                        {(["organization", "repositories", "teams"] as ScanScope[]).map((scope) => (
-                            <label key={scope} className="scan-config__scope-option">
+                    <div className="scan-config-page__row scan-config-page__row--2">
+                        <div className="form-group">
+                            <label className="form-label">Checks to run</label>
+                            <label className="scan-config__policy-option">
                                 <input
-                                    type="radio"
-                                    name="scope"
-                                    value={scope}
-                                    checked={configScope === scope}
-                                    onChange={() => setConfigScope(scope)}
+                                    type="checkbox"
+                                    checked={configPolicies.length === BUILT_IN_CHECKS.length}
+                                    onChange={(e) => setConfigPolicies(e.target.checked ? BUILT_IN_CHECKS.map((c) => c.id) : [])}
                                 />
-                                <span>{scope === "organization" ? "Organization-wide" : scope === "repositories" ? "Specific repositories" : "Specific teams"}</span>
+                                <span>All checks ({BUILT_IN_CHECKS.length})</span>
                             </label>
-                        ))}
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Target organization</label>
+                            <p className="scan-config-page__meta">
+                                <BusinessOutlinedIcon sx={{ fontSize: 16 }} />
+                                {effectiveOrg ? `@${effectiveOrg}` : "Enter an organization above"}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="form-group">
+                        <label className="form-label">Scope</label>
+                        <div className="scan-config-page__scope">
+                            {(["organization", "repositories", "teams"] as ScanScope[]).map((scope) => (
+                                <label key={scope} className="scan-config-page__scope-option">
+                                    <input
+                                        type="radio"
+                                        name="scope"
+                                        value={scope}
+                                        checked={configScope === scope}
+                                        onChange={() => setConfigScope(scope)}
+                                    />
+                                    <span>
+                                        {scope === "organization"
+                                            ? "Organization-wide"
+                                            : scope === "repositories"
+                                                ? "Specific repositories"
+                                                : "Specific teams"}
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
                     </div>
                 </div>
 
-                <div className="divider" />
+                <aside className="scan-config-page__aside">
+                    <div className="scan-config-page__card">
+                        <h3 className="scan-config-page__card-title">
+                            <DescriptionOutlinedIcon sx={{ fontSize: 16 }} />
+                            Checks that will run
+                        </h3>
+                        <ul className="scan-config-page__checks">
+                            {BUILT_IN_CHECKS.map((c) => (
+                                <li key={c.id} className="scan-config-page__check">
+                                    <span className="scan-config-page__check-dot" />
+                                    <span className="scan-config-page__check-name">{c.name}</span>
+                                    <span className={`badge badge--${c.severity === "high" ? "danger" : "warning"}`} style={{ fontSize: "var(--fs-11)", flexShrink: 0 }}>
+                                        {c.severity}
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
 
-                <div className="scan-config__preview">
-                    <h4 style={{ fontSize: "var(--fs-13)", fontWeight: "var(--fw-semibold)", color: "var(--c-text)", marginBottom: "var(--s-2)", display: "flex", alignItems: "center", gap: "var(--s-2)" }}>
-                        <DescriptionOutlinedIcon sx={{ fontSize: 16 }} />
-                        Checks that will run:
-                    </h4>
-                    <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
-                        {BUILT_IN_CHECKS.map((c) => (
-                            <li key={c.id} style={{ display: "flex", alignItems: "center", gap: "var(--s-2)", fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
-                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--c-text-muted)", flexShrink: 0 }} />
-                                {c.name}
-                                <span className={`badge badge--${c.severity === "high" ? "danger" : "warning"}`} style={{ fontSize: "var(--fs-11)" }}>
-                                    {c.severity}
-                                </span>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--s-2)", fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
-                    <AccessTimeOutlinedIcon sx={{ fontSize: 14 }} />
-                    <span>Estimated scan time: ~30 seconds</span>
-                </div>
-
-                <div className="divider" />
-
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--s-2)" }}>
-                    <button className="btn btn--secondary" onClick={onCancel}>Cancel</button>
-                    <button className="btn btn--primary" onClick={onStart} disabled={configPolicies.length === 0}>
-                        Start Scan <ChevronRightOutlinedIcon sx={{ fontSize: 16 }} />
-                    </button>
-                </div>
+                    <div className="scan-config-page__card">
+                        <h3 className="scan-config-page__card-title">Before you start</h3>
+                        <ul className="scan-config-page__tips">
+                            <li>GitHub must be connected in Settings for the scan to authenticate.</li>
+                            <li>Organization-wide scope evaluates repos your token can access.</li>
+                            <li>Results appear on this page once the scan completes.</li>
+                        </ul>
+                        <p className="scan-config-page__meta scan-config-page__meta--spaced">
+                            <AccessTimeOutlinedIcon sx={{ fontSize: 16 }} />
+                            Estimated scan time: ~30 seconds
+                        </p>
+                    </div>
+                </aside>
             </div>
+            </div>
+
+            <footer className="scan-config-page__footer">
+                <span className="scan-config-page__footer-hint">
+                    {canStart ? `Ready to scan @${effectiveOrg || "…"}` : "Select at least one check to continue"}
+                </span>
+                <button type="button" className="btn btn--secondary" onClick={onCancel}>Cancel</button>
+                <button type="button" className="btn btn--primary" onClick={onStart} disabled={!canStart}>
+                    Start Scan <ChevronRightOutlinedIcon sx={{ fontSize: 16 }} />
+                </button>
+            </footer>
         </div>
     );
 }
 
 
-function ScanningView({ progress, org }: { progress: ScanProgress; org: string }) {
+function ScanningView({ progress, org, policiesCount }: { progress: ScanProgress; org: string; policiesCount: number }) {
     return (
         <div className="panel" style={{ maxWidth: 560, margin: "0 auto" }}>
             <div className="panel__body">
@@ -713,7 +708,7 @@ function ScanningView({ progress, org }: { progress: ScanProgress; org: string }
 
                     <div className="scan-progress__meta">
                         <div><strong>Organization:</strong> {org}</div>
-                        <div><strong>Policies checked:</strong> {MOCK_POLICIES.length} active policies</div>
+                        <div><strong>Checks enabled:</strong> {policiesCount}</div>
                         <div><strong>Started:</strong> {new Date().toLocaleTimeString()}</div>
                     </div>
                 </div>
@@ -1401,22 +1396,17 @@ function AwsScanSection({
     }
 
     return (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)", marginTop: "var(--s-4)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
             <div className="panel">
                 <div className="panel__header">
                     <span className="panel__title" style={{ display: "flex", alignItems: "center", gap: "var(--s-2)" }}>
                         <CloudOutlinedIcon sx={{ fontSize: 18 }} />
                         AWS Infrastructure Scans
                     </span>
-                    {awsConnected && (
-                        <button
-                            className="btn btn--primary btn--sm"
-                            disabled={scanning}
-                            onClick={onTrigger}
-                        >
-                            <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} />
-                            {scanning ? "Scanning…" : "Run AWS Scan"}
-                        </button>
+                    {awsConnected && accountId && (
+                        <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                            {accountId} · {region ?? "us-east-1"}
+                        </span>
                     )}
                 </div>
 
@@ -1428,33 +1418,41 @@ function AwsScanSection({
 
                 <div className="panel__body--flush">
                     {!awsConnected ? (
-                        <div className="empty-state" style={{ padding: "var(--s-6)" }}>
-                            <div style={{ marginBottom: "var(--s-3)" }}>
-                                <CloudOutlinedIcon sx={{ fontSize: 32, color: "var(--c-text-muted)" }} />
-                            </div>
-                            <p className="empty-state__title">AWS Not Connected</p>
-                            <p className="empty-state__desc">
-                                Go to Settings to connect your AWS account via IAM Role ARN, then run infrastructure compliance scans here.
-                            </p>
+                        <div className="panel__empty-body">
+                            <PageEmptyIllustration
+                                src="/cloud.png"
+                                title="AWS not connected"
+                                label="Connect your account in Settings to run infrastructure scans"
+                            >
+                                <Link href="/settings" className="btn btn--primary" style={{ marginTop: "var(--s-4)" }}>
+                                    Connect AWS in Settings
+                                </Link>
+                            </PageEmptyIllustration>
                         </div>
                     ) : scanHistory.length === 0 && !scanning ? (
-                        <div className="empty-state" style={{ padding: "var(--s-6)" }}>
-                            <div style={{ marginBottom: "var(--s-3)" }}>
-                                <DocumentScannerOutlinedIcon sx={{ fontSize: 32, color: "var(--c-text-muted)" }} />
-                            </div>
-                            <p className="empty-state__title">No AWS Scans Yet</p>
-                            <p className="empty-state__desc">
-                                Run your first AWS compliance scan to audit IAM, S3, CloudTrail, AWS Config, and Security Hub against NIST 800-53 controls.
-                            </p>
-                            <div style={{ marginTop: "var(--s-3)", fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
-                                Account: {accountId} &middot; Region: {region}
-                            </div>
+                        <div className="panel__empty-body">
+                            <PageEmptyIllustration
+                                src="/cloud.png"
+                                title="No AWS scans"
+                                label="Run your first infrastructure scan"
+                            >
+                                <button
+                                    type="button"
+                                    className="btn btn--primary"
+                                    style={{ marginTop: "var(--s-4)" }}
+                                    onClick={onTrigger}
+                                >
+                                    <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} /> Run AWS Scan
+                                </button>
+                            </PageEmptyIllustration>
                         </div>
                     ) : scanning ? (
-                        <div className="empty-state" style={{ padding: "var(--s-6)" }}>
-                            <div className="spinner spinner--lg" style={{ marginBottom: "var(--s-3)" }} />
-                            <p className="empty-state__title">Running AWS Compliance Scan</p>
-                            <p className="empty-state__desc">Auditing IAM, S3, CloudTrail, Config, and Security Hub…</p>
+                        <div className="panel__empty-body">
+                            <div className="page-empty page-empty--in-panel">
+                                <div className="spinner spinner--lg" style={{ marginBottom: "var(--s-4)" }} />
+                                <h2 className="page-empty__title">Running AWS scan</h2>
+                                <p className="page-empty__label">Auditing infrastructure controls</p>
+                            </div>
                         </div>
                     ) : (
                         <div className="scan-history">

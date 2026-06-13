@@ -1,12 +1,5 @@
+import { DashboardOutlinedIcon, MemoryOutlinedIcon, PolicyOutlinedIcon, DocumentScannerOutlinedIcon, HistoryOutlinedIcon, SettingsOutlinedIcon, VerifiedUserOutlinedIcon } from "@/lib/icons";
 import type { ElementType } from "react";
-import DashboardOutlinedIcon from "@mui/icons-material/DashboardOutlined";
-import MemoryOutlinedIcon from "@mui/icons-material/MemoryOutlined";
-import PolicyOutlinedIcon from "@mui/icons-material/PolicyOutlined";
-import DocumentScannerOutlinedIcon from "@mui/icons-material/DocumentScannerOutlined";
-import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
-import SettingsOutlinedIcon from "@mui/icons-material/SettingsOutlined";
-import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
-
 type NavIcon = ElementType<{ sx?: { fontSize?: number | string } }>;
 
 export type NavItem = { label: string; href: string; icon: NavIcon };
@@ -24,7 +17,7 @@ export const APP_MAIN_NAV: readonly NavSection[] = [
         items: [
             { label: "AI Systems", href: "/systems", icon: MemoryOutlinedIcon },
             { label: "Policies", href: "/policies", icon: PolicyOutlinedIcon },
-            { label: "Scans", href: "/scans", icon: DocumentScannerOutlinedIcon },
+            { label: "Integrations", href: "/scans", icon: DocumentScannerOutlinedIcon },
             { label: "Compliance", href: "/compliance", icon: VerifiedUserOutlinedIcon },
             { label: "Audit", href: "/audit", icon: HistoryOutlinedIcon },
         ],

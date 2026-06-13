@@ -21,8 +21,8 @@ router = APIRouter()
 
 
 @router.get("/", response_model=List[AISystem], summary="List AI systems")
-def list_systems(actor: Actor = Depends(get_actor)) -> List[AISystem]:  # noqa: ARG001 - actor for auth
-    return store.list_systems()
+def list_systems(actor: Actor = Depends(get_actor)) -> List[AISystem]:
+    return store.list_systems(actor.organization_id)
 
 
 @router.post(
@@ -32,9 +32,9 @@ def list_systems(actor: Actor = Depends(get_actor)) -> List[AISystem]:  # noqa: 
     summary="Create AI system (admin only)",
 )
 async def create_system(payload: AISystemCreate, actor: Actor = Depends(require_admin)) -> AISystem:
-    system = store.create_system(payload, user_id=actor.user_id)
+    system = store.create_system(payload, user_id=actor.user_id, organization_id=actor.organization_id)
     try:
-        await notify_system_change(actor.user_id, system, "created")
+        await notify_system_change(actor.organization_id, system, "created")
     except Exception:
         pass
     return system
@@ -45,8 +45,8 @@ async def create_system(payload: AISystemCreate, actor: Actor = Depends(require_
     response_model=List[GovernancePolicy],
     summary="List governance policies saved for a system",
 )
-def list_system_policies(system_id: int, actor: Actor = Depends(get_actor)) -> List[GovernancePolicy]:  # noqa: ARG001
-    policies = store.list_system_policies(system_id)
+def list_system_policies(system_id: int, actor: Actor = Depends(get_actor)) -> List[GovernancePolicy]:
+    policies = store.list_system_policies(system_id, actor.organization_id)
     if policies is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
     return policies
@@ -63,7 +63,12 @@ def create_system_policy(
     payload: GovernancePolicyCreate,
     actor: Actor = Depends(require_admin),
 ) -> GovernancePolicy:
-    created = store.create_system_policy(system_id, payload, user_id=actor.user_id)
+    created = store.create_system_policy(
+        system_id,
+        payload,
+        user_id=actor.user_id,
+        organization_id=actor.organization_id,
+    )
     if created is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
     return created
@@ -80,15 +85,21 @@ def update_system_policy(
     payload: GovernancePolicyUpdate,
     actor: Actor = Depends(require_admin),
 ) -> GovernancePolicy:
-    updated = store.update_system_policy(system_id, policy_id, payload, user_id=actor.user_id)
+    updated = store.update_system_policy(
+        system_id,
+        policy_id,
+        payload,
+        user_id=actor.user_id,
+        organization_id=actor.organization_id,
+    )
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System or policy not found")
     return updated
 
 
 @router.get("/{system_id}", response_model=AISystem, summary="Get AI system by ID")
-def get_system(system_id: int, actor: Actor = Depends(get_actor)) -> AISystem:  # noqa: ARG001 - actor for auth
-    system = store.get_system(system_id)
+def get_system(system_id: int, actor: Actor = Depends(get_actor)) -> AISystem:
+    system = store.get_system(system_id, actor.organization_id)
     if system is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
     return system
@@ -96,11 +107,16 @@ def get_system(system_id: int, actor: Actor = Depends(get_actor)) -> AISystem:  
 
 @router.patch("/{system_id}", response_model=AISystem, summary="Update AI system (admin only)")
 async def update_system(system_id: int, payload: AISystemUpdate, actor: Actor = Depends(require_admin)) -> AISystem:
-    system = store.update_system(system_id, payload, user_id=actor.user_id)
+    system = store.update_system(
+        system_id,
+        payload,
+        user_id=actor.user_id,
+        organization_id=actor.organization_id,
+    )
     if system is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
     try:
-        await notify_system_change(actor.user_id, system, "updated")
+        await notify_system_change(actor.organization_id, system, "updated")
     except Exception:
         pass
     return system
@@ -112,13 +128,13 @@ async def update_system(system_id: int, payload: AISystemUpdate, actor: Actor = 
     summary="Delete AI system (admin only)",
 )
 async def delete_system(system_id: int, actor: Actor = Depends(require_admin)) -> None:
-    system = store.get_system(system_id)
-    deleted = store.delete_system(system_id, user_id=actor.user_id)
+    system = store.get_system(system_id, actor.organization_id)
+    deleted = store.delete_system(system_id, user_id=actor.user_id, organization_id=actor.organization_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
     if system:
         try:
-            await notify_system_change(actor.user_id, system, "deleted")
+            await notify_system_change(actor.organization_id, system, "deleted")
         except Exception:
             pass
 
@@ -128,5 +144,8 @@ async def delete_system(system_id: int, actor: Actor = Depends(require_admin)) -
     summary="Ask Claude to explain missing required controls for a system",
 )
 def explain_missing(system_id: int, actor: Actor = Depends(get_actor)) -> dict:
-    return claude_service.explain_missing_controls(system_id=system_id, user_id=actor.user_id)
-
+    return claude_service.explain_missing_controls(
+        system_id=system_id,
+        user_id=actor.user_id,
+        organization_id=actor.organization_id,
+    )

@@ -1,35 +1,15 @@
 "use client";
+import { VerifiedUserOutlinedIcon, GppMaybeOutlinedIcon, TimelineOutlinedIcon, VisibilityOutlinedIcon, TrendingUpOutlinedIcon, TrendingDownOutlinedIcon, WarningAmberOutlinedIcon, CheckCircleOutlinedIcon, OpenInNewOutlinedIcon, MemoryOutlinedIcon, GitHubIcon, ForumOutlinedIcon, CloudOutlinedIcon, StorageOutlinedIcon, DescriptionOutlinedIcon, BoltOutlinedIcon, ChevronRightOutlinedIcon, ExpandMoreIcon, BrushOutlinedIcon, TagOutlinedIcon } from "@/lib/icons"
+import type { AppIconComponent } from "@/lib/icons";
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
-import GppMaybeOutlinedIcon from "@mui/icons-material/GppMaybeOutlined";
-import TimelineOutlinedIcon from "@mui/icons-material/TimelineOutlined";
-import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
-import TrendingUpOutlinedIcon from "@mui/icons-material/TrendingUpOutlined";
-import TrendingDownOutlinedIcon from "@mui/icons-material/TrendingDownOutlined";
-import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
-import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
-import OpenInNewOutlinedIcon from "@mui/icons-material/OpenInNewOutlined";
-import MemoryOutlinedIcon from "@mui/icons-material/MemoryOutlined";
-import GitHubIcon from "@mui/icons-material/GitHub";
-import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
-import CloudOutlinedIcon from "@mui/icons-material/CloudOutlined";
-import StorageOutlinedIcon from "@mui/icons-material/StorageOutlined";
-import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import BoltOutlinedIcon from "@mui/icons-material/BoltOutlined";
-import ChevronRightOutlinedIcon from "@mui/icons-material/ChevronRightOutlined";
-import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import Link from "next/link";
 import { TopBar } from "@/components/layout/TopBar";
 import { RiskTierBadge } from "@/components/ui/Badge";
 import { GlowingEffect } from "@/components/ui/glowing-effect";
-import TagOutlinedIcon from "@mui/icons-material/TagOutlined";
 import { dashboardApi, systemsApi, auditApi, integrationsApi, scansApi } from "@/lib/api";
 import type { RiskTier } from "@/types";
-import type { SvgIconComponent } from "@mui/icons-material";
-
 const TIER_ORDER: RiskTier[] = ["Tier 3", "Tier 2", "Tier 1"];
 
 /* framework heatmap configs — nist_rmf uses real backend data; others are placeholders */
@@ -78,13 +58,21 @@ const FRAMEWORK_CONFIGS = {
 
 type FrameworkKey = keyof typeof FRAMEWORK_CONFIGS;
 
-const INTEGRATIONS = [
-    { name: "GitHub", desc: "Code scanning & PR reviews", icon: GitHubIcon, status: "connected" as const },
-    { name: "Slack", desc: "Alerts & notifications", icon: TagOutlinedIcon, status: "needs_setup" as const },
-    { name: "AWS", desc: "Cloud infrastructure audit", icon: CloudOutlinedIcon, status: "needs_setup" as const },
-    { name: "Azure", desc: "Identity & access management", icon: StorageOutlinedIcon, status: "needs_setup" as const },
-    { name: "Google Cloud", desc: "Vertex AI model monitoring", icon: CloudOutlinedIcon, status: "disconnected" as const },
-    { name: "Jira", desc: "Issue tracking & remediation", icon: BoltOutlinedIcon, status: "needs_setup" as const },
+type IntegrationCardStatus = "connected" | "needs_setup" | "disconnected";
+
+const INTEGRATIONS: {
+    name: string;
+    desc: string;
+    icon: AppIconComponent;
+    status: IntegrationCardStatus;
+}[] = [
+    { name: "GitHub", desc: "Code scanning & PR reviews", icon: GitHubIcon, status: "needs_setup" },
+    { name: "Figma", desc: "Design & brand compliance", icon: BrushOutlinedIcon, status: "needs_setup" },
+    { name: "Slack", desc: "Alerts & notifications", icon: TagOutlinedIcon, status: "needs_setup" },
+    { name: "AWS", desc: "Cloud infrastructure audit", icon: CloudOutlinedIcon, status: "needs_setup" },
+    { name: "Azure", desc: "Identity & access management", icon: StorageOutlinedIcon, status: "needs_setup" },
+    { name: "Google Cloud", desc: "Vertex AI model monitoring", icon: CloudOutlinedIcon, status: "disconnected" },
+    { name: "Jira", desc: "Issue tracking & remediation", icon: BoltOutlinedIcon, status: "needs_setup" },
 ];
 
 const STATUS_LABELS = { connected: "Connected", needs_setup: "Needs setup", disconnected: "Not connected" };
@@ -178,6 +166,12 @@ export default function DashboardPage() {
         retry: false,
     });
 
+    const { data: figmaStatus } = useQuery({
+        queryKey: ["figma-status"],
+        queryFn: integrationsApi.getFigmaStatus,
+        retry: false,
+    });
+
     const connectGitHub = async () => {
         try {
             const { url } = await integrationsApi.getGitHubConnectUrl();
@@ -198,15 +192,24 @@ export default function DashboardPage() {
 
     // Connected / failed integrations (GitHub + Slack + AWS status comes from API; rest are static placeholders)
     const githubConnected = githubStatus?.connected ?? false;
+    const figmaConnected = figmaStatus?.connected ?? false;
     const slackConnected = slackStatus?.connected ?? false;
     const awsConnected = awsStatus?.connected ?? false;
-    const dynamicNames = new Set(["GitHub", "Slack", "AWS"]);
-    const connectedCount = INTEGRATIONS.filter((i) => !dynamicNames.has(i.name) && i.status === "connected").length + (githubConnected ? 1 : 0) + (slackConnected ? 1 : 0) + (awsConnected ? 1 : 0);
-    const needsSetupCount = INTEGRATIONS.filter((i) => !dynamicNames.has(i.name) && i.status === "needs_setup").length + (!githubConnected ? 1 : 0) + (!slackConnected ? 1 : 0) + (!awsConnected ? 1 : 0);
+    const dynamicNames = new Set(["GitHub", "Figma", "Slack", "AWS"]);
+    const connectedCount = INTEGRATIONS.filter((i) => !dynamicNames.has(i.name) && i.status === "connected").length
+        + (githubConnected ? 1 : 0) + (figmaConnected ? 1 : 0) + (slackConnected ? 1 : 0) + (awsConnected ? 1 : 0);
+    const needsSetupCount = INTEGRATIONS.filter((i) => !dynamicNames.has(i.name) && i.status === "needs_setup").length
+        + (!githubConnected ? 1 : 0) + (!figmaConnected ? 1 : 0) + (!slackConnected ? 1 : 0) + (!awsConnected ? 1 : 0);
+
+    const frameworkIsPreview = selectedFramework !== "nist_rmf";
+    const evaluatedControls = heatmapData.flat().filter((v) => v !== 0).length;
 
     return (
         <>
-            <TopBar title="Dashboard" subtitle={total > 0 ? `Last updated ${formatRelativeTime(new Date().toISOString())}` : undefined} />
+            <TopBar
+                title="Dashboard"
+                subtitle="AI governance overview for your workspace"
+            />
             <main className="page">
 
                 {/* Row 1: KPI Stats */}
@@ -291,6 +294,20 @@ export default function DashboardPage() {
                                 </div>
                             </div>
                             <div className="panel__body">
+                                {frameworkIsPreview && (
+                                    <p style={{
+                                        fontSize: "var(--fs-12)",
+                                        color: "var(--c-text-muted)",
+                                        marginBottom: "var(--s-3)",
+                                        padding: "var(--s-2) var(--s-3)",
+                                        borderRadius: "var(--r-sm)",
+                                        border: "1px solid var(--c-border)",
+                                        background: "rgba(255,255,255,0.02)",
+                                        lineHeight: 1.5,
+                                    }}>
+                                        Illustrative preview. Run compliance scans and register AI systems to populate live NIST AI RMF coverage.
+                                    </p>
+                                )}
                                 {/* Category rows */}
                                 <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
                                     {activeFramework.categories.map((cat, ci) => (
@@ -331,7 +348,7 @@ export default function DashboardPage() {
                                 <div style={{ marginTop: "var(--s-4)" }}>
                                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: "var(--fs-11)", color: "var(--c-text-muted)" }}>
                                         <span>{totalControls} total controls</span>
-                                        <span>100% assigned</span>
+                                        <span>{totalControls > 0 ? `${Math.round((evaluatedControls / totalControls) * 100)}% evaluated` : "No controls"}</span>
                                     </div>
                                     <SegmentedBar segments={[
                                         { value: passingControls, color: "var(--c-live)", label: "Passing" },
@@ -482,7 +499,6 @@ export default function DashboardPage() {
                             period="Q1 2026"
                             steps={["Policy Draft", "Stakeholder Review", "Approval", "Publish"]}
                             activeIndex={2}
-                            showDownload
                         />
                     </div>
                 </div>
@@ -506,12 +522,15 @@ export default function DashboardPage() {
                         </div>
                         <div className="panel__body--flush">
                             {INTEGRATIONS.map((integ) => {
-                                const Icon = integ.icon;
+                                    const Icon = integ.icon;
                                 const isGitHub = integ.name === "GitHub";
+                                const isFigma = integ.name === "Figma";
                                 const isSlack = integ.name === "Slack";
                                 const isAws = integ.name === "AWS";
                                 const effectiveStatus = isGitHub
                                     ? (githubConnected ? "connected" as const : "needs_setup" as const)
+                                    : isFigma
+                                        ? (figmaConnected ? "connected" as const : "needs_setup" as const)
                                     : isSlack
                                         ? (slackConnected ? "connected" as const : "needs_setup" as const)
                                         : isAws
@@ -519,13 +538,15 @@ export default function DashboardPage() {
                                             : integ.status;
                                 const desc = isGitHub && githubConnected && githubStatus?.user
                                     ? `@${githubStatus.user.login}${githubStatus.user.orgs.length ? ` · ${githubStatus.user.orgs.length} org(s)` : ""}`
+                                    : isFigma && figmaConnected && figmaStatus?.user
+                                        ? `@${figmaStatus.user.handle} · ${figmaStatus.user.email}`
                                     : isSlack && slackConnected && slackStatus?.info
                                         ? `${slackStatus.info.team_name} · #${slackStatus.info.channel_name}`
                                         : isAws && awsConnected && awsStatus?.info
                                             ? `Account ${awsStatus.info.account_id} · ${awsStatus.info.region}`
                                             : integ.desc;
                                 const showConnect = (isGitHub && !githubConnected) || (isSlack && !slackConnected);
-                                const showSetup = isAws && !awsConnected;
+                                const showSetup = (isFigma && !figmaConnected) || (isAws && !awsConnected);
                                 return (
                                     <div key={integ.name} className="integration">
                                         <div className="integration__logo">
@@ -550,7 +571,7 @@ export default function DashboardPage() {
                                                 className="btn btn--secondary btn--sm"
                                                 style={{ borderRadius: "var(--r-pill)", fontSize: "var(--fs-11)", padding: "2px 10px", textDecoration: "none" }}
                                             >
-                                                Setup
+                                                {isFigma ? "Connect" : "Setup"}
                                             </Link>
                                         ) : (
                                             <span className={`badge ${STATUS_BADGE[effectiveStatus]}`}>
@@ -747,9 +768,9 @@ function MiniStat({ label, value, color, total }: { label: string; value: number
 }
 
 function AuditTimeline({
-    title, period, steps, activeIndex, showDownload,
+    title, period, steps, activeIndex,
 }: {
-    title: string; period: string; steps: string[]; activeIndex: number; showDownload?: boolean;
+    title: string; period: string; steps: string[]; activeIndex: number;
 }) {
     return (
         <div className="audit-timeline" style={{ borderRight: "1px solid var(--c-border-subtle)" }}>
@@ -758,11 +779,6 @@ function AuditTimeline({
                     <VerifiedUserOutlinedIcon sx={{ fontSize: 16 }} />
                     <span className="audit-timeline__title">{title}</span>
                 </div>
-                {showDownload && (
-                    <button className="btn btn--secondary btn--sm">
-                        <FileDownloadOutlinedIcon sx={{ fontSize: 14 }} /> Download Report
-                    </button>
-                )}
             </div>
             <div className="audit-timeline__steps">
                 {steps.map((_, i) => (
@@ -814,10 +830,10 @@ type RecentItem = {
     title: string;
     badge: string;
     badgeClass: string;
-    icon: SvgIconComponent;
+    icon: AppIconComponent;
 };
 
-const AUDIT_EVENT_META: Record<string, { type: string; badge: string; badgeClass: string; icon: SvgIconComponent }> = {
+const AUDIT_EVENT_META: Record<string, { type: string; badge: string; badgeClass: string; icon: AppIconComponent }> = {
     system_created:        { type: "System",  badge: "Created",      badgeClass: "badge--live",    icon: MemoryOutlinedIcon },
     system_updated:        { type: "System",  badge: "Updated",      badgeClass: "badge--info",    icon: MemoryOutlinedIcon },
     system_deleted:        { type: "System",  badge: "Deleted",      badgeClass: "badge--danger",  icon: MemoryOutlinedIcon },

@@ -1,17 +1,25 @@
 "use client";
+import { LogoutOutlinedIcon } from "@/lib/icons";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import LogoutOutlinedIcon from "@mui/icons-material/LogoutOutlined";
+import { usePathname, useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { useAuth } from "@/providers/AuthProvider";
+import { useOrganization } from "@/providers/OrganizationProvider";
 import { APP_MAIN_NAV } from "@/lib/navigation";
 import { usePrefetchAppRoutes } from "@/hooks/usePrefetchAppRoutes";
 
 export function Sidebar() {
     const pathname = usePathname();
-    const { user, logOut } = useAuth();
+    const router = useRouter();
+    const { user, logOut, isDevMode } = useAuth();
+    const { activeOrganization } = useOrganization();
     usePrefetchAppRoutes();
+
+    const handleSignOut = async () => {
+        await logOut();
+        router.replace("/login");
+    };
 
     const initials = user?.email
         ? user.email.slice(0, 2).toUpperCase()
@@ -59,7 +67,7 @@ export function Sidebar() {
                                         </>
                                     )}
                                     <span className="sidebar__link-content">
-                                        <Icon sx={{ fontSize: 18 }} />
+                                        <Icon sx={{ fontSize: 20 }} />
                                         <span>{label}</span>
                                     </span>
                                 </Link>
@@ -70,18 +78,27 @@ export function Sidebar() {
             </nav>
 
             <div className="sidebar__footer">
-                <div
-                    className="sidebar__user"
-                    onClick={logOut}
-                    title="Sign out"
-                >
+                <div className="sidebar__user">
                     <div className="sidebar__avatar">{initials}</div>
                     <div className="sidebar__user-info">
-                        <div className="sidebar__user-name">{user?.email ?? "Local dev"}</div>
-                        <div className="sidebar__user-role">Sign out</div>
+                        <div className="sidebar__user-name">
+                            {isDevMode ? "Development session" : (user?.email ?? "Account")}
+                        </div>
+                        <div className="sidebar__user-role">
+                            {activeOrganization?.organization.name ?? "Workspace"}
+                            {activeOrganization?.role ? ` · ${activeOrganization.role}` : ""}
+                        </div>
                     </div>
-                    <LogoutOutlinedIcon sx={{ fontSize: 14, color: "var(--c-text-muted)" }} />
                 </div>
+                <button
+                    type="button"
+                    className="sidebar__sign-out"
+                    onClick={() => void handleSignOut()}
+                    aria-label="Sign out"
+                >
+                    <LogoutOutlinedIcon sx={{ fontSize: 16 }} />
+                    Sign out
+                </button>
             </div>
         </aside>
     );
