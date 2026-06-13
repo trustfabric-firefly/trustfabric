@@ -17,6 +17,7 @@ import { useOrganization } from "@/providers/OrganizationProvider";
 import type { SlackChannel, AwsIntegrationStatus } from "@/types";
 import { isFirebaseConfigured } from "@/lib/firebase";
 import { IS_PRODUCTION_BUILD } from "@/lib/auth-config";
+import { INTEGRATION_SECTION_IDS } from "@/lib/integration-sections";
 
 // ─── Local storage keys ────────────────────────────────────────────────────────
 const LS_DEFAULT_GITHUB_ORG = "tf_default_github_org";
@@ -65,13 +66,16 @@ function ls(key: string, fallback = "") {
 
 // ─── Small presentational components ──────────────────────────────────────────
 
-function SectionCard({ children }: { children: React.ReactNode }) {
+function SectionCard({ id, children }: { id?: string; children: React.ReactNode }) {
     return (
-        <section style={{
+        <section
+            id={id}
+            style={{
             padding: "var(--s-5)",
             borderRadius: "var(--r-md)",
             border: "1px solid var(--c-border)",
             background: "var(--c-surface-elevated)",
+            ...(id ? { scrollMarginTop: "var(--s-4)" } : {}),
         }}>
             {children}
         </section>
@@ -236,6 +240,27 @@ export default function SettingsPage() {
             void queryClient.invalidateQueries({ queryKey: ["slack-status"] });
         }
     }, [slackParam, queryClient]);
+
+    useEffect(() => {
+        const scrollToIntegration = () => {
+            const hash = window.location.hash.slice(1);
+            if (!hash || !(Object.values(INTEGRATION_SECTION_IDS) as string[]).includes(hash)) {
+                return;
+            }
+            const el = document.getElementById(hash);
+            el?.scrollIntoView({ behavior: "smooth", block: "start" });
+        };
+
+        const frame = requestAnimationFrame(() => {
+            requestAnimationFrame(scrollToIntegration);
+        });
+
+        window.addEventListener("hashchange", scrollToIntegration);
+        return () => {
+            cancelAnimationFrame(frame);
+            window.removeEventListener("hashchange", scrollToIntegration);
+        };
+    }, []);
 
     // Remote data
     const { data: githubStatus, isLoading: githubLoading, refetch: refetchGitHub } = useQuery({
@@ -639,7 +664,7 @@ export default function SettingsPage() {
     const policyEvalAvailable = backendStatus?.claude_api_configured ?? false;
 
     return (
-        <div style={{ padding: "var(--s-4)", minHeight: "100%" }}>
+        <main className="page">
             <TopBar
                 title="Settings"
                 subtitle="Configure your organization, integrations, and AI provider"
@@ -1114,7 +1139,7 @@ export default function SettingsPage() {
                 </SectionCard>
 
                 {/* ── 3. GitHub Integration ─────────────────────────────────── */}
-                <SectionCard>
+                <SectionCard id={INTEGRATION_SECTION_IDS.github}>
                     <SectionHeader
                         icon={<GitHubIcon sx={{ fontSize: 24 }} />}
                         title="GitHub Integration"
@@ -1213,7 +1238,7 @@ export default function SettingsPage() {
                 </SectionCard>
 
                 {/* ── 3b. Slack Integration ────────────────────────────────── */}
-                <SectionCard>
+                <SectionCard id={INTEGRATION_SECTION_IDS.slack}>
                     <SectionHeader
                         icon={<TagOutlinedIcon sx={{ fontSize: 24 }} />}
                         title="Slack Integration"
@@ -1339,7 +1364,7 @@ export default function SettingsPage() {
                 </SectionCard>
 
                 {/* ── 3c. AWS Integration ─────────────────────────────────── */}
-                <SectionCard>
+                <SectionCard id={INTEGRATION_SECTION_IDS.aws}>
                     <SectionHeader
                         icon={<CloudOutlinedIcon sx={{ fontSize: 24 }} />}
                         title="AWS Integration"
@@ -1468,7 +1493,7 @@ export default function SettingsPage() {
                 </SectionCard>
 
                 {/* ── 3d. Figma Integration ─────────────────────────────────── */}
-                <SectionCard>
+                <SectionCard id={INTEGRATION_SECTION_IDS.figma}>
                     <SectionHeader
                         icon={<BrushOutlinedIcon sx={{ fontSize: 24 }} />}
                         title="Figma Integration"
@@ -1757,6 +1782,6 @@ export default function SettingsPage() {
                 </SectionCard>
 
             </div>
-        </div>
+        </main>
     );
 }

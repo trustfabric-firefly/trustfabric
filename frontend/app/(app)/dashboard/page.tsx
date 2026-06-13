@@ -9,6 +9,7 @@ import { TopBar } from "@/components/layout/TopBar";
 import { RiskTierBadge } from "@/components/ui/Badge";
 import { GlowingEffect } from "@/components/ui/glowing-effect";
 import { dashboardApi, systemsApi, auditApi, integrationsApi, scansApi } from "@/lib/api";
+import { dashboardIntegrationSettingsHref } from "@/lib/integration-sections";
 import type { RiskTier } from "@/types";
 const TIER_ORDER: RiskTier[] = ["Tier 3", "Tier 2", "Tier 1"];
 
@@ -58,7 +59,7 @@ const FRAMEWORK_CONFIGS = {
 
 type FrameworkKey = keyof typeof FRAMEWORK_CONFIGS;
 
-type IntegrationCardStatus = "connected" | "needs_setup" | "disconnected";
+type IntegrationCardStatus = "connected" | "needs_setup" | "coming_soon" | "disconnected";
 
 const INTEGRATIONS: {
     name: string;
@@ -70,13 +71,13 @@ const INTEGRATIONS: {
     { name: "Figma", desc: "Design & brand compliance", icon: BrushOutlinedIcon, status: "needs_setup" },
     { name: "Slack", desc: "Alerts & notifications", icon: TagOutlinedIcon, status: "needs_setup" },
     { name: "AWS", desc: "Cloud infrastructure audit", icon: CloudOutlinedIcon, status: "needs_setup" },
-    { name: "Azure", desc: "Identity & access management", icon: StorageOutlinedIcon, status: "needs_setup" },
-    { name: "Google Cloud", desc: "Vertex AI model monitoring", icon: CloudOutlinedIcon, status: "disconnected" },
-    { name: "Jira", desc: "Issue tracking & remediation", icon: BoltOutlinedIcon, status: "needs_setup" },
+    { name: "Azure", desc: "Identity & access management", icon: StorageOutlinedIcon, status: "coming_soon" },
+    { name: "Google Cloud", desc: "Vertex AI model monitoring", icon: CloudOutlinedIcon, status: "coming_soon" },
+    { name: "Jira", desc: "Issue tracking & remediation", icon: BoltOutlinedIcon, status: "coming_soon" },
 ];
 
-const STATUS_LABELS = { connected: "Connected", needs_setup: "Needs setup", disconnected: "Not connected" };
-const STATUS_BADGE = { connected: "badge--live", needs_setup: "badge--warning", disconnected: "badge--neutral" };
+const STATUS_LABELS = { connected: "Connected", needs_setup: "Needs setup", coming_soon: "Coming soon.", disconnected: "Not connected" };
+const STATUS_BADGE = { connected: "badge--live", needs_setup: "badge--warning", coming_soon: "badge--neutral", disconnected: "badge--neutral" };
 
 export default function DashboardPage() {
     const { data: summary, isLoading: loadingSummary } = useQuery({
@@ -171,24 +172,6 @@ export default function DashboardPage() {
         queryFn: integrationsApi.getFigmaStatus,
         retry: false,
     });
-
-    const connectGitHub = async () => {
-        try {
-            const { url } = await integrationsApi.getGitHubConnectUrl();
-            window.location.href = url;
-        } catch {
-            // silently ignore — user will see the card stays disconnected
-        }
-    };
-
-    const connectSlack = async () => {
-        try {
-            const { url } = await integrationsApi.getSlackConnectUrl();
-            window.location.href = url;
-        } catch {
-            // silently ignore
-        }
-    };
 
     // Connected / failed integrations (GitHub + Slack + AWS status comes from API; rest are static placeholders)
     const githubConnected = githubStatus?.connected ?? false;
@@ -545,8 +528,11 @@ export default function DashboardPage() {
                                         : isAws && awsConnected && awsStatus?.info
                                             ? `Account ${awsStatus.info.account_id} · ${awsStatus.info.region}`
                                             : integ.desc;
-                                const showConnect = (isGitHub && !githubConnected) || (isSlack && !slackConnected);
-                                const showSetup = (isFigma && !figmaConnected) || (isAws && !awsConnected);
+                                const showConnect =
+                                    (isGitHub && !githubConnected)
+                                    || (isSlack && !slackConnected)
+                                    || (isFigma && !figmaConnected)
+                                    || (isAws && !awsConnected);
                                 return (
                                     <div key={integ.name} className="integration">
                                         <div className="integration__logo">
@@ -557,21 +543,12 @@ export default function DashboardPage() {
                                             <div className="integration__desc">{desc}</div>
                                         </div>
                                         {showConnect ? (
-                                            <button
-                                                type="button"
-                                                className="btn btn--secondary btn--sm"
-                                                style={{ borderRadius: "var(--r-pill)", fontSize: "var(--fs-11)", padding: "2px 10px" }}
-                                                onClick={() => void (isGitHub ? connectGitHub() : connectSlack())}
-                                            >
-                                                Connect
-                                            </button>
-                                        ) : showSetup ? (
                                             <Link
-                                                href="/settings"
+                                                href={dashboardIntegrationSettingsHref(integ.name)}
                                                 className="btn btn--secondary btn--sm"
                                                 style={{ borderRadius: "var(--r-pill)", fontSize: "var(--fs-11)", padding: "2px 10px", textDecoration: "none" }}
                                             >
-                                                {isFigma ? "Connect" : "Setup"}
+                                                Connect
                                             </Link>
                                         ) : (
                                             <span className={`badge ${STATUS_BADGE[effectiveStatus]}`}>
