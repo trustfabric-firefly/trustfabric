@@ -68,7 +68,6 @@ class Settings(BaseSettings):
             required = {
                 "admin_token": self.admin_token,
                 "viewer_token": self.viewer_token,
-                "database_url": self.database_url,
             }
             missing = [k for k, v in required.items() if not v]
             if missing:

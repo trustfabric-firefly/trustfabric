@@ -33,7 +33,7 @@ def verify_firebase_token(id_token: str) -> dict[str, Any]:
     """
     _ensure_firebase_app()
     try:
-        decoded: dict[str, Any] = auth.verify_id_token(id_token, check_revoked=False)
+        decoded: dict[str, Any] = auth.verify_id_token(id_token, check_revoked=True)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
