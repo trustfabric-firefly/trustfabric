@@ -3,11 +3,12 @@ from __future__ import annotations
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from app.core.security import Actor, get_actor
 from app.domain.models import AwsScanRecord, ScanRecord, ScanTriggerRequest
 from app.services.scan import run_scan
+from app.services.scan_report_pdf import build_scan_report_pdf
 from app.services.store import store
 
 router = APIRouter()
@@ -94,6 +95,21 @@ def get_scan_report(scan_id: str, actor: Actor = Depends(get_actor)) -> HTMLResp
     if record is None:
         raise HTTPException(status_code=404, detail="Scan not found")
     return HTMLResponse(content=_build_report_html(record), status_code=200)
+
+
+@router.get("/{scan_id}/report.pdf")
+def get_scan_report_pdf(scan_id: str, actor: Actor = Depends(get_actor)) -> Response:
+    """Return a downloadable PDF compliance report for a scan."""
+    record = store.get_scan(scan_id, actor.organization_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    pdf_bytes = build_scan_report_pdf(record)
+    filename = f"trustfabric-scan-{scan_id[:8]}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _build_report_html(r: ScanRecord) -> str:

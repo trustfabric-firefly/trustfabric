@@ -226,18 +226,13 @@ export default function ScansPage() {
     }, [scanHistory, trendSourceScanId]);
 
     const handleExportReport = useCallback(async (scanId: string) => {
-        const html = await scansApi.getReportHtml(scanId);
-        const popup = window.open("", "_blank", "noopener,noreferrer");
-        if (!popup) {
-            throw new Error("Popup blocked while opening the report preview.");
+        try {
+            await scansApi.downloadReportPdf(scanId);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Failed to export report";
+            window.alert(message);
+            throw error;
         }
-        popup.document.open();
-        popup.document.write(html);
-        popup.document.close();
-        popup.focus();
-        window.setTimeout(() => {
-            popup.print();
-        }, 300);
     }, []);
 
     const hubView = !activeApp;
