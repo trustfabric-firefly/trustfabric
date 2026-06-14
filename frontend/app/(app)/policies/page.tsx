@@ -1,43 +1,61 @@
 "use client";
+import { ListOutlinedIcon, EditOutlinedIcon, DashboardCustomizeOutlinedIcon, SearchOutlinedIcon, SecurityOutlinedIcon, DescriptionOutlinedIcon, ModeEditOutlineOutlinedIcon, VisibilityOutlinedIcon, ToggleOnOutlinedIcon, ToggleOffOutlinedIcon, AddOutlinedIcon, ArrowBackOutlinedIcon, ArrowForwardOutlinedIcon, RefreshOutlinedIcon, SendOutlinedIcon, BoltOutlinedIcon, LockOutlinedIcon, BarChartOutlinedIcon, GroupOutlinedIcon, AttachMoneyOutlinedIcon, CheckCircleOutlinedIcon, ContentCopyOutlinedIcon, KeyboardArrowDownIcon, GitHubIcon } from "@/lib/icons"
+import type { AppIconComponent } from "@/lib/icons";
 
-import { useState, useCallback, useRef } from "react";
-import ListOutlinedIcon from "@mui/icons-material/ListOutlined";
-import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
-import DashboardCustomizeOutlinedIcon from "@mui/icons-material/DashboardCustomizeOutlined";
-import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
-import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
-import SecurityOutlinedIcon from "@mui/icons-material/SecurityOutlined";
-import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import ModeEditOutlineOutlinedIcon from "@mui/icons-material/ModeEditOutlineOutlined";
-import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
-import ToggleOnOutlinedIcon from "@mui/icons-material/ToggleOnOutlined";
-import ToggleOffOutlinedIcon from "@mui/icons-material/ToggleOffOutlined";
-import AddOutlinedIcon from "@mui/icons-material/AddOutlined";
-import ArrowBackOutlinedIcon from "@mui/icons-material/ArrowBackOutlined";
-import ArrowForwardOutlinedIcon from "@mui/icons-material/ArrowForwardOutlined";
-import RefreshOutlinedIcon from "@mui/icons-material/RefreshOutlined";
-import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
-import BoltOutlinedIcon from "@mui/icons-material/BoltOutlined";
-import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
-import BarChartOutlinedIcon from "@mui/icons-material/BarChartOutlined";
-import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
-import AttachMoneyOutlinedIcon from "@mui/icons-material/AttachMoneyOutlined";
-import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
-import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
-import type { SvgIconComponent } from "@mui/icons-material";
+import {
+    useState,
+    useCallback,
+    useRef,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    type ElementType,
+} from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { AIIcon, AIIconWrapper } from "@/components/ui/AIIcon";
 import { TopBar } from "@/components/layout/TopBar";
-import type { Policy, PolicySeverity, PolicyCategory, PolicyTemplate as TPolicyTemplate, PolicyCreate } from "@/types";
+import { PageEmptyIllustration } from "@/components/ui/PageEmptyIllustration";
+import { policyApi, systemPoliciesApi, systemsApi, scanPoliciesApi } from "@/lib/api";
+import "./policies-form.css";
+import "./policies-page.css";
+import type {
+    AIChatMessage as StoredChatMessage,
+    AISystem,
+    Policy,
+    PolicySeverity,
+    PolicyCategory,
+    PolicyTemplate as TPolicyTemplate,
+    PolicyCreate,
+    PolicyStatus,
+    ScanPolicy,
+} from "@/types";
 
 
-type Tab = "view_all" | "manual" | "template" | "ai_generate";
+type Tab = "view_all" | "manual" | "template" | "ai_generate" | "github_checks";
 
-const TABS: { id: Tab; label: string; icon: SvgIconComponent }[] = [
+type TabIcon = ElementType<{ sx?: { fontSize?: number | string } }>;
+
+const TABS: { id: Tab; label: string; icon: TabIcon }[] = [
     { id: "view_all", label: "View All", icon: ListOutlinedIcon },
     { id: "manual", label: "Manual", icon: EditOutlinedIcon },
     { id: "template", label: "Template", icon: DashboardCustomizeOutlinedIcon },
-    { id: "ai_generate", label: "AI Generate", icon: AutoAwesomeOutlinedIcon },
+    { id: "ai_generate", label: "AI Generate", icon: AIIconWrapper },
+    { id: "github_checks", label: "GitHub Checks", icon: GitHubIcon },
 ];
 
+/** When the user has not chosen a system, default to the first in the list, else `""`. */
+function resolveSystemIdOrEmpty(
+    selected: number | "",
+    firstSystem: AISystem | undefined
+): number | "" {
+    if (selected !== "") {
+        return selected;
+    }
+    if (firstSystem != null) {
+        return firstSystem.id;
+    }
+    return "";
+}
 
 const CATEGORY_LABELS: Record<PolicyCategory, string> = {
     model_restrictions: "Model Restrictions",
@@ -50,7 +68,7 @@ const CATEGORY_LABELS: Record<PolicyCategory, string> = {
     compliance: "Compliance",
 };
 
-const CATEGORY_ICONS: Record<PolicyCategory, SvgIconComponent> = {
+const CATEGORY_ICONS: Record<PolicyCategory, AppIconComponent> = {
     model_restrictions: LockOutlinedIcon,
     feature_control: ToggleOnOutlinedIcon,
     security: SecurityOutlinedIcon,
@@ -61,76 +79,89 @@ const CATEGORY_ICONS: Record<PolicyCategory, SvgIconComponent> = {
     compliance: BarChartOutlinedIcon,
 };
 
-const MOCK_POLICIES: Policy[] = [
-    {
-        id: "pol_001", name: "Restrict GPT-4 Models", description: "Only allow Claude Sonnet and GPT-3.5 Turbo for cost control. GPT-4 and GPT-4 Turbo are prohibited organization-wide.",
-        category: "model_restrictions", severity: "high", status: "active", creation_method: "ai_generated",
-        applies_to: ["All Organizations"], created_by: "admin@trustfabric.io", created_at: "2026-02-14T10:30:00Z", updated_at: "2026-02-15T08:00:00Z", version: 2,
-        rules: { allowed_models: ["claude-3-5-sonnet", "gpt-3.5-turbo"], forbidden_models: ["gpt-4*"], enforcement: "strict" },
-    },
-    {
-        id: "pol_002", name: "Require Human Review for AI Code", description: "All AI-generated code must go through human code review before merging to production branches.",
-        category: "quality_control", severity: "high", status: "active", creation_method: "manual",
-        applies_to: ["Engineering"], created_by: "admin@trustfabric.io", created_at: "2026-02-10T14:00:00Z", updated_at: "2026-02-10T14:00:00Z", version: 1,
-    },
-    {
-        id: "pol_003", name: "Enable Secret Scanning", description: "All repositories must have GitHub secret scanning enabled to prevent credential leaks in AI-assisted code.",
-        category: "security", severity: "medium", status: "active", creation_method: "template",
-        applies_to: ["All Organizations"], created_by: "security@trustfabric.io", created_at: "2026-02-05T09:00:00Z", updated_at: "2026-02-05T09:00:00Z", version: 1,
-    },
-    {
-        id: "pol_004", name: "PII Data Handling for AI Systems", description: "AI systems processing PII must implement data anonymization and comply with GDPR Article 22 automated decision restrictions.",
-        category: "data_privacy", severity: "high", status: "draft", creation_method: "ai_generated",
-        applies_to: ["Data Science", "Engineering"], created_by: "dpo@trustfabric.io", created_at: "2026-03-01T11:00:00Z", updated_at: "2026-03-01T11:00:00Z", version: 1,
-    },
-    {
-        id: "pol_005", name: "Disable AI CLI Tools", description: "CLI-based AI tools must be disabled in all development environments to prevent unauthorized data exfiltration.",
-        category: "feature_control", severity: "medium", status: "inactive", creation_method: "template",
-        applies_to: ["All Organizations"], created_by: "admin@trustfabric.io", created_at: "2026-01-20T16:00:00Z", updated_at: "2026-02-28T12:00:00Z", version: 3,
-    },
-];
-
-const MOCK_TEMPLATES: TPolicyTemplate[] = [
-    { id: "tpl_001", name: "Restrict AI Models", description: "Limit which AI models developers can use. Configure allowed and prohibited models.", category: "model_restrictions", severity: "high", used_by: 47, default_rules: { allowed_models: ["claude-3-5-sonnet", "gpt-3.5-turbo"], forbidden_models: ["gpt-4*"], enforcement: "strict" }, customizable_fields: ["allowed_models", "forbidden_models", "enforcement"] },
-    { id: "tpl_002", name: "Disable AI CLI Features", description: "Prevent use of command-line AI tools across the organization.", category: "feature_control", severity: "medium", used_by: 23, default_rules: { disabled_features: ["cli_completion", "cli_chat", "cli_edit"], environments: ["production", "staging"] }, customizable_fields: ["disabled_features", "environments"] },
-    { id: "tpl_003", name: "Require Secret Scanning", description: "Mandate GitHub secret scanning on all repositories to prevent credential leaks.", category: "security", severity: "medium", used_by: 156, default_rules: { scan_on_push: true, block_push_on_detection: true, notification_channels: ["slack", "email"] }, customizable_fields: ["block_push_on_detection", "notification_channels"] },
-    { id: "tpl_004", name: "Mandate Code Review for AI Code", description: "AI-generated code must have mandatory human review before deployment.", category: "quality_control", severity: "high", used_by: 89, default_rules: { min_reviewers: 2, require_senior_reviewer: true, auto_label_ai_code: true }, customizable_fields: ["min_reviewers", "require_senior_reviewer"] },
-    { id: "tpl_005", name: "PII Anonymization Policy", description: "Enforce data anonymization for all AI systems processing personally identifiable information.", category: "data_privacy", severity: "high", used_by: 64, default_rules: { anonymize_before_training: true, gdpr_compliance: true, data_retention_days: 90 }, customizable_fields: ["data_retention_days", "gdpr_compliance"] },
-    { id: "tpl_006", name: "API Rate Limiting for AI", description: "Set usage quotas and rate limits for AI model API calls to control costs.", category: "cost_management", severity: "low", used_by: 31, default_rules: { max_requests_per_minute: 60, max_tokens_per_day: 1000000, alert_at_80_percent: true }, customizable_fields: ["max_requests_per_minute", "max_tokens_per_day"] },
+const POLICY_TEMPLATES: TPolicyTemplate[] = [
+    { id: "tpl_001", name: "Restrict AI Models", description: "Limit which AI models developers can use. Configure allowed and prohibited models.", category: "model_restrictions", severity: "high", used_by: 0, default_rules: { allowed_models: ["claude-3-5-sonnet", "gpt-3.5-turbo"], forbidden_models: ["gpt-4*"], enforcement: "strict" }, customizable_fields: ["allowed_models", "forbidden_models", "enforcement"] },
+    { id: "tpl_002", name: "Disable AI CLI Features", description: "Prevent use of command-line AI tools across the organization.", category: "feature_control", severity: "medium", used_by: 0, default_rules: { disabled_features: ["cli_completion", "cli_chat", "cli_edit"], environments: ["production", "staging"] }, customizable_fields: ["disabled_features", "environments"] },
+    { id: "tpl_003", name: "Require Secret Scanning", description: "Mandate GitHub secret scanning on all repositories to prevent credential leaks.", category: "security", severity: "medium", used_by: 0, default_rules: { scan_on_push: true, block_push_on_detection: true, notification_channels: ["slack", "email"] }, customizable_fields: ["block_push_on_detection", "notification_channels"] },
+    { id: "tpl_004", name: "Mandate Code Review for AI Code", description: "AI-generated code must have mandatory human review before deployment.", category: "quality_control", severity: "high", used_by: 0, default_rules: { min_reviewers: 2, require_senior_reviewer: true, auto_label_ai_code: true }, customizable_fields: ["min_reviewers", "require_senior_reviewer"] },
+    { id: "tpl_005", name: "PII Anonymization Policy", description: "Enforce data anonymization for all AI systems processing personally identifiable information.", category: "data_privacy", severity: "high", used_by: 0, default_rules: { anonymize_before_training: true, gdpr_compliance: true, data_retention_days: 90 }, customizable_fields: ["data_retention_days", "gdpr_compliance"] },
+    { id: "tpl_006", name: "API Rate Limiting for AI", description: "Set usage quotas and rate limits for AI model API calls to control costs.", category: "cost_management", severity: "low", used_by: 0, default_rules: { max_requests_per_minute: 60, max_tokens_per_day: 1000000, alert_at_80_percent: true }, customizable_fields: ["max_requests_per_minute", "max_tokens_per_day"] },
 ];
 
 
 export default function PoliciesPage() {
+    const queryClient = useQueryClient();
     const [activeTab, setActiveTab] = useState<Tab>("view_all");
-    const [policies, setPolicies] = useState<Policy[]>(MOCK_POLICIES);
+    const [contextSystemId, setContextSystemId] = useState<number | "">("");
 
-    const handleCreate = useCallback((data: PolicyCreate) => {
-        const newPolicy: Policy = {
-            ...data,
-            id: `pol_${String(Date.now()).slice(-6)}`,
-            status: "active",
-            created_by: "dev@local",
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            version: 1,
-        };
-        setPolicies((prev) => [newPolicy, ...prev]);
-        setActiveTab("view_all");
-    }, []);
+    const { data: systems = [], isLoading: systemsLoading } = useQuery({
+        queryKey: ["systems"],
+        queryFn: systemsApi.list,
+    });
 
-    const handleToggle = useCallback((id: string) => {
-        setPolicies((prev) =>
-            prev.map((p) =>
-                p.id === id ? { ...p, status: p.status === "active" ? "inactive" : "active", updated_at: new Date().toISOString() } : p
-            )
-        );
-    }, []);
+    const { data: policies = [], isLoading: policiesLoading, isError: policiesError } = useQuery({
+        queryKey: ["governance-policies"],
+        queryFn: async () => {
+            const list = await systemsApi.list();
+            if (list.length === 0) return [];
+            const chunks = await Promise.all(
+                list.map(async (s) => {
+                    const ps = await systemPoliciesApi.list(s.id);
+                    return ps.map((p) => ({
+                        ...p,
+                        system_id: s.id,
+                        system_name: s.name,
+                    }));
+                })
+            );
+            return chunks
+                .flat()
+                .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+        },
+    });
+
+    const resolvedContextSystemId = resolveSystemIdOrEmpty(contextSystemId, systems[0]);
+
+    const handleCreate = useCallback(
+        async (data: PolicyCreate, systemId: number, opts?: { asDraft?: boolean }) => {
+            const status: PolicyStatus = opts?.asDraft ? "draft" : "active";
+            await systemPoliciesApi.create(systemId, { ...data, status });
+            await queryClient.invalidateQueries({ queryKey: ["governance-policies"] });
+            setActiveTab("view_all");
+        },
+        [queryClient]
+    );
+
+    const handleToggle = useCallback(
+        async (policy: Policy) => {
+            if (policy.system_id == null) return;
+            const next: PolicyStatus = policy.status === "active" ? "inactive" : "active";
+            await systemPoliciesApi.update(policy.system_id, policy.id, { status: next });
+            await queryClient.invalidateQueries({ queryKey: ["governance-policies"] });
+        },
+        [queryClient]
+    );
+
+    const { data: scanPolicies = [], refetch: refetchScanPolicies } = useQuery({
+        queryKey: ["scan-policies"],
+        queryFn: scanPoliciesApi.list,
+        retry: false,
+    });
+
+    const handleToggleScanPolicy = useCallback(async (checkId: string, enabled: boolean) => {
+        await scanPoliciesApi.toggle(checkId, enabled);
+        await refetchScanPolicies();
+    }, [refetchScanPolicies]);
+
+    const loading = systemsLoading || policiesLoading;
+    const useTabColumnScroll =
+        activeTab === "view_all" || activeTab === "github_checks" || activeTab === "ai_generate";
 
     return (
         <>
             <TopBar
                 title="Policy Management"
-                subtitle={`${policies.length} policies`}
+                subtitle={loading ? "Loading…" : `${policies.length} policies`}
                 actions={
                     <button className="btn btn--primary" onClick={() => setActiveTab("manual")}>
                         <AddOutlinedIcon sx={{ fontSize: 16 }} /> Create Policy
@@ -138,9 +169,8 @@ export default function PoliciesPage() {
                 }
             />
 
-            <main className={`page${activeTab === "ai_generate" ? " page--flex" : ""}`}>
-                {/* Tab bar panel */}
-                <div className={`panel${activeTab === "ai_generate" ? " panel--flex" : ""}`} style={{ marginBottom: activeTab === "ai_generate" ? 0 : "var(--s-4)" }}>
+            <main className={`page${useTabColumnScroll ? " page--flex" : ""}`}>
+                <div className={`policies-shell${useTabColumnScroll ? " policies-shell--flex" : ""}`}>
                     <div className="tabs">
                         {TABS.map(({ id, label, icon: Icon }) => (
                             <button
@@ -155,10 +185,48 @@ export default function PoliciesPage() {
 
                     {/* Tab Content */}
                     <div className="tab-content">
-                        {activeTab === "view_all" && <ViewAllTab policies={policies} onToggle={handleToggle} />}
-                        {activeTab === "manual" && <ManualTab onCreate={handleCreate} />}
-                        {activeTab === "template" && <TemplateTab onCreate={handleCreate} />}
-                        {activeTab === "ai_generate" && <AIGenerateTab onCreate={handleCreate} />}
+                        {activeTab === "view_all" && (
+                            <ViewAllTab
+                                policies={policies}
+                                onToggle={handleToggle}
+                                error={policiesError}
+                            />
+                        )}
+                        {activeTab === "manual" && (
+                            <ManualTab
+                                systems={systems}
+                                systemId={resolvedContextSystemId}
+                                onSystemIdChange={setContextSystemId}
+                                systemsLoading={systemsLoading}
+                                onCreate={(data, opts) => {
+                                    if (resolvedContextSystemId === "") return;
+                                    return handleCreate(data, resolvedContextSystemId, opts);
+                                }}
+                            />
+                        )}
+                        {activeTab === "template" && (
+                            <TemplateTab
+                                systems={systems}
+                                systemId={resolvedContextSystemId}
+                                onSystemIdChange={setContextSystemId}
+                                systemsLoading={systemsLoading}
+                                onCreate={(data) => {
+                                    if (resolvedContextSystemId === "") return;
+                                    return handleCreate(data, resolvedContextSystemId);
+                                }}
+                            />
+                        )}
+                        {activeTab === "ai_generate" && (
+                            <AIGenerateTab
+                                onCreate={(data, systemId) => handleCreate(data, systemId)}
+                            />
+                        )}
+                        {activeTab === "github_checks" && (
+                            <GitHubChecksTab
+                                policies={scanPolicies}
+                                onToggle={handleToggleScanPolicy}
+                            />
+                        )}
                     </div>
                 </div>
             </main>
@@ -167,75 +235,112 @@ export default function PoliciesPage() {
 }
 
 
-function ViewAllTab({ policies, onToggle }: { policies: Policy[]; onToggle: (id: string) => void }) {
+function ViewAllTab({
+    policies,
+    onToggle,
+    error,
+}: {
+    policies: Policy[];
+    onToggle: (policy: Policy) => void | Promise<void>;
+    error?: boolean;
+}) {
     const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<"all" | "active" | "inactive" | "draft">("all");
+
+    if (error) {
+        return (
+            <div style={{ padding: "var(--s-4)", color: "var(--c-high)" }}>
+                Could not load policies. Check the API and sign-in. Saving/toggling policies requires an admin token or Firebase user with role admin.
+            </div>
+        );
+    }
 
     const filtered = policies
         .filter((p) => filter === "all" || p.status === filter)
         .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase()));
 
-    return (
-        <div style={{ padding: "var(--s-4)" }}>
-            {/* Search + Filter bar */}
-            <div style={{ display: "flex", gap: "var(--s-3)", marginBottom: "var(--s-4)", alignItems: "center" }}>
-                <div className="search-bar" style={{ flex: 1 }}>
-                    <span className="search-bar__icon"><SearchOutlinedIcon sx={{ fontSize: 16 }} /></span>
-                    <input className="input" placeholder="Search policies..." value={search} onChange={(e) => setSearch(e.target.value)} />
-                </div>
-                <select className="input" style={{ width: 140 }} value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
-                    <option value="all">All Status</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="draft">Draft</option>
-                </select>
-            </div>
+    const isInitialEmpty = policies.length === 0;
 
-            {/* Policy list */}
-            {filtered.length === 0 ? (
-                <div className="empty-state" style={{ padding: "var(--s-8)" }}>
-                    <div className="empty-state__icon"><DescriptionOutlinedIcon sx={{ fontSize: 20 }} /></div>
-                    <p className="empty-state__title">No policies found</p>
-                    <p className="empty-state__desc">{search ? "Try adjusting your search." : "Create your first policy to get started."}</p>
+    if (isInitialEmpty) {
+        return (
+            <div className="policies-tab-panel policies-tab-panel--empty">
+                <PageEmptyIllustration
+                    src="/policy.png"
+                    title="No policies"
+                    label="Your policy library is empty"
+                />
+            </div>
+        );
+    }
+
+    return (
+        <div className="policies-tab-panel">
+            <div className="policies-tab-panel__header">
+                <div style={{ display: "flex", gap: "var(--s-3)", alignItems: "center" }}>
+                    <div className="search-bar" style={{ flex: 1 }}>
+                        <span className="search-bar__icon"><SearchOutlinedIcon sx={{ fontSize: 16 }} /></span>
+                        <input className="input" placeholder="Search policies..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                    </div>
+                    <select className="input" style={{ width: 140 }} value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)}>
+                        <option value="all">All Status</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="draft">Draft</option>
+                    </select>
                 </div>
-            ) : (
-                <div>
-                    {filtered.map((p) => {
-                        const CatIcon = CATEGORY_ICONS[p.category] ?? DescriptionOutlinedIcon;
-                        return (
-                            <div key={p.id} className="policy-item">
-                                <div className="policy-item__icon">
-                                    <CatIcon sx={{ fontSize: 18 }} />
-                                </div>
-                                <div className="policy-item__body">
-                                    <div className="policy-item__name">{p.name}</div>
-                                    <div className="policy-item__desc">{p.description}</div>
-                                    <div className="policy-item__meta">
-                                        <span className={`badge badge--${p.status === "active" ? "live" : p.status === "draft" ? "neutral" : "warning"}`}>
-                                            {p.status}
-                                        </span>
-                                        <span>{CATEGORY_LABELS[p.category]}</span>
-                                        <span>Created {fmtDate(p.created_at)}</span>
-                                        {p.updated_at !== p.created_at && <span>Updated {fmtDate(p.updated_at)}</span>}
-                                        <span>v{p.version}</span>
-                                        <span className="badge badge--neutral" style={{ fontSize: "var(--fs-11)" }}>{p.creation_method.replace("_", " ")}</span>
+            </div>
+            <div className="policies-tab-panel__body">
+                {filtered.length === 0 ? (
+                    <PageEmptyIllustration
+                        src="/policy.png"
+                        title="No policies"
+                        label="No policies match this filter"
+                        compact
+                    />
+                ) : (
+                    <div>
+                        {filtered.map((p) => {
+                            const CatIcon = CATEGORY_ICONS[p.category] ?? DescriptionOutlinedIcon;
+                            return (
+                                <div key={p.id} className="policy-item">
+                                    <div className="policy-item__icon">
+                                        <CatIcon sx={{ fontSize: 18 }} />
+                                    </div>
+                                    <div className="policy-item__body">
+                                        <div className="policy-item__name">{p.name}</div>
+                                        {p.system_name ? (
+                                            <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginBottom: "var(--s-1)" }}>
+                                                System: {p.system_name}
+                                            </div>
+                                        ) : null}
+                                        <div className="policy-item__desc">{p.description}</div>
+                                        <div className="policy-item__meta">
+                                            <span className={`badge badge--${p.status === "active" ? "live" : p.status === "draft" ? "neutral" : "warning"}`}>
+                                                {p.status}
+                                            </span>
+                                            <span>{CATEGORY_LABELS[p.category]}</span>
+                                            <span>Created {fmtDate(p.created_at)}</span>
+                                            {p.updated_at !== p.created_at && <span>Updated {fmtDate(p.updated_at)}</span>}
+                                            <span>v{p.version}</span>
+                                            <span className="badge badge--neutral" style={{ fontSize: "var(--fs-11)" }}>{p.creation_method.replace("_", " ")}</span>
+                                        </div>
+                                    </div>
+                                    <div className="policy-item__actions">
+                                        <button className="btn btn--ghost btn--sm" title="Edit"><ModeEditOutlineOutlinedIcon sx={{ fontSize: 15 }} /></button>
+                                        <button className="btn btn--ghost btn--sm" title="View details"><VisibilityOutlinedIcon sx={{ fontSize: 15 }} /></button>
+                                        <button className="btn btn--ghost btn--sm" title={p.status === "active" ? "Disable" : "Enable"} onClick={() => onToggle(p)}>
+                                            {p.status === "active" ? <ToggleOnOutlinedIcon sx={{ fontSize: 15 }} /> : <ToggleOffOutlinedIcon sx={{ fontSize: 15 }} />}
+                                        </button>
                                     </div>
                                 </div>
-                                <div className="policy-item__actions">
-                                    <button className="btn btn--ghost btn--sm" title="Edit"><ModeEditOutlineOutlinedIcon sx={{ fontSize: 15 }} /></button>
-                                    <button className="btn btn--ghost btn--sm" title="View details"><VisibilityOutlinedIcon sx={{ fontSize: 15 }} /></button>
-                                    <button className="btn btn--ghost btn--sm" title={p.status === "active" ? "Disable" : "Enable"} onClick={() => onToggle(p.id)}>
-                                        {p.status === "active" ? <ToggleOnOutlinedIcon sx={{ fontSize: 15 }} /> : <ToggleOffOutlinedIcon sx={{ fontSize: 15 }} />}
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })}
-                    <div style={{ padding: "var(--s-3) var(--s-4)", fontSize: "var(--fs-11)", color: "var(--c-text-muted)" }}>
-                        Showing {filtered.length} of {policies.length} policies
+                            );
+                        })}
+                        <div style={{ padding: "var(--s-3) var(--s-1) 0", fontSize: "var(--fs-11)", color: "var(--c-text-muted)" }}>
+                            Showing {filtered.length} of {policies.length} policies
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
         </div>
     );
 }
@@ -244,67 +349,204 @@ const EMPTY_MANUAL: PolicyCreate = {
     name: "", description: "", category: "compliance", severity: "medium", applies_to: ["All Organizations"], creation_method: "manual",
 };
 
-function ManualTab({ onCreate }: { onCreate: (data: PolicyCreate) => void }) {
-    const [form, setForm] = useState<PolicyCreate>(EMPTY_MANUAL);
-    const set = (k: keyof PolicyCreate, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
-    const valid = form.name.trim().length > 0 && form.description.trim().length > 0;
+function PolicyFormAside({
+    form,
+    systemName,
+    tips,
+}: {
+    form: Pick<PolicyCreate, "name" | "description" | "category" | "severity">;
+    systemName?: string;
+    tips?: string[];
+}) {
+    const defaultTips = [
+        "State who the policy applies to and what must happen.",
+        "Use specific, measurable language (e.g. all repos, before merge).",
+        "Set severity to match the business impact of a violation.",
+    ];
 
     return (
-        <div style={{ padding: "var(--s-4)", maxWidth: 640 }}>
-            <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", marginBottom: "var(--s-5)", lineHeight: 1.5 }}>
-                Write your policy in plain language. The system will store it as-is without modification.
-            </p>
-
-            <div className="form-group">
-                <label className="form-label">Policy Name *</label>
-                <input className="input" placeholder='e.g., "Restrict AI Models to Approved List"' value={form.name} onChange={(e) => set("name", e.target.value)} />
+        <aside className="policy-form-page__aside">
+            <div className="policy-form-page__card">
+                <h3 className="policy-form-page__card-title">Writing tips</h3>
+                <ul className="policy-form-page__tips">
+                    {(tips ?? defaultTips).map((tip) => (
+                        <li key={tip}>{tip}</li>
+                    ))}
+                </ul>
             </div>
-
-            <div className="form-group">
-                <label className="form-label">Policy Description *</label>
-                <textarea className="input" rows={5} placeholder="Describe the policy requirements in detail..." value={form.description} onChange={(e) => set("description", e.target.value)} />
+            <div className="policy-form-page__card">
+                <h3 className="policy-form-page__card-title">Live preview</h3>
+                {form.name.trim() ? (
+                    <>
+                        <p className="policy-form-page__preview-name">{form.name}</p>
+                        <p className="policy-form-page__preview-desc">
+                            {form.description.trim() || "No description yet."}
+                        </p>
+                        <div className="policy-form-page__preview-meta">
+                            <span className="badge badge--neutral">{CATEGORY_LABELS[form.category]}</span>
+                            <span className={`badge badge--${form.severity === "high" ? "warning" : form.severity === "low" ? "live" : "neutral"}`}>
+                                {form.severity}
+                            </span>
+                            {systemName ? <span className="badge badge--neutral">{systemName}</span> : null}
+                        </div>
+                    </>
+                ) : (
+                    <p className="policy-form-page__placeholder">Start typing to see a preview of your policy.</p>
+                )}
             </div>
+        </aside>
+    );
+}
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--s-3)" }}>
-                <div className="form-group">
-                    <label className="form-label">Category</label>
-                    <select className="input" value={form.category} onChange={(e) => set("category", e.target.value)}>
-                        {Object.entries(CATEGORY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                    </select>
-                </div>
-                <div className="form-group">
-                    <label className="form-label">Applies To</label>
-                    <select className="input" value={form.applies_to[0]} onChange={(e) => set("applies_to", [e.target.value])}>
-                        <option>All Organizations</option>
-                        <option>Engineering</option>
-                        <option>Data Science</option>
-                        <option>Product</option>
-                        <option>Security</option>
-                    </select>
-                </div>
-            </div>
-
-            <div className="form-group">
-                <label className="form-label">Severity Level</label>
-                <SeverityRadio value={form.severity} onChange={(v) => set("severity", v)} />
-            </div>
-
-            <div className="divider" />
-
-            <div style={{ display: "flex", gap: "var(--s-2)", justifyContent: "flex-end" }}>
-                <button className="btn btn--secondary" onClick={() => setForm(EMPTY_MANUAL)}>Cancel</button>
-                <button className="btn btn--secondary" onClick={() => valid && onCreate({ ...form, status: "draft" } as PolicyCreate & { status: string })}>
-                    Save as Draft
-                </button>
-                <button className="btn btn--primary" disabled={!valid} onClick={() => onCreate(form)}>
-                    Create Policy
-                </button>
-            </div>
+function SystemSelectField({
+    systems,
+    systemId,
+    onSystemIdChange,
+    systemsLoading,
+}: {
+    systems: AISystem[];
+    systemId: number | "";
+    onSystemIdChange: (id: number | "") => void;
+    systemsLoading: boolean;
+}) {
+    return (
+        <div className="form-group">
+            <label className="form-label">AI system *</label>
+            <select
+                className="input"
+                value={systemId}
+                onChange={(e) => onSystemIdChange(e.target.value ? Number(e.target.value) : "")}
+                disabled={systemsLoading}
+            >
+                <option value="">
+                    {systemsLoading ? "Loading systems…" : systems.length === 0 ? "No systems — create one in Inventory" : "Select system"}
+                </option>
+                {systems.map((s) => (
+                    <option key={s.id} value={s.id}>
+                        {s.name} (Risk: {s.risk_tier ?? "Unassigned"})
+                    </option>
+                ))}
+            </select>
         </div>
     );
 }
 
-function TemplateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void }) {
+function ManualTab({
+    systems,
+    systemId,
+    onSystemIdChange,
+    systemsLoading,
+    onCreate,
+}: {
+    systems: AISystem[];
+    systemId: number | "";
+    onSystemIdChange: (id: number | "") => void;
+    systemsLoading: boolean;
+    onCreate: (data: PolicyCreate, opts?: { asDraft?: boolean }) => void | Promise<void>;
+}) {
+    const [form, setForm] = useState<PolicyCreate>(EMPTY_MANUAL);
+    const set = (k: keyof PolicyCreate, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
+    const valid = form.name.trim().length > 0 && form.description.trim().length > 0;
+    const canSave = valid && systemId !== "";
+    const selectedSystem = systems.find((s) => s.id === systemId);
+
+    return (
+        <div className="policy-form-page">
+            <header className="policy-form-page__header">
+                <h2 className="policy-form-page__title">Create policy manually</h2>
+                <p className="policy-form-page__subtitle">
+                    Write your policy in plain language. It will be saved under the selected AI system in your workspace.
+                </p>
+            </header>
+
+            <div className="policy-form-page__layout">
+                <div className="policy-form-page__fields">
+                    <div className="policy-form-page__row policy-form-page__row--2">
+                        <SystemSelectField
+                            systems={systems}
+                            systemId={systemId}
+                            onSystemIdChange={onSystemIdChange}
+                            systemsLoading={systemsLoading}
+                        />
+                        <div className="form-group">
+                            <label className="form-label">Policy name *</label>
+                            <input
+                                className="input"
+                                placeholder='e.g., "Restrict AI Models to Approved List"'
+                                value={form.name}
+                                onChange={(e) => set("name", e.target.value)}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="form-group">
+                        <label className="form-label">Policy description *</label>
+                        <textarea
+                            className="input"
+                            rows={6}
+                            placeholder="Describe the policy requirements in detail..."
+                            value={form.description}
+                            onChange={(e) => set("description", e.target.value)}
+                        />
+                    </div>
+
+                    <div className="policy-form-page__row policy-form-page__row--2">
+                        <div className="form-group">
+                            <label className="form-label">Category</label>
+                            <select className="input" value={form.category} onChange={(e) => set("category", e.target.value)}>
+                                {Object.entries(CATEGORY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                            </select>
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Applies to</label>
+                            <select className="input" value={form.applies_to[0]} onChange={(e) => set("applies_to", [e.target.value])}>
+                                <option>All Organizations</option>
+                                <option>Engineering</option>
+                                <option>Data Science</option>
+                                <option>Product</option>
+                                <option>Security</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="form-group">
+                        <label className="form-label">Severity level</label>
+                        <SeverityRadio value={form.severity} onChange={(v) => set("severity", v)} />
+                    </div>
+                </div>
+
+                <PolicyFormAside form={form} systemName={selectedSystem?.name} />
+            </div>
+
+            <footer className="policy-form-page__footer">
+                <span className="policy-form-page__footer-hint">
+                    {canSave ? "Ready to save" : "Select a system and complete required fields"}
+                </span>
+                <button type="button" className="btn btn--secondary" onClick={() => setForm(EMPTY_MANUAL)}>Cancel</button>
+                <button type="button" className="btn btn--secondary" disabled={!canSave} onClick={() => canSave && onCreate(form, { asDraft: true })}>
+                    Save as Draft
+                </button>
+                <button type="button" className="btn btn--primary" disabled={!canSave} onClick={() => canSave && onCreate(form)}>
+                    Create Policy
+                </button>
+            </footer>
+        </div>
+    );
+}
+
+function TemplateTab({
+    systems,
+    systemId,
+    onSystemIdChange,
+    systemsLoading,
+    onCreate,
+}: {
+    systems: AISystem[];
+    systemId: number | "";
+    onSystemIdChange: (id: number | "") => void;
+    systemsLoading: boolean;
+    onCreate: (data: PolicyCreate) => void | Promise<void>;
+}) {
     const [selected, setSelected] = useState<TPolicyTemplate | null>(null);
     const [search, setSearch] = useState("");
     const [form, setForm] = useState<PolicyCreate | null>(null);
@@ -322,65 +564,94 @@ function TemplateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void }) {
         });
     };
 
-    const filtered = MOCK_TEMPLATES.filter(
+    const filtered = POLICY_TEMPLATES.filter(
         (t) => !search || t.name.toLowerCase().includes(search.toLowerCase()) || t.description.toLowerCase().includes(search.toLowerCase())
     );
 
     if (selected && form) {
+        const canCreate = systemId !== "";
+        const selectedSystem = systems.find((s) => s.id === systemId);
         return (
-            <div style={{ padding: "var(--s-4)", maxWidth: 640 }}>
-                <button className="btn btn--ghost btn--sm" style={{ marginBottom: "var(--s-4)", gap: 4 }} onClick={() => { setSelected(null); setForm(null); }}>
-                    <ArrowBackOutlinedIcon sx={{ fontSize: 14 }} /> Back to Templates
-                </button>
+            <div className="policy-form-page">
+                <header className="policy-form-page__header">
+                    <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        style={{ marginBottom: "var(--s-3)", gap: 4 }}
+                        onClick={() => { setSelected(null); setForm(null); }}
+                    >
+                        <ArrowBackOutlinedIcon sx={{ fontSize: 14 }} /> Back to templates
+                    </button>
+                    <h2 className="policy-form-page__title">Customize: {selected.name}</h2>
+                    <p className="policy-form-page__subtitle">
+                        Pre-filled from template. Adjust fields and enforcement rules before saving.
+                    </p>
+                </header>
 
-                <h3 style={{ fontSize: "var(--fs-16)", fontWeight: "var(--fw-semibold)", marginBottom: "var(--s-1)" }}>
-                    Customize Template: {selected.name}
-                </h3>
-                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-5)" }}>
-                    Pre-filled from template. Modify fields as needed.
-                </p>
+                <div className="policy-form-page__layout">
+                    <div className="policy-form-page__fields">
+                        <SystemSelectField
+                            systems={systems}
+                            systemId={systemId}
+                            onSystemIdChange={onSystemIdChange}
+                            systemsLoading={systemsLoading}
+                        />
+                        <div className="form-group">
+                            <label className="form-label">Policy name</label>
+                            <input className="input" value={form.name} onChange={(e) => setForm((f) => f ? { ...f, name: e.target.value } : f)} />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Policy description</label>
+                            <textarea className="input" rows={5} value={form.description} onChange={(e) => setForm((f) => f ? { ...f, description: e.target.value } : f)} />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Severity</label>
+                            <SeverityRadio value={form.severity} onChange={(v) => setForm((f) => f ? { ...f, severity: v } : f)} />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Enforcement rules</label>
+                            <div className="code-block">{JSON.stringify(form.rules, null, 2)}</div>
+                        </div>
+                    </div>
 
-                <div className="form-group">
-                    <label className="form-label">Policy Name</label>
-                    <input className="input" value={form.name} onChange={(e) => setForm((f) => f ? { ...f, name: e.target.value } : f)} />
-                </div>
-                <div className="form-group">
-                    <label className="form-label">Policy Description</label>
-                    <textarea className="input" rows={4} value={form.description} onChange={(e) => setForm((f) => f ? { ...f, description: e.target.value } : f)} />
-                </div>
-
-                <div className="form-group">
-                    <label className="form-label">Severity</label>
-                    <SeverityRadio value={form.severity} onChange={(v) => setForm((f) => f ? { ...f, severity: v } : f)} />
+                    <PolicyFormAside
+                        form={form}
+                        systemName={selectedSystem?.name}
+                        tips={[
+                            `Based on the "${selected.name}" template.`,
+                            "Review enforcement rules before creating the policy.",
+                            "You can edit the policy after it is saved.",
+                        ]}
+                    />
                 </div>
 
-                {/* Rules JSON preview */}
-                <div className="form-group">
-                    <label className="form-label">Enforcement Rules</label>
-                    <div className="code-block">{JSON.stringify(form.rules, null, 2)}</div>
-                </div>
-
-                <div className="divider" />
-                <div style={{ display: "flex", gap: "var(--s-2)", justifyContent: "flex-end" }}>
-                    <button className="btn btn--secondary" onClick={() => { setSelected(null); setForm(null); }}>Cancel</button>
-                    <button className="btn btn--primary" onClick={() => onCreate(form)}>Create Policy</button>
-                </div>
+                <footer className="policy-form-page__footer">
+                    <span className="policy-form-page__footer-hint">
+                        {canCreate ? "Ready to create from template" : "Select an AI system to continue"}
+                    </span>
+                    <button type="button" className="btn btn--secondary" onClick={() => { setSelected(null); setForm(null); }}>Cancel</button>
+                    <button type="button" className="btn btn--primary" disabled={!canCreate} onClick={() => canCreate && onCreate(form)}>Create Policy</button>
+                </footer>
             </div>
         );
     }
 
     return (
-        <div style={{ padding: "var(--s-4)" }}>
-            <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", marginBottom: "var(--s-4)", lineHeight: 1.5 }}>
-                Select a pre-configured policy template and customize it for your organization.
-            </p>
+        <div className="policy-form-page">
+            <header className="policy-form-page__header">
+                <h2 className="policy-form-page__title">Policy templates</h2>
+                <p className="policy-form-page__subtitle">
+                    Select a pre-configured template and customize it for your organization.
+                </p>
+            </header>
 
+            <div style={{ maxWidth: "72rem", margin: "0 auto" }}>
             <div className="search-bar" style={{ marginBottom: "var(--s-4)" }}>
                 <span className="search-bar__icon"><SearchOutlinedIcon sx={{ fontSize: 16 }} /></span>
                 <input className="input" placeholder="Search templates..." value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "var(--s-3)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "var(--s-4)" }}>
                 {filtered.map((tpl) => {
                     const CatIcon = CATEGORY_ICONS[tpl.category] ?? DescriptionOutlinedIcon;
                     return (
@@ -392,19 +663,17 @@ function TemplateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void }) {
                             <div className="template-card__desc">{tpl.description}</div>
                             <div className="template-card__footer">
                                 <span>{CATEGORY_LABELS[tpl.category]}</span>
-                                <div style={{ display: "flex", alignItems: "center", gap: "var(--s-2)" }}>
-                                    <span>Used by {tpl.used_by} orgs</span>
-                                    <span className="btn btn--ghost btn--sm" style={{ gap: 4, padding: "2px 8px" }}>
-                                        Select <ArrowForwardOutlinedIcon sx={{ fontSize: 12 }} />
-                                    </span>
-                                </div>
+                                <span className="btn btn--ghost btn--sm" style={{ gap: 4, padding: "2px 8px" }}>
+                                    Select <ArrowForwardOutlinedIcon sx={{ fontSize: 12 }} />
+                                </span>
                             </div>
                         </div>
                     );
                 })}
             </div>
-            <div style={{ marginTop: "var(--s-3)", fontSize: "var(--fs-11)", color: "var(--c-text-muted)" }}>
+            <div style={{ marginTop: "var(--s-4)", fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
                 Showing {filtered.length} templates
+            </div>
             </div>
         </div>
     );
@@ -417,7 +686,16 @@ type ChatMessage = {
     content: string;
     policy?: PolicyCreate;
     rules?: Record<string, unknown>;
+    provider?: string;
+    model?: string;
 };
+
+function newChatMessageId(): string {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return `msg_${crypto.randomUUID()}`;
+    }
+    return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+}
 
 const AI_SUGGESTIONS = [
     "Restrict developers from using GPT-4 models",
@@ -426,39 +704,225 @@ const AI_SUGGESTIONS = [
     "Set API rate limits for AI model usage",
 ];
 
-function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void }) {
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
+const CHAT_STICKY_BOTTOM_PX = 100;
+
+function resolveScrollBehavior(requested: ScrollBehavior): ScrollBehavior {
+    if (typeof window === "undefined") return "auto";
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : requested;
+}
+
+function AIGenerateTab({
+    onCreate,
+}: {
+    onCreate: (data: PolicyCreate, systemId: number) => void | Promise<void>;
+}) {
+    const queryClient = useQueryClient();
+    const [pendingMessages, setPendingMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState("");
     const [isTyping, setIsTyping] = useState(false);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const [selectedSystemId, setSelectedSystemId] = useState<number | "">("");
+    const messagesContainerRef = useRef<HTMLDivElement>(null);
+    const messageListContentRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const shouldAutoScrollRef = useRef(true);
+    const prevIsLoadingHistoryRef = useRef(false);
+    /** Last message id when the user was following the bottom (used to detect new AI replies off-screen). */
+    const tailMessageIdWhenAtBottomRef = useRef<string | null>(null);
+    const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
+    const [unseenAssistantReply, setUnseenAssistantReply] = useState(false);
+    const {
+        data: systems = [],
+        isLoading: isLoadingSystems,
+        isError: isSystemsError,
+        error: systemsError,
+    } = useQuery({
+        queryKey: ["systems"],
+        queryFn: systemsApi.list,
+        refetchOnMount: "always",
+    });
+    const resolvedSelectedSystemId = resolveSystemIdOrEmpty(selectedSystemId, systems[0]);
 
-    const scrollToBottom = useCallback(() => {
-        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+    const {
+        data: persistedMessages = [],
+        isLoading: isLoadingHistory,
+        isError: isHistoryError,
+        error: historyError,
+    } = useQuery({
+        queryKey: ["policy-chat-history", resolvedSelectedSystemId],
+        queryFn: () => policyApi.listChatHistory(resolvedSelectedSystemId as number),
+        enabled: resolvedSelectedSystemId !== "",
+        refetchOnMount: "always",
+    });
+    const messages = useMemo(
+        () => (
+            resolvedSelectedSystemId === ""
+                ? []
+                : [...persistedMessages.map(mapStoredChatMessage), ...pendingMessages]
+        ),
+        [pendingMessages, persistedMessages, resolvedSelectedSystemId]
+    );
+
+    const scrollToEnd = useCallback((behavior: ScrollBehavior = "smooth") => {
+        const el = messagesContainerRef.current;
+        if (!el) return;
+        const b = resolveScrollBehavior(behavior);
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                el.scrollTo({ top: el.scrollHeight, behavior: b });
+            });
+        });
     }, []);
 
-    const handleSend = useCallback((text?: string) => {
-        const msg = (text ?? input).trim();
-        if (!msg || isTyping) return;
+    const updateScrollAffinity = useCallback(() => {
+        const el = messagesContainerRef.current;
+        if (!el) return;
+        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        const nearBottom = distanceFromBottom < CHAT_STICKY_BOTTOM_PX;
+        shouldAutoScrollRef.current = nearBottom;
+        setIsPinnedToBottom((prev) => (nearBottom === prev ? prev : nearBottom));
+    }, []);
 
-        const userMsg: ChatMessage = { id: `msg_${Date.now()}`, role: "user", content: msg };
-        setMessages((prev) => [...prev, userMsg]);
+    useEffect(() => {
+        const el = messagesContainerRef.current;
+        if (!el) return;
+        updateScrollAffinity();
+        const handleScroll = () => updateScrollAffinity();
+        el.addEventListener("scroll", handleScroll, { passive: true });
+        return () => el.removeEventListener("scroll", handleScroll);
+    }, [resolvedSelectedSystemId, updateScrollAffinity]);
+
+    useEffect(() => {
+        tailMessageIdWhenAtBottomRef.current = null;
+        setUnseenAssistantReply(false);
+    }, [resolvedSelectedSystemId]);
+
+    useEffect(() => {
+        if (isLoadingHistory) return;
+        const last = messages.at(-1);
+        const lastId = last?.id ?? null;
+        if (isPinnedToBottom) {
+            tailMessageIdWhenAtBottomRef.current = lastId;
+            setUnseenAssistantReply(false);
+            return;
+        }
+        if (last?.role === "ai" && tailMessageIdWhenAtBottomRef.current != null && lastId !== tailMessageIdWhenAtBottomRef.current) {
+            setUnseenAssistantReply(true);
+        }
+    }, [messages, isPinnedToBottom, isLoadingHistory]);
+
+    useLayoutEffect(() => {
+        const wasLoading = prevIsLoadingHistoryRef.current;
+        prevIsLoadingHistoryRef.current = isLoadingHistory;
+
+        if (!shouldAutoScrollRef.current) return;
+        if (isLoadingHistory) return;
+        const justFinishedHistoryLoad = wasLoading && !isLoadingHistory;
+        const behavior: ScrollBehavior =
+            justFinishedHistoryLoad || messages.length === 0 ? "auto" : "smooth";
+        scrollToEnd(behavior);
+    }, [messages, isTyping, isLoadingHistory, scrollToEnd]);
+
+    useEffect(() => {
+        const root = messageListContentRef.current;
+        if (!root) return;
+        const ro = new ResizeObserver(() => {
+            if (!shouldAutoScrollRef.current) return;
+            const el = messagesContainerRef.current;
+            if (!el) return;
+            el.scrollTo({
+                top: el.scrollHeight,
+                behavior: resolveScrollBehavior("auto"),
+            });
+        });
+        ro.observe(root);
+        return () => ro.disconnect();
+    }, [resolvedSelectedSystemId, messages.length]);
+
+    const jumpToLatest = useCallback(() => {
+        shouldAutoScrollRef.current = true;
+        setUnseenAssistantReply(false);
+        setIsPinnedToBottom(true);
+        const lastId = messages.at(-1)?.id ?? null;
+        tailMessageIdWhenAtBottomRef.current = lastId;
+        scrollToEnd("smooth");
+    }, [scrollToEnd, messages]);
+
+    const persistConversation = useCallback(async (
+        systemId: number,
+        userMessage: ChatMessage,
+        assistantMessage: ChatMessage
+    ) => {
+        try {
+            await policyApi.saveChatMessage(systemId, {
+                role: "user",
+                content: userMessage.content,
+            });
+            await policyApi.saveChatMessage(systemId, {
+                role: "ai",
+                content: assistantMessage.content,
+                policy: assistantMessage.policy,
+                rules: assistantMessage.rules,
+                provider: assistantMessage.provider,
+                model: assistantMessage.model,
+            });
+            await queryClient.invalidateQueries({ queryKey: ["policy-chat-history", systemId] });
+            setPendingMessages([]);
+        } catch (error) {
+            console.error("Failed to persist chat history", error);
+        }
+    }, [queryClient]);
+
+    const handleSend = useCallback(async (text?: string) => {
+        const msg = (text ?? input).trim();
+        if (!msg || isTyping || resolvedSelectedSystemId === "") return;
+
+        const systemId = resolvedSelectedSystemId;
+
+        const userMsg: ChatMessage = { id: newChatMessageId(), role: "user", content: msg };
+        setPendingMessages((prev) => [...prev, userMsg]);
         setInput("");
         setIsTyping(true);
-        scrollToBottom();
+        shouldAutoScrollRef.current = true;
+        setIsPinnedToBottom(true);
 
         // Auto-resize textarea back
         if (textareaRef.current) textareaRef.current.style.height = "24px";
 
-        // Simulate AI response (backend will replace with streaming API)
-        const delay = messages.length === 0 ? 2500 : 1800;
-        setTimeout(() => {
+        const hasPolicy = messages.some((m) => m.role === "ai" && m.policy);
+        const isRefinement = isLikelyRefinement(msg);
+
+        if (hasPolicy && isRefinement) {
             const aiResponse = generateAIResponse(msg, messages);
-            setMessages((prev) => [...prev, aiResponse]);
+            setPendingMessages((prev) => [...prev, aiResponse]);
             setIsTyping(false);
-            scrollToBottom();
-        }, delay);
-    }, [input, isTyping, messages, scrollToBottom]);
+            void persistConversation(systemId, userMsg, aiResponse);
+            return;
+        }
+
+        try {
+            const response = await policyApi.generate(
+                msg,
+                messages.slice(-6).map((m) => `${m.role}: ${m.content}`)
+            );
+            const aiResponse: ChatMessage = {
+                id: newChatMessageId(),
+                role: "ai",
+                content: response.content,
+                policy: response.policy,
+                rules: response.rules,
+                provider: response.provider,
+                model: response.model,
+            };
+            setPendingMessages((prev) => [...prev, aiResponse]);
+            void persistConversation(systemId, userMsg, aiResponse);
+        } catch {
+            const fallback = generateAIResponse(msg, messages);
+            setPendingMessages((prev) => [...prev, fallback]);
+            void persistConversation(systemId, userMsg, fallback);
+        } finally {
+            setIsTyping(false);
+        }
+    }, [input, isTyping, messages, persistConversation, resolvedSelectedSystemId]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Enter" && !e.shiftKey) {
@@ -476,23 +940,27 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
     };
 
     const handleSavePolicy = (msg: ChatMessage) => {
-        if (msg.policy) {
-            onCreate({ ...msg.policy, rules: msg.rules });
+        if (msg.policy && resolvedSelectedSystemId !== "") {
+            onCreate({ ...msg.policy, rules: msg.rules }, resolvedSelectedSystemId as number);
         }
     };
 
     return (
         <div className="chat">
             {/* Message area */}
-            <div className="chat__messages">
-                {messages.length === 0 ? (
+            <div ref={messagesContainerRef} className="chat__messages">
+                {isLoadingHistory && resolvedSelectedSystemId !== "" && messages.length === 0 ? (
+                    <div className="chat__empty">
+                        <div className="chat__empty-title">Loading conversation…</div>
+                    </div>
+                ) : messages.length === 0 ? (
                     <div className="chat__empty">
                         <div className="chat__empty-icon">
-                            <AutoAwesomeOutlinedIcon sx={{ fontSize: 28 }} />
+                            <AIIcon size={28} />
                         </div>
                         <div className="chat__empty-title">AI Policy Generator</div>
                         <div className="chat__empty-desc">
-                            Describe the policy you need in plain language. I'll generate a structured, enforceable policy for your organization. You can keep refining it through conversation.
+                            Describe the policy you need in plain language. I will generate a structured, enforceable policy for your organization. You can keep refining it through conversation.
                         </div>
                         <div className="chat__suggestions">
                             {AI_SUGGESTIONS.map((s, i) => (
@@ -503,12 +971,12 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
                         </div>
                     </div>
                 ) : (
-                    <>
+                    <div ref={messageListContentRef} className="chat__message-list">
                         {messages.map((msg) => (
                             <div key={msg.id} className={`chat__msg chat__msg--${msg.role}`}>
                                 {msg.role === "ai" && (
                                     <div className="chat__avatar chat__avatar--ai">
-                                        <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />
+                                        <AIIcon size={16} />
                                     </div>
                                 )}
                                 <div className={`chat__bubble chat__bubble--${msg.role}`}>
@@ -535,7 +1003,13 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
                                                         </div>
                                                     )}
                                                     <div className="chat__policy-card__actions">
-                                                        <button className="btn btn--primary btn--sm" onClick={() => handleSavePolicy(msg)}>
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn--primary btn--sm"
+                                                            disabled={resolvedSelectedSystemId === ""}
+                                                            title={resolvedSelectedSystemId === "" ? "Select an AI system below before saving" : undefined}
+                                                            onClick={() => handleSavePolicy(msg)}
+                                                        >
                                                             <CheckCircleOutlinedIcon sx={{ fontSize: 14 }} /> Save Policy
                                                         </button>
                                                         <button className="btn btn--secondary btn--sm" onClick={() => {
@@ -565,7 +1039,7 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
                         {isTyping && (
                             <div className="chat__msg chat__msg--ai">
                                 <div className="chat__avatar chat__avatar--ai">
-                                    <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />
+                                    <AIIcon size={16} />
                                 </div>
                                 <div className="chat__typing">
                                     <div className="chat__typing-dot" />
@@ -574,37 +1048,113 @@ function AIGenerateTab({ onCreate }: { onCreate: (data: PolicyCreate) => void })
                                 </div>
                             </div>
                         )}
-                        <div ref={messagesEndRef} />
-                    </>
+                    </div>
+                )}
+                {messages.length > 0 && !isPinnedToBottom && (
+                    <div className="chat__latest-wrap">
+                        <button
+                            type="button"
+                            className={`chat__latest${unseenAssistantReply ? " chat__latest--new" : ""}`}
+                            onClick={jumpToLatest}
+                            aria-label={
+                                unseenAssistantReply
+                                    ? "New assistant reply — jump to the bottom of the chat"
+                                    : "Scroll to latest messages"
+                            }
+                        >
+                            <span className="chat__latest-main">
+                                <KeyboardArrowDownIcon sx={{ fontSize: 18 }} />
+                                {unseenAssistantReply ? "New reply" : "Jump to latest"}
+                            </span>
+                            {unseenAssistantReply && (
+                                <span className="chat__latest-hint" aria-hidden>
+                                    Assistant responded — tap to view
+                                </span>
+                            )}
+                        </button>
+                    </div>
                 )}
             </div>
 
             {/* Input bar — always at bottom */}
             <div className="chat__input-bar">
+                <div style={{ maxWidth: 760, margin: "0 auto 8px", display: "flex", gap: "var(--s-2)", alignItems: "center" }}>
+                    <label style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)" }}>System</label>
+                    <select
+                        className="input"
+                        style={{ width: "100%" }}
+                        value={resolvedSelectedSystemId}
+                        onChange={(e) => {
+                            setSelectedSystemId(e.target.value ? Number(e.target.value) : "");
+                            setPendingMessages([]);
+                            setIsTyping(false);
+                            shouldAutoScrollRef.current = true;
+                            setIsPinnedToBottom(true);
+                        }}
+                        disabled={isLoadingSystems || isTyping}
+                    >
+                        <option value="">
+                            {isLoadingSystems ? "Loading systems..." : systems.length === 0 ? "No systems available" : "Select system"}
+                        </option>
+                        {systems.map((system) => (
+                            <option key={system.id} value={system.id}>
+                                {system.name} (Risk: {system.risk_tier ?? "Unassigned"})
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                {systems.length === 0 && !isLoadingSystems && (
+                    <div style={{ maxWidth: 760, margin: "0 auto 8px", fontSize: "var(--fs-11)", color: "var(--c-text-muted)", textAlign: "center" }}>
+                        No systems found. Create one via `POST /api/v1/systems` and refresh this page.
+                    </div>
+                )}
+                {isSystemsError && (
+                    <div style={{ maxWidth: 760, margin: "0 auto 8px", fontSize: "var(--fs-11)", color: "var(--c-high)", textAlign: "center" }}>
+                        Failed to load systems: {systemsError instanceof Error ? systemsError.message : "Unknown error"}
+                    </div>
+                )}
+                {isHistoryError && (
+                    <div style={{ maxWidth: 760, margin: "0 auto 8px", fontSize: "var(--fs-11)", color: "var(--c-high)", textAlign: "center" }}>
+                        Failed to load chat history: {historyError instanceof Error ? historyError.message : "Unknown error"}
+                    </div>
+                )}
                 <div className="chat__input-wrap">
                     <textarea
                         ref={textareaRef}
                         className="chat__textarea"
-                        placeholder="Describe a policy or ask to refine..."
+                        placeholder={resolvedSelectedSystemId === "" ? "Select a system to start a persistent AI chat..." : "Describe a policy or ask to refine..."}
                         value={input}
                         onChange={handleTextareaInput}
                         onKeyDown={handleKeyDown}
                         rows={1}
+                        disabled={resolvedSelectedSystemId === "" || isTyping}
                     />
                     <button
                         className="chat__send-btn"
-                        disabled={!input.trim() || isTyping}
+                        disabled={!input.trim() || isTyping || resolvedSelectedSystemId === ""}
                         onClick={() => handleSend()}
                     >
                         <SendOutlinedIcon sx={{ fontSize: 16 }} />
                     </button>
                 </div>
                 <div style={{ maxWidth: 760, margin: "6px auto 0", fontSize: "var(--fs-11)", color: "var(--c-text-muted)", textAlign: "center" }}>
-                    AI can make mistakes. Review generated policies before enforcing.
+                    AI can make mistakes. Review generated policies before enforcing. Conversation history is saved per system.
                 </div>
             </div>
         </div>
     );
+}
+
+function mapStoredChatMessage(message: StoredChatMessage): ChatMessage {
+    return {
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        policy: message.policy ?? undefined,
+        rules: message.rules ?? undefined,
+        provider: message.provider ?? undefined,
+        model: message.model ?? undefined,
+    };
 }
 
 /*   Render AI text content with basic formatting   */
@@ -679,7 +1229,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
                 refined.severity = "high";
                 refinedRules = { ...refinedRules, enforcement: "strict", auto_block: true };
                 return {
-                    id: `msg_${Date.now()}`, role: "ai",
+                    id: newChatMessageId(), role: "ai",
                     content: `I've updated the policy to be **more strict**. Here are the changes:\n\n- Severity escalated to **High**\n- Enforcement mode set to **Strict** (auto-block violations)\n- Auto-blocking is now enabled\n\nHere's the updated policy:`,
                     policy: refined, rules: refinedRules,
                 };
@@ -688,7 +1238,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
             if (lower.includes("add") && lower.includes("exception")) {
                 refinedRules = { ...refinedRules, exceptions: ["senior_engineers", "security_team"] };
                 return {
-                    id: `msg_${Date.now()}`, role: "ai",
+                    id: newChatMessageId(), role: "ai",
                     content: `Done! I've added exceptions for **Senior Engineers** and **Security Team**. They will be exempt from this policy restriction.\n\nUpdated policy:`,
                     policy: refined, rules: refinedRules,
                 };
@@ -697,7 +1247,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
             // Generic refinement
             refined.description = refined.description + "\n\nAdditional requirement: " + userMsg;
             return {
-                id: `msg_${Date.now()}`, role: "ai",
+                id: newChatMessageId(), role: "ai",
                 content: `I've incorporated your feedback into the policy. The description has been updated with the additional requirements.\n\nReview the changes below:`,
                 policy: refined, rules: refinedRules,
             };
@@ -707,7 +1257,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
     // If this is a follow-up question (no policy generation)
     if (hasPolicy && (lower.includes("what") || lower.includes("how") || lower.includes("why") || lower.includes("explain"))) {
         return {
-            id: `msg_${Date.now()}`, role: "ai",
+            id: newChatMessageId(), role: "ai",
             content: `Great question! Here's some context:\n\n**How enforcement works:** Policies are checked against your connected integrations (GitHub, Slack, AWS, etc.) in real-time. When a violation is detected, the system can either:\n\n- **Advisory mode:** Log and alert, but don't block\n- **Strict mode:** Auto-block the action and notify the team\n\nYou can also configure notification channels and audit frequencies for each policy.\n\nWant me to adjust the enforcement settings, or would you like to generate a different policy?`,
         };
     }
@@ -715,7 +1265,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
     //  First-time policy generation 
     if (lower.includes("gpt-4") || lower.includes("model") || lower.includes("restrict")) {
         return {
-            id: `msg_${Date.now()}`, role: "ai",
+            id: newChatMessageId(), role: "ai",
             content: `I've analyzed your requirements and generated a **Model Restrictions** policy. This will prevent developers from using expensive AI models while keeping cost-effective alternatives available.\n\nHere's the generated policy:`,
             policy: {
                 name: "Restrict AI Models to Cost-Effective Options",
@@ -728,7 +1278,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
 
     if (lower.includes("review") || lower.includes("human") || lower.includes("code")) {
         return {
-            id: `msg_${Date.now()}`, role: "ai",
+            id: newChatMessageId(), role: "ai",
             content: `Absolutely. I've created a **Code Review** policy for AI-generated code. This ensures all AI outputs are human-verified before reaching production.\n\nHere's the policy:`,
             policy: {
                 name: "Mandatory Human Review for AI-Generated Code",
@@ -741,7 +1291,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
 
     if (lower.includes("secret") || lower.includes("scanning") || lower.includes("repo")) {
         return {
-            id: `msg_${Date.now()}`, role: "ai",
+            id: newChatMessageId(), role: "ai",
             content: `Great call on security. I've created a **Secret Scanning** policy to prevent credential leaks across all repositories.\n\nHere's the policy:`,
             policy: {
                 name: "Mandatory Secret Scanning for All Repositories",
@@ -754,7 +1304,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
 
     if (lower.includes("rate") || lower.includes("limit") || lower.includes("cost") || lower.includes("usage") || lower.includes("quota")) {
         return {
-            id: `msg_${Date.now()}`, role: "ai",
+            id: newChatMessageId(), role: "ai",
             content: `Smart move on cost control. I've generated an **API Rate Limiting** policy to cap AI model usage and prevent unexpected bills.\n\nHere's the policy:`,
             policy: {
                 name: "API Rate Limiting for AI Models",
@@ -767,7 +1317,7 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
 
     // Default — generic policy generation
     return {
-        id: `msg_${Date.now()}`, role: "ai",
+        id: newChatMessageId(), role: "ai",
         content: `I've analyzed your requirements and generated a governance policy. Here's what I came up with:\n\nYou can **refine** this by telling me to make changes, add exceptions, change severity, or adjust the enforcement rules. Just keep chatting!`,
         policy: {
             name: "AI Governance Policy",
@@ -776,4 +1326,135 @@ function generateAIResponse(userMsg: string, history: ChatMessage[]): ChatMessag
         },
         rules: { policy_name: "custom_governance", enforcement: "advisory", monitoring: true, review_cycle_days: 30, requires_approval: true },
     };
+}
+
+function GitHubChecksTab({
+    policies,
+    onToggle,
+}: {
+    policies: ScanPolicy[];
+    onToggle: (checkId: string, enabled: boolean) => Promise<void>;
+}) {
+    const [toggling, setToggling] = useState<string | null>(null);
+    const enabledCount = policies.filter(p => p.enabled).length;
+
+    const handleToggle = async (p: ScanPolicy) => {
+        setToggling(p.check_id);
+        try {
+            await onToggle(p.check_id, !p.enabled);
+        } finally {
+            setToggling(null);
+        }
+    };
+
+    const personalChecks = policies.filter(p => p.tier !== "enterprise");
+    const enterpriseChecks = policies.filter(p => p.tier === "enterprise");
+
+    const renderCheck = (p: ScanPolicy) => (
+        <div
+            key={p.check_id}
+            style={{
+                padding: "var(--s-4)",
+                borderRadius: "var(--r-md)",
+                border: `1px solid ${p.enabled ? "var(--c-border)" : "rgba(255,255,255,0.05)"}`,
+                background: p.enabled ? "var(--c-surface-elevated)" : "rgba(255,255,255,0.02)",
+                opacity: p.enabled ? 1 : 0.6,
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "var(--s-4)",
+                transition: "opacity 0.15s",
+            }}
+        >
+            <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--s-2)", marginBottom: "var(--s-2)", flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: "var(--fw-semibold)", fontSize: "var(--fs-13)" }}>{p.name}</span>
+                    <span className={`badge badge--${p.severity === "high" ? "danger" : p.severity === "medium" ? "warning" : "neutral"}`} style={{ fontSize: "var(--fs-11)" }}>
+                        {p.severity}
+                    </span>
+                    {p.tier === "enterprise" && (
+                        <span className="badge badge--info" style={{ fontSize: "var(--fs-11)" }}>Enterprise</span>
+                    )}
+                    {p.enabled
+                        ? <span className="badge badge--live" style={{ fontSize: "var(--fs-11)" }}>Active</span>
+                        : <span className="badge badge--neutral" style={{ fontSize: "var(--fs-11)" }}>Disabled</span>}
+                </div>
+                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-secondary)", lineHeight: 1.6, margin: 0 }}>
+                    {p.description}
+                </p>
+            </div>
+            <button
+                type="button"
+                className={`btn btn--sm ${p.enabled ? "btn--secondary" : "btn--ghost"}`}
+                disabled={toggling === p.check_id}
+                onClick={() => void handleToggle(p)}
+                style={{ flexShrink: 0, marginTop: 2 }}
+            >
+                {toggling === p.check_id
+                    ? "…"
+                    : p.enabled
+                        ? <><ToggleOnOutlinedIcon sx={{ fontSize: 16 }} /> Enabled</>
+                        : <><ToggleOffOutlinedIcon sx={{ fontSize: 16 }} /> Disabled</>}
+            </button>
+        </div>
+    );
+
+    return (
+        <div className="policies-tab-panel">
+            <div className="policies-tab-panel__header policies-tab-panel__header--github">
+                <div style={{ display: "flex", gap: "var(--s-4)", alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: "var(--s-3)" }}>
+                        <span className="badge badge--live" style={{ padding: "4px 10px" }}>{enabledCount} active</span>
+                        <span className="badge badge--neutral" style={{ padding: "4px 10px" }}>{policies.length - enabledCount} disabled</span>
+                    </div>
+                    <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginLeft: "auto" }}>
+                        Changes take effect on next scan
+                    </span>
+                </div>
+            </div>
+            <div className="policies-tab-panel__body">
+                {policies.length === 0 && (
+                    <div style={{ padding: "var(--s-10)", textAlign: "center", color: "var(--c-text-muted)", fontSize: "var(--fs-13)" }}>
+                        Loading checks…
+                    </div>
+                )}
+
+                {personalChecks.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
+                        <p style={{ fontSize: "var(--fs-11)", fontWeight: "var(--fw-bold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0" }}>
+                            Repository Checks
+                        </p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
+                            {personalChecks.map(renderCheck)}
+                        </div>
+                    </div>
+                )}
+
+                {enterpriseChecks.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)", marginTop: personalChecks.length > 0 ? "var(--s-4)" : 0 }}>
+                        <div>
+                            <p style={{ fontSize: "var(--fs-11)", fontWeight: "var(--fw-bold)", color: "var(--c-text-muted)", textTransform: "uppercase", letterSpacing: "0.1em", margin: "0" }}>
+                                Enterprise Copilot Checks
+                            </p>
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-1)", lineHeight: 1.5 }}>
+                                Requires GitHub Copilot Business or Enterprise. These checks are automatically skipped on personal accounts.
+                            </p>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
+                            {enterpriseChecks.map(renderCheck)}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function isLikelyRefinement(message: string): boolean {
+    const lower = message.toLowerCase();
+    return lower.includes("refine")
+        || lower.includes("strict")
+        || lower.includes("change")
+        || lower.includes("update")
+        || lower.includes("modify")
+        || lower.includes("add");
 }

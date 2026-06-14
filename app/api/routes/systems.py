@@ -4,16 +4,26 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
 from app.core.security import Actor, get_actor, require_admin
-from app.domain.models import AISystem, AISystemCreate, AISystemUpdate
+from app.domain.models import (
+    AISystem,
+    AISystemCreate,
+    AISystemUpdate,
+    GovernancePolicy,
+    GovernancePolicyCreate,
+    GovernancePolicyUpdate,
+)
+from app.services import claude as claude_service
+from app.services.notifications import notify_system_change
 from app.services.store import store
 
 router = APIRouter()
 
 
 @router.get("/", response_model=List[AISystem], summary="List AI systems")
-def list_systems(actor: Actor = Depends(get_actor)) -> List[AISystem]:  # noqa: ARG001 - actor for auth
-    return store.list_systems()
+def list_systems(actor: Actor = Depends(get_actor)) -> List[AISystem]:
+    return store.list_systems(actor.organization_id)
 
 
 @router.post(
@@ -22,23 +32,94 @@ def list_systems(actor: Actor = Depends(get_actor)) -> List[AISystem]:  # noqa: 
     status_code=status.HTTP_201_CREATED,
     summary="Create AI system (admin only)",
 )
-def create_system(payload: AISystemCreate, actor: Actor = Depends(require_admin)) -> AISystem:
-    return store.create_system(payload, user_id=actor.user_id)
+async def create_system(payload: AISystemCreate, actor: Actor = Depends(require_admin)) -> AISystem:
+    system = store.create_system(payload, user_id=actor.user_id, organization_id=actor.organization_id)
+    try:
+        await notify_system_change(actor.organization_id, system, "created")
+    except Exception:
+        pass
+    return system
+
+
+@router.get(
+    "/{system_id}/policies",
+    response_model=List[GovernancePolicy],
+    summary="List governance policies saved for a system",
+)
+def list_system_policies(system_id: int, actor: Actor = Depends(get_actor)) -> List[GovernancePolicy]:
+    policies = store.list_system_policies(system_id, actor.organization_id)
+    if policies is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
+    return policies
+
+
+@router.post(
+    "/{system_id}/policies",
+    response_model=GovernancePolicy,
+    status_code=status.HTTP_201_CREATED,
+    summary="Save a governance policy for a system (admin only)",
+)
+def create_system_policy(
+    system_id: int,
+    payload: GovernancePolicyCreate,
+    actor: Actor = Depends(require_admin),
+) -> GovernancePolicy:
+    created = store.create_system_policy(
+        system_id,
+        payload,
+        user_id=actor.user_id,
+        organization_id=actor.organization_id,
+    )
+    if created is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
+    return created
+
+
+@router.patch(
+    "/{system_id}/policies/{policy_id}",
+    response_model=GovernancePolicy,
+    summary="Update a governance policy (e.g. status) (admin only)",
+)
+def update_system_policy(
+    system_id: int,
+    policy_id: str,
+    payload: GovernancePolicyUpdate,
+    actor: Actor = Depends(require_admin),
+) -> GovernancePolicy:
+    updated = store.update_system_policy(
+        system_id,
+        policy_id,
+        payload,
+        user_id=actor.user_id,
+        organization_id=actor.organization_id,
+    )
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System or policy not found")
+    return updated
 
 
 @router.get("/{system_id}", response_model=AISystem, summary="Get AI system by ID")
-def get_system(system_id: int, actor: Actor = Depends(get_actor)) -> AISystem:  # noqa: ARG001 - actor for auth
-    system = store.get_system(system_id)
+def get_system(system_id: int, actor: Actor = Depends(get_actor)) -> AISystem:
+    system = store.get_system(system_id, actor.organization_id)
     if system is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
     return system
 
 
 @router.patch("/{system_id}", response_model=AISystem, summary="Update AI system (admin only)")
-def update_system(system_id: int, payload: AISystemUpdate, actor: Actor = Depends(require_admin)) -> AISystem:
-    system = store.update_system(system_id, payload, user_id=actor.user_id)
+async def update_system(system_id: int, payload: AISystemUpdate, actor: Actor = Depends(require_admin)) -> AISystem:
+    system = store.update_system(
+        system_id,
+        payload,
+        user_id=actor.user_id,
+        organization_id=actor.organization_id,
+    )
     if system is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
+    try:
+        await notify_system_change(actor.organization_id, system, "updated")
+    except Exception:
+        pass
     return system
 
 
@@ -47,8 +128,26 @@ def update_system(system_id: int, payload: AISystemUpdate, actor: Actor = Depend
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete AI system (admin only)",
 )
-def delete_system(system_id: int, actor: Actor = Depends(require_admin)) -> None:
-    deleted = store.delete_system(system_id, user_id=actor.user_id)
+async def delete_system(system_id: int, actor: Actor = Depends(require_admin)) -> None:
+    system = store.get_system(system_id, actor.organization_id)
+    deleted = store.delete_system(system_id, user_id=actor.user_id, organization_id=actor.organization_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
+    if system:
+        try:
+            await notify_system_change(actor.organization_id, system, "deleted")
+        except Exception:
+            pass
 
+
+@router.post(
+    "/{system_id}/explain-missing",
+    summary="Ask Claude to explain missing required controls for a system",
+    dependencies=[Depends(RateLimited(TIER_EXPENSIVE))],
+)
+def explain_missing(system_id: int, actor: Actor = Depends(get_actor)) -> dict:
+    return claude_service.explain_missing_controls(
+        system_id=system_id,
+        user_id=actor.user_id,
+        organization_id=actor.organization_id,
+    )

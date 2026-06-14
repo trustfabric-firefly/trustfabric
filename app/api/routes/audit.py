@@ -12,6 +12,5 @@ router = APIRouter()
 
 
 @router.get("/", response_model=List[AuditEvent], summary="List audit events")
-def list_audit_events(actor: Actor = Depends(get_actor)) -> List[AuditEvent]:  # noqa: ARG001
-    return store.list_audits()
-
+def list_audit_events(actor: Actor = Depends(get_actor)) -> List[AuditEvent]:
+    return store.list_audits(actor.organization_id)

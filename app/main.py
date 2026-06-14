@@ -2,28 +2,47 @@
 
 from __future__ import annotations
 
-import os
+import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi import HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import settings
 
-import firebase_admin
-from firebase_admin import credentials
+logger = logging.getLogger(__name__)
 
 
-from dotenv import load_dotenv
-load_dotenv()
-cred = os.getenv("SERVICE_FIREBASE")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from app.services.store import store
 
-firebase_cred = credentials.Certificate(cred)
-firebase_admin.initialize_app(firebase_cred)
+    try:
+        migrated = store.migrate_plaintext_integration_tokens()
+        if migrated:
+            logger.info(
+                "Encrypted legacy plaintext integration tokens for %d organization(s)",
+                migrated,
+            )
+    except RuntimeError as exc:
+        logger.debug("Integration token migration skipped: %s", exc)
+    except Exception:
+        logger.exception("Integration token migration failed")
+    yield
+
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.app_name, version=settings.app_version)
+    app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.include_router(api_router)
     return app
 
-app = create_app() # entry point
+
+app = create_app()  # entry point

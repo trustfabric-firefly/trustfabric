@@ -1,9 +1,12 @@
 "use client";
 
+import type { ReactNode } from "react";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
+
 interface TopBarProps {
     title: string;
-    subtitle?: string;
-    actions?: React.ReactNode;
+    subtitle?: ReactNode;
+    actions?: ReactNode;
 }
 
 export function TopBar({ title, subtitle, actions }: TopBarProps) {
@@ -12,7 +15,8 @@ export function TopBar({ title, subtitle, actions }: TopBarProps) {
             <div className="topbar__left">
                 <h1 className="topbar__title">{title}</h1>
                 {subtitle && (
-                    <span
+                    <div
+                        className="topbar__subtitle"
                         style={{
                             fontSize: "var(--fs-12)",
                             color: "var(--c-text-muted)",
@@ -22,10 +26,13 @@ export function TopBar({ title, subtitle, actions }: TopBarProps) {
                         }}
                     >
                         {subtitle}
-                    </span>
+                    </div>
                 )}
             </div>
-            {actions && <div className="topbar__right">{actions}</div>}
+            <div className="topbar__right">
+                {actions}
+                <ThemeToggle />
+            </div>
         </header>
     );
 }

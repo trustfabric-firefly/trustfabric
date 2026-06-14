@@ -1,56 +1,83 @@
 "use client";
+import { VerifiedUserOutlinedIcon, GppMaybeOutlinedIcon, TimelineOutlinedIcon, VisibilityOutlinedIcon, TrendingUpOutlinedIcon, TrendingDownOutlinedIcon, WarningAmberOutlinedIcon, CheckCircleOutlinedIcon, OpenInNewOutlinedIcon, MemoryOutlinedIcon, GitHubIcon, ForumOutlinedIcon, CloudOutlinedIcon, StorageOutlinedIcon, DescriptionOutlinedIcon, BoltOutlinedIcon, ChevronRightOutlinedIcon, ExpandMoreIcon, BrushOutlinedIcon, TagOutlinedIcon } from "@/lib/icons"
+import type { AppIconComponent } from "@/lib/icons";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
-import GppMaybeOutlinedIcon from "@mui/icons-material/GppMaybeOutlined";
-import TimelineOutlinedIcon from "@mui/icons-material/TimelineOutlined";
-import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
-import TrendingUpOutlinedIcon from "@mui/icons-material/TrendingUpOutlined";
-import TrendingDownOutlinedIcon from "@mui/icons-material/TrendingDownOutlined";
-import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
-import CheckCircleOutlinedIcon from "@mui/icons-material/CheckCircleOutlined";
-import OpenInNewOutlinedIcon from "@mui/icons-material/OpenInNewOutlined";
-import MemoryOutlinedIcon from "@mui/icons-material/MemoryOutlined";
-import GitHubIcon from "@mui/icons-material/GitHub";
-import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
-import CloudOutlinedIcon from "@mui/icons-material/CloudOutlined";
-import StorageOutlinedIcon from "@mui/icons-material/StorageOutlined";
-import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
-import BoltOutlinedIcon from "@mui/icons-material/BoltOutlined";
-import MonitorOutlinedIcon from "@mui/icons-material/MonitorOutlined";
-import ChevronRightOutlinedIcon from "@mui/icons-material/ChevronRightOutlined";
-import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import Link from "next/link";
 import { TopBar } from "@/components/layout/TopBar";
 import { RiskTierBadge } from "@/components/ui/Badge";
 import { GlowingEffect } from "@/components/ui/glowing-effect";
-import { dashboardApi, systemsApi, auditApi } from "@/lib/api";
+import { dashboardApi, systemsApi, auditApi, integrationsApi, scansApi } from "@/lib/api";
+import { dashboardIntegrationSettingsHref } from "@/lib/integration-sections";
 import type { RiskTier } from "@/types";
-import type { SvgIconComponent } from "@mui/icons-material";
-
 const TIER_ORDER: RiskTier[] = ["Tier 3", "Tier 2", "Tier 1"];
 
-/* nist heatmap */
-const NIST_CATEGORIES = [
-    { id: "GV", name: "Govern", controls: 6 },
-    { id: "MP", name: "Map", controls: 5 },
-    { id: "MS", name: "Measure", controls: 5 },
-    { id: "MG", name: "Manage", controls: 4 },
-] as const;
+/* framework heatmap configs — nist_rmf uses real backend data; others are placeholders */
+const FRAMEWORK_CONFIGS = {
+    nist_rmf: {
+        label: "NIST AI RMF",
+        version: "1.0",
+        categories: [
+            { id: "GV", name: "Govern", controls: 6 },
+            { id: "MP", name: "Map", controls: 5 },
+            { id: "MS", name: "Measure", controls: 5 },
+            { id: "MG", name: "Manage", controls: 4 },
+        ],
+    },
+    soc2: {
+        label: "SOC 2",
+        version: "2017",
+        categories: [
+            { id: "CC6", name: "Access", controls: 3 },
+            { id: "CC7", name: "Operations", controls: 3 },
+            { id: "CC8", name: "Change Mgmt", controls: 2 },
+            { id: "CC3", name: "Risk", controls: 2 },
+        ],
+    },
+    eu_ai_act: {
+        label: "EU AI Act",
+        version: "2024",
+        categories: [
+            { id: "Art.9", name: "Risk Mgmt", controls: 3 },
+            { id: "Art.10", name: "Data Gov.", controls: 2 },
+            { id: "Art.13", name: "Transparency", controls: 3 },
+            { id: "Art.14", name: "Oversight", controls: 3 },
+        ],
+    },
+    nist_csf: {
+        label: "NIST CSF",
+        version: "1.1",
+        categories: [
+            { id: "ID", name: "Identify", controls: 3 },
+            { id: "PR", name: "Protect", controls: 4 },
+            { id: "DE", name: "Detect", controls: 2 },
+            { id: "RS", name: "Respond", controls: 2 },
+        ],
+    },
+} as const;
 
-const INTEGRATIONS = [
-    { name: "GitHub", desc: "Code scanning & PR reviews", icon: GitHubIcon, status: "connected" as const },
-    { name: "Slack", desc: "Alerts & notifications", icon: ForumOutlinedIcon, status: "connected" as const },
-    { name: "AWS", desc: "Cloud infrastructure audit", icon: CloudOutlinedIcon, status: "needs_setup" as const },
-    { name: "Azure", desc: "Identity & access management", icon: StorageOutlinedIcon, status: "needs_setup" as const },
-    { name: "Google Cloud", desc: "Vertex AI model monitoring", icon: CloudOutlinedIcon, status: "disconnected" as const },
-    { name: "Jira", desc: "Issue tracking & remediation", icon: BoltOutlinedIcon, status: "connected" as const },
+type FrameworkKey = keyof typeof FRAMEWORK_CONFIGS;
+
+type IntegrationCardStatus = "connected" | "needs_setup" | "coming_soon" | "disconnected";
+
+const INTEGRATIONS: {
+    name: string;
+    desc: string;
+    icon: AppIconComponent;
+    status: IntegrationCardStatus;
+}[] = [
+    { name: "GitHub", desc: "Code scanning & PR reviews", icon: GitHubIcon, status: "needs_setup" },
+    { name: "Figma", desc: "Design & brand compliance", icon: BrushOutlinedIcon, status: "needs_setup" },
+    { name: "Slack", desc: "Alerts & notifications", icon: TagOutlinedIcon, status: "needs_setup" },
+    { name: "AWS", desc: "Cloud infrastructure audit", icon: CloudOutlinedIcon, status: "needs_setup" },
+    { name: "Azure", desc: "Identity & access management", icon: StorageOutlinedIcon, status: "coming_soon" },
+    { name: "Google Cloud", desc: "Vertex AI model monitoring", icon: CloudOutlinedIcon, status: "coming_soon" },
+    { name: "Jira", desc: "Issue tracking & remediation", icon: BoltOutlinedIcon, status: "coming_soon" },
 ];
 
-const STATUS_LABELS = { connected: "Connected", needs_setup: "Needs setup", disconnected: "Not connected" };
-const STATUS_BADGE = { connected: "badge--live", needs_setup: "badge--warning", disconnected: "badge--neutral" };
+const STATUS_LABELS = { connected: "Connected", needs_setup: "Needs setup", coming_soon: "Coming soon.", disconnected: "Not connected" };
+const STATUS_BADGE = { connected: "badge--live", needs_setup: "badge--warning", coming_soon: "badge--neutral", disconnected: "badge--neutral" };
 
 export default function DashboardPage() {
     const { data: summary, isLoading: loadingSummary } = useQuery({
@@ -69,6 +96,12 @@ export default function DashboardPage() {
         queryFn: auditApi.list,
     });
 
+    const { data: nistCoverage } = useQuery({
+        queryKey: ["nist-coverage"],
+        queryFn: dashboardApi.nistCoverage,
+        refetchInterval: 60_000,
+    });
+
     const missingControls = systems.filter((s) => s.missing_required_controls);
     const compliantSystems = systems.filter((s) => !s.missing_required_controls);
     const total = summary?.total_systems ?? 0;
@@ -82,30 +115,97 @@ export default function DashboardPage() {
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
         .slice(0, 6);
 
-    // Generate deterministic heatmap data from systems state
-    const heatmapData = useMemo(() => generateHeatmap(systems.length, missingControls.length), [systems.length, missingControls.length]);
+    const [selectedFramework, setSelectedFramework] = useState<FrameworkKey>("nist_rmf");
+    const activeFramework = FRAMEWORK_CONFIGS[selectedFramework];
 
-    // Total controls
-    const totalControls = NIST_CATEGORIES.reduce((n, c) => n + c.controls, 0);
+    // For NIST RMF: use real backend coverage data. For other frameworks: deterministic placeholder.
+    const heatmapData = useMemo(() => {
+        if (selectedFramework === "nist_rmf" && nistCoverage) {
+            return activeFramework.categories.map((cat) => {
+                const fn = nistCoverage.functions.find((f) => f.function === cat.name);
+                if (!fn) return Array(cat.controls).fill(0) as number[];
+                const cells: number[] = [];
+                for (let i = 0; i < fn.active; i++) cells.push(3);
+                for (let i = 0; i < fn.draft; i++) cells.push(2);
+                for (let i = 0; i < fn.inactive; i++) cells.push(1);
+                for (let i = 0; i < fn.missing; i++) cells.push(0);
+                return cells.slice(0, cat.controls);
+            });
+        }
+        return generateHeatmap(systems.length, missingControls.length, activeFramework.categories as unknown as { id: string; name: string; controls: number }[]);
+    }, [selectedFramework, nistCoverage, systems.length, missingControls.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const totalControls = activeFramework.categories.reduce((n: number, c: { controls: number }) => n + c.controls, 0);
     const passingControls = heatmapData.flat().filter((v) => v >= 3).length;
 
     // Recently viewed items synthesized from audit events + systems
     const recentlyViewed = useMemo(() => buildRecentlyViewed(systems, auditEvents), [systems, auditEvents]);
 
-    // Connected / failed integrations
-    const connectedCount = INTEGRATIONS.filter((i) => i.status === "connected").length;
-    const needsSetupCount = INTEGRATIONS.filter((i) => i.status === "needs_setup").length;
+    const { data: latestScans = [] } = useQuery({
+        queryKey: ["scans"],
+        queryFn: scansApi.list,
+        retry: false,
+    });
+    const latestScan = latestScans[0] ?? null;
+    const scanScore = latestScan?.results.compliance_score ?? null;
+
+    const { data: githubStatus } = useQuery({
+        queryKey: ["github-status"],
+        queryFn: integrationsApi.getGitHubStatus,
+        retry: false,
+    });
+
+    const { data: slackStatus } = useQuery({
+        queryKey: ["slack-status"],
+        queryFn: integrationsApi.getSlackStatus,
+        retry: false,
+    });
+
+    const { data: awsStatus } = useQuery({
+        queryKey: ["aws-status"],
+        queryFn: integrationsApi.getAwsStatus,
+        retry: false,
+    });
+
+    const { data: figmaStatus } = useQuery({
+        queryKey: ["figma-status"],
+        queryFn: integrationsApi.getFigmaStatus,
+        retry: false,
+    });
+
+    // Connected / failed integrations (GitHub + Slack + AWS status comes from API; rest are static placeholders)
+    const githubConnected = githubStatus?.connected ?? false;
+    const figmaConnected = figmaStatus?.connected ?? false;
+    const slackConnected = slackStatus?.connected ?? false;
+    const awsConnected = awsStatus?.connected ?? false;
+    const dynamicNames = new Set(["GitHub", "Figma", "Slack", "AWS"]);
+    const connectedCount = INTEGRATIONS.filter((i) => !dynamicNames.has(i.name) && i.status === "connected").length
+        + (githubConnected ? 1 : 0) + (figmaConnected ? 1 : 0) + (slackConnected ? 1 : 0) + (awsConnected ? 1 : 0);
+    const needsSetupCount = INTEGRATIONS.filter((i) => !dynamicNames.has(i.name) && i.status === "needs_setup").length
+        + (!githubConnected ? 1 : 0) + (!figmaConnected ? 1 : 0) + (!slackConnected ? 1 : 0) + (!awsConnected ? 1 : 0);
+
+    const frameworkIsPreview = selectedFramework !== "nist_rmf";
+    const evaluatedControls = heatmapData.flat().filter((v) => v !== 0).length;
 
     return (
         <>
-            <TopBar title="Dashboard" subtitle={total > 0 ? `Last updated ${formatRelativeTime(new Date().toISOString())}` : undefined} />
+            <TopBar
+                title="Dashboard"
+                subtitle="AI governance overview for your workspace"
+            />
             <main className="page">
 
                 {/* Row 1: KPI Stats */}
                 <div className="stats-grid" style={{ marginBottom: "var(--s-4)" }}>
-                    <StatTile label="Model Compliance Score" value={loadingSummary ? "--" : `${complianceRate}%`} sub="Across all registered systems"
-                        trend={complianceRate > 0 ? "up" : undefined} trendVal={complianceRate > 0 ? `${complianceRate}%` : undefined}
-                        icon={<VerifiedUserOutlinedIcon sx={{ fontSize: 18 }} />} variant="success" />
+                    <StatTile
+                        label="GitHub Scan Score"
+                        value={scanScore !== null ? `${scanScore}%` : "—"}
+                        sub={latestScan ? `Last scan: ${new Date(latestScan.timestamp).toLocaleDateString()}` : "No scans yet"}
+                        trend={scanScore !== null ? (scanScore >= 75 ? "up" : "down") : undefined}
+                        trendVal={scanScore !== null ? `${scanScore}%` : undefined}
+                        icon={<VerifiedUserOutlinedIcon sx={{ fontSize: 18 }} />}
+                        variant={scanScore === null ? "info" : scanScore >= 75 ? "success" : scanScore >= 50 ? "warning" : "danger"}
+                    />
                     <StatTile label="Policy Enforcement Rate" value={loadingSummary ? "--" : `${enforcementRate}%`} sub="Controls actively enforced"
                         trend={enforcementRate > 0 ? "up" : undefined} trendVal={enforcementRate > 0 ? `${enforcementRate}%` : undefined}
                         icon={<GppMaybeOutlinedIcon sx={{ fontSize: 18 }} />} variant="warning" />
@@ -121,27 +221,81 @@ export default function DashboardPage() {
 
                     {/* LEFT COLUMN: Heatmap + Gauge + Risk */}
                     <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
-                        {/* NIST AI RMF Control Coverage heatmap */}
+                        {/* Framework Control Coverage heatmap */}
                         <div className="panel">
                             <div className="panel__header">
-                                <div>
-                                    <span className="panel__title">NIST AI RMF Control Coverage</span>
-                                    <span style={{ marginLeft: "var(--s-3)", fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "var(--s-3)", flexWrap: "wrap" }}>
+                                    <span className="panel__title">{activeFramework.label} Control Coverage</span>
+                                    <span style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", padding: "1px 6px", border: "1px solid var(--c-border)", borderRadius: "var(--r-pill)" }}>
+                                        v{activeFramework.version}
+                                    </span>
+                                    <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
                                         Completion: <span style={{ color: "var(--c-live-text)", fontWeight: "var(--fw-semibold)" }}>
                                             {total > 0 ? Math.round((passingControls / heatmapData.flat().length) * 100) : 0}%
                                         </span>
                                     </span>
                                 </div>
-                                <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-secondary)" }}>
-                                    {passingControls}/{heatmapData.flat().length} controls passing
-                                </span>
+                                <div style={{ display: "flex", alignItems: "center", gap: "var(--s-3)" }}>
+                                    <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-secondary)" }}>
+                                        {passingControls}/{heatmapData.flat().length} controls passing
+                                    </span>
+                                    <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                                        <select
+                                            value={selectedFramework}
+                                            onChange={(e) => setSelectedFramework(e.target.value as FrameworkKey)}
+                                            style={{
+                                                fontSize: "var(--fs-12)",
+                                                padding: "6px 28px 6px 10px",
+                                                background: "var(--c-surface-alt)",
+                                                border: "1px solid var(--c-border)",
+                                                borderRadius: "var(--r-md)",
+                                                color: "var(--c-text)",
+                                                cursor: "pointer",
+                                                outline: "none",
+                                                appearance: "none",
+                                                minWidth: 120,
+                                                fontWeight: "var(--fw-medium)",
+                                                transition: "all 0.2s",
+                                            }}
+                                            onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--c-accent)")}
+                                            onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--c-border)")}
+                                        >
+                                            {(Object.keys(FRAMEWORK_CONFIGS) as FrameworkKey[]).map((key) => (
+                                                <option 
+                                                    key={key} 
+                                                    value={key} 
+                                                    style={{ background: "#18181b", color: "#ffffff" }}
+                                                >
+                                                    {FRAMEWORK_CONFIGS[key].label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <div style={{ position: "absolute", right: 8, pointerEvents: "none", display: "flex", color: "var(--c-text-muted)" }}>
+                                            <ExpandMoreIcon style={{ fontSize: 16 }} />
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                             <div className="panel__body">
+                                {frameworkIsPreview && (
+                                    <p style={{
+                                        fontSize: "var(--fs-12)",
+                                        color: "var(--c-text-muted)",
+                                        marginBottom: "var(--s-3)",
+                                        padding: "var(--s-2) var(--s-3)",
+                                        borderRadius: "var(--r-sm)",
+                                        border: "1px solid var(--c-border)",
+                                        background: "rgba(255,255,255,0.02)",
+                                        lineHeight: 1.5,
+                                    }}>
+                                        Illustrative preview. Run compliance scans and register AI systems to populate live NIST AI RMF coverage.
+                                    </p>
+                                )}
                                 {/* Category rows */}
                                 <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
-                                    {NIST_CATEGORIES.map((cat, ci) => (
+                                    {activeFramework.categories.map((cat, ci) => (
                                         <div key={cat.id} style={{ display: "flex", alignItems: "center", gap: "var(--s-3)" }}>
-                                            <span style={{ width: 64, fontSize: "var(--fs-12)", fontWeight: "var(--fw-semibold)", color: "var(--c-text-secondary)", flexShrink: 0 }}>
+                                            <span style={{ width: 76, fontSize: "var(--fs-12)", fontWeight: "var(--fw-semibold)", color: "var(--c-text-secondary)", flexShrink: 0 }}>
                                                 {cat.name}
                                             </span>
                                             <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
@@ -177,7 +331,7 @@ export default function DashboardPage() {
                                 <div style={{ marginTop: "var(--s-4)" }}>
                                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: "var(--fs-11)", color: "var(--c-text-muted)" }}>
                                         <span>{totalControls} total controls</span>
-                                        <span>100% assigned</span>
+                                        <span>{totalControls > 0 ? `${Math.round((evaluatedControls / totalControls) * 100)}% evaluated` : "No controls"}</span>
                                     </div>
                                     <SegmentedBar segments={[
                                         { value: passingControls, color: "var(--c-live)", label: "Passing" },
@@ -328,7 +482,6 @@ export default function DashboardPage() {
                             period="Q1 2026"
                             steps={["Policy Draft", "Stakeholder Review", "Approval", "Publish"]}
                             activeIndex={2}
-                            showDownload
                         />
                     </div>
                 </div>
@@ -352,7 +505,34 @@ export default function DashboardPage() {
                         </div>
                         <div className="panel__body--flush">
                             {INTEGRATIONS.map((integ) => {
-                                const Icon = integ.icon;
+                                    const Icon = integ.icon;
+                                const isGitHub = integ.name === "GitHub";
+                                const isFigma = integ.name === "Figma";
+                                const isSlack = integ.name === "Slack";
+                                const isAws = integ.name === "AWS";
+                                const effectiveStatus = isGitHub
+                                    ? (githubConnected ? "connected" as const : "needs_setup" as const)
+                                    : isFigma
+                                        ? (figmaConnected ? "connected" as const : "needs_setup" as const)
+                                    : isSlack
+                                        ? (slackConnected ? "connected" as const : "needs_setup" as const)
+                                        : isAws
+                                            ? (awsConnected ? "connected" as const : "needs_setup" as const)
+                                            : integ.status;
+                                const desc = isGitHub && githubConnected && githubStatus?.user
+                                    ? `@${githubStatus.user.login}${githubStatus.user.orgs.length ? ` · ${githubStatus.user.orgs.length} org(s)` : ""}`
+                                    : isFigma && figmaConnected && figmaStatus?.user
+                                        ? `@${figmaStatus.user.handle} · ${figmaStatus.user.email}`
+                                    : isSlack && slackConnected && slackStatus?.info
+                                        ? `${slackStatus.info.team_name} · #${slackStatus.info.channel_name}`
+                                        : isAws && awsConnected && awsStatus?.info
+                                            ? `Account ${awsStatus.info.account_id} · ${awsStatus.info.region}`
+                                            : integ.desc;
+                                const showConnect =
+                                    (isGitHub && !githubConnected)
+                                    || (isSlack && !slackConnected)
+                                    || (isFigma && !figmaConnected)
+                                    || (isAws && !awsConnected);
                                 return (
                                     <div key={integ.name} className="integration">
                                         <div className="integration__logo">
@@ -360,11 +540,21 @@ export default function DashboardPage() {
                                         </div>
                                         <div className="integration__info">
                                             <div className="integration__name">{integ.name}</div>
-                                            <div className="integration__desc">{integ.desc}</div>
+                                            <div className="integration__desc">{desc}</div>
                                         </div>
-                                        <span className={`badge ${STATUS_BADGE[integ.status]}`}>
-                                            {STATUS_LABELS[integ.status]}
-                                        </span>
+                                        {showConnect ? (
+                                            <Link
+                                                href={dashboardIntegrationSettingsHref(integ.name)}
+                                                className="btn btn--secondary btn--sm"
+                                                style={{ borderRadius: "var(--r-pill)", fontSize: "var(--fs-11)", padding: "2px 10px", textDecoration: "none" }}
+                                            >
+                                                Connect
+                                            </Link>
+                                        ) : (
+                                            <span className={`badge ${STATUS_BADGE[effectiveStatus]}`}>
+                                                {STATUS_LABELS[effectiveStatus]}
+                                            </span>
+                                        )}
                                         <ChevronRightOutlinedIcon sx={{ fontSize: 16, color: "var(--c-text-muted)", flexShrink: 0 }} />
                                     </div>
                                 );
@@ -555,9 +745,9 @@ function MiniStat({ label, value, color, total }: { label: string; value: number
 }
 
 function AuditTimeline({
-    title, period, steps, activeIndex, showDownload,
+    title, period, steps, activeIndex,
 }: {
-    title: string; period: string; steps: string[]; activeIndex: number; showDownload?: boolean;
+    title: string; period: string; steps: string[]; activeIndex: number;
 }) {
     return (
         <div className="audit-timeline" style={{ borderRight: "1px solid var(--c-border-subtle)" }}>
@@ -566,11 +756,6 @@ function AuditTimeline({
                     <VerifiedUserOutlinedIcon sx={{ fontSize: 16 }} />
                     <span className="audit-timeline__title">{title}</span>
                 </div>
-                {showDownload && (
-                    <button className="btn btn--secondary btn--sm">
-                        <FileDownloadOutlinedIcon sx={{ fontSize: 14 }} /> Download Report
-                    </button>
-                )}
             </div>
             <div className="audit-timeline__steps">
                 {steps.map((_, i) => (
@@ -601,20 +786,15 @@ function IntegrationSummaryPill({ count, label }: { count: number; label: string
     );
 }
 
-// data generators
-
-function generateHeatmap(systemCount: number, missingCount: number): number[][] {
-    // Each category gets rows of "control cells".
-    // Levels: 0=not evaluated, 1-4=passing intensity, -1=failing
-    return NIST_CATEGORIES.map((cat) => {
+function generateHeatmap(systemCount: number, missingCount: number, categories: { id: string; name: string; controls: number }[]): number[][] {
+    return categories.map((cat) => {
         const cells: number[] = [];
         for (let i = 0; i < cat.controls; i++) {
             if (systemCount === 0) {
-                cells.push(0); // nothing registered
+                cells.push(0);
             } else if (missingCount > 0 && i % 3 === 0 && cells.filter((c) => c < 0).length < missingCount) {
-                cells.push(-1); // failing
+                cells.push(-1);
             } else {
-                // deterministic "passing" level based on position
                 cells.push(((i + cat.controls) % 4) + 1);
             }
         }
@@ -627,7 +807,15 @@ type RecentItem = {
     title: string;
     badge: string;
     badgeClass: string;
-    icon: SvgIconComponent;
+    icon: AppIconComponent;
+};
+
+const AUDIT_EVENT_META: Record<string, { type: string; badge: string; badgeClass: string; icon: AppIconComponent }> = {
+    system_created:        { type: "System",  badge: "Created",      badgeClass: "badge--live",    icon: MemoryOutlinedIcon },
+    system_updated:        { type: "System",  badge: "Updated",      badgeClass: "badge--info",    icon: MemoryOutlinedIcon },
+    system_deleted:        { type: "System",  badge: "Deleted",      badgeClass: "badge--danger",  icon: MemoryOutlinedIcon },
+    risk_tier_changed:     { type: "Risk",    badge: "Tier Changed", badgeClass: "badge--warning", icon: GppMaybeOutlinedIcon },
+    policy_mapping_changed:{ type: "Policy",  badge: "Updated",      badgeClass: "badge--info",    icon: DescriptionOutlinedIcon },
 };
 
 function buildRecentlyViewed(
@@ -636,36 +824,20 @@ function buildRecentlyViewed(
 ): RecentItem[] {
     const items: RecentItem[] = [];
 
-    // Static governance items always present
-    items.push(
-        {
-            type: "Control", title: "Audit log storage maintained", badge: "Passing", badgeClass: "badge--live",
-            icon: VerifiedUserOutlinedIcon,
-        },
-        {
-            type: "Policy", title: "AI Ethics & Responsible Use", badge: "Published", badgeClass: "badge--info",
-            icon: DescriptionOutlinedIcon,
-        },
-        {
-            type: "Control", title: "Human review for high-risk", badge: "Needs changes", badgeClass: "badge--warning",
-            icon: WarningAmberOutlinedIcon,
-        },
-        {
-            type: "Integration", title: "GitHub code scanning", badge: "Connected", badgeClass: "badge--live",
-            icon: GitHubIcon,
-        },
-        {
-            type: "Policy", title: "Data Privacy & PII Handling", badge: "Draft", badgeClass: "badge--neutral",
-            icon: LockOutlinedIcon,
-        },
-        {
-            type: "Monitor", title: "Model drift detection", badge: "Succeeded", badgeClass: "badge--live",
-            icon: MonitorOutlinedIcon,
-        },
+    // Build from real audit events (most recent first)
+    const sorted = [...auditEvents].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
 
-    // Add systems if any exist
-    systems.slice(0, 2).forEach((s) => {
+    sorted.forEach((ev) => {
+        const meta = AUDIT_EVENT_META[ev.event_type];
+        if (meta && ev.summary) {
+            items.push({ type: meta.type, title: ev.summary, badge: meta.badge, badgeClass: meta.badgeClass, icon: meta.icon });
+        }
+    });
+
+    // Fill remaining slots with registered systems
+    systems.forEach((s) => {
         items.push({
             type: "System",
             title: s.name,

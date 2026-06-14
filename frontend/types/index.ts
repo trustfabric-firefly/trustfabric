@@ -33,6 +33,11 @@ export interface AISystem {
   missing_required_controls: boolean;
   created_at: string;
   updated_at: string;
+  // Populated after a compliance scan runs against this system
+  last_scan_id?: string | null;
+  last_scan_date?: string | null;
+  compliance_score?: number | null;
+  active_violations?: number | null;
 }
 
 export interface AISystemCreate {
@@ -48,7 +53,7 @@ export interface AISystemCreate {
   risk_justification?: string | null;
 }
 
-export interface AISystemUpdate extends Partial<AISystemCreate> { }
+export type AISystemUpdate = Partial<AISystemCreate>;
 
 export interface ActivityEvent {
   id: number;
@@ -74,6 +79,21 @@ export interface DashboardSummary {
   systems_missing_controls: number;
   total_events: number;
   events_per_system: Record<string, number>;
+}
+
+export interface NistFunctionCoverage {
+  function: string;
+  total_controls: number;
+  active: number;
+  draft: number;
+  inactive: number;
+  missing: number;
+}
+
+export interface NistCoverage {
+  functions: NistFunctionCoverage[];
+  total_controls: number;
+  total_active: number;
 }
 
 export interface CopilotRecommendation {
@@ -127,6 +147,10 @@ export interface Policy {
   created_at: string;
   updated_at: string;
   version: number;
+  /** Present when loaded from the API (Firestore-backed governance policy). */
+  system_id?: number;
+  /** Denormalized for the policies list UI. */
+  system_name?: string;
 }
 
 export interface PolicyCreate {
@@ -150,6 +174,111 @@ export interface PolicyTemplate {
   customizable_fields: string[];
 }
 
+export type AIChatMessageRole = "user" | "ai";
+
+export interface AIChatMessage {
+  id: string;
+  system_id: number;
+  user_id: string;
+  role: AIChatMessageRole;
+  content: string;
+  policy?: PolicyCreate | null;
+  rules?: Record<string, unknown> | null;
+  provider?: string | null;
+  model?: string | null;
+  created_at: string;
+}
+
+// ─── Scan Policies ───────────────────────────────────────────────────────────
+
+export interface ScanPolicy {
+  check_id: string;
+  name: string;
+  description: string;
+  severity: PolicySeverity;
+  enabled: boolean;
+  tier: "personal" | "enterprise";
+  user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── GitHub Integration ───────────────────────────────────────────────────────
+
+export interface GitHubUserInfo {
+  login: string;
+  name: string | null;
+  avatar_url: string;
+  public_repos: number;
+  orgs: string[];
+  connected_at: string;
+}
+
+export interface GitHubIntegrationStatus {
+  connected: boolean;
+  user: GitHubUserInfo | null;
+}
+
+// ─── Slack Integration ────────────────────────────────────────────────────────
+
+export interface SlackConnectionInfo {
+  team_name: string;
+  channel_id: string;
+  channel_name: string;
+  connected_at: string;
+}
+
+export interface SlackIntegrationStatus {
+  connected: boolean;
+  info: SlackConnectionInfo | null;
+}
+
+export interface SlackChannel {
+  id: string;
+  name: string;
+}
+
+// ─── AWS Integration ─────────────────────────────────────────────────────────
+
+export interface AwsConnectionInfo {
+  account_id: string;
+  account_alias: string;
+  role_arn: string;
+  region: string;
+  connected_at: string;
+}
+
+export interface AwsIntegrationStatus {
+  connected: boolean;
+  info: AwsConnectionInfo | null;
+}
+
+export interface AwsCheckResult {
+  check_id: string;
+  check_name: string;
+  severity: PolicySeverity;
+  passed: boolean;
+  evidence: string;
+  recommendation: string;
+  risk_score: number;
+  affected_resources: string[];
+}
+
+export interface AwsScanResult {
+  scan_id: string;
+  account_id: string;
+  region: string;
+  timestamp: string;
+  compliance_score: number;
+  total_checks: number;
+  passed_checks: number;
+  failed_checks: number;
+  checks: AwsCheckResult[];
+  duration_seconds: number;
+  triggered_by: string;
+  status: ScanStatus;
+}
+
 // ─── Compliance Scans Domain ─────────────────────────────────────────────────
 
 export type ScanStatus = "pending" | "running" | "completed" | "failed";
@@ -164,6 +293,7 @@ export interface ScanViolation {
   evidence: string;
   recommendation: string;
   risk_score: number;
+  affected_repositories?: string[];
 }
 
 export interface ScanConfig {
@@ -193,6 +323,7 @@ export interface ScanResult {
     total_policies: number;
     violations: ScanViolation[];
     compliant: ScanViolation[];
+    scanned_repositories?: string[];
   };
   duration_seconds: number;
   triggered_by: string;
@@ -270,7 +401,8 @@ export interface AISystemInventoryItem {
   updated_at: string;
 }
 
-export interface AISystemCreate {
+/** Payload shape for the Systems UI “register” flow (distinct from API `AISystemCreate`). */
+export interface AISystemInventoryCreate {
   name: string;
   type: AISystemType;
   description: string;
@@ -360,4 +492,55 @@ export interface AuditLogEntry {
 
   // Metadata
   metadata?: Record<string, unknown>;
+}
+
+// ─── Compliance Frameworks ───────────────────────────────────────────────────
+
+export type FrameworkRequirementStatus = "passed" | "failed" | "partial" | "manual";
+
+export interface FrameworkRequirementResult {
+  id: string;
+  article: string;
+  title: string;
+  description: string;
+  status: FrameworkRequirementStatus;
+  score: number; // 0.0–1.0
+  auto_evaluable: boolean;
+  evidence: string[];
+  gaps: string[];
+  checklist: string[];
+  checklist_done: boolean[];
+}
+
+export interface FrameworkResult {
+  framework_id: string;
+  framework_name: string;
+  framework_short_name: string;
+  framework_version: string;
+  scan_id: string;
+  evaluated_at: string;
+  overall_score: number; // 0–100
+  auto_score: number;    // 0–100 (auto-only)
+  total_requirements: number;
+  auto_requirements: number;
+  manual_requirements: number;
+  passed_requirements: number;
+  partial_requirements: number;
+  failed_requirements: number;
+  requirements: FrameworkRequirementResult[];
+}
+
+export interface FrameworkMeta {
+  id: string;
+  name: string;
+  short_name: string;
+  version: string;
+  scope: string;
+  total_requirements: number;
+  auto_requirements: number;
+}
+
+export interface ComplianceEvaluationResponse {
+  scan_id: string;
+  frameworks: FrameworkResult[];
 }

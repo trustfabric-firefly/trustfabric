@@ -17,8 +17,8 @@ router = APIRouter()
     response_model=ActivityEvent,
     summary="Ingest simulated activity event",
 )
-def create_event(payload: ActivityEventCreate, actor: Actor = Depends(get_actor)) -> ActivityEvent:  # noqa: ARG001
-    return store.create_event(payload)
+def create_event(payload: ActivityEventCreate, actor: Actor = Depends(get_actor)) -> ActivityEvent:
+    return store.create_event(payload, organization_id=actor.organization_id)
 
 
 @router.get(
@@ -31,7 +31,12 @@ def list_events(
     event_type: Optional[str] = None,
     start: Optional[datetime] = Query(default=None),
     end: Optional[datetime] = Query(default=None),
-    actor: Actor = Depends(get_actor),  # noqa: ARG001
+    actor: Actor = Depends(get_actor),
 ) -> List[ActivityEvent]:
-    return store.list_events(system_id=system_id, event_type=event_type, start=start, end=end)
-
+    return store.list_events(
+        organization_id=actor.organization_id,
+        system_id=system_id,
+        event_type=event_type,
+        start=start,
+        end=end,
+    )

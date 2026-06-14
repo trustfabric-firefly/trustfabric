@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import re
 from datetime import datetime, timezone #timestamps LLM interactions (NIST Measure)
+from typing import Any
 
 from anthropic import Anthropic, APIStatusError
 from fastapi import HTTPException, status
@@ -58,8 +61,8 @@ Remember: your output is advisory only. Human reviewers make the final decisions
     return base
 
 
-def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
-    system = store.get_system(system_id)
+def generate_recommendations_for_system(system_id: int, user_id: str, organization_id: str) -> dict:
+    system = store.get_system(system_id, organization_id)
     if system is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
 
@@ -87,6 +90,7 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
             ],
         )
     except APIStatusError as exc:  # pragma: no cover - network error handling
+        error_detail = f"{type(exc).__name__}: {exc}"
         store.log_llm_interaction(
             LLMInteractionLog(
                 timestamp=now,
@@ -95,13 +99,14 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
                 prompt_template_version=PROMPT_TEMPLATE_VERSION,
                 input_summary=f"Claude call failed: {type(exc).__name__}",
                 model_name=settings.anthropic_model,
-                response_summary=str(exc),
+                response_summary=error_detail[:1000],
                 success=False,
-            )
+            ),
+            organization_id,
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Claude API call failed",
+            detail=f"Claude API call failed ({error_detail})",
         ) from exc
 
     text_parts = [c.text for c in message.content if getattr(c, "type", "") == "text"]
@@ -123,7 +128,8 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
             model_name=settings.anthropic_model,
             response_summary=summary,
             success=True,
-        )
+        ),
+        organization_id,
     )
 
     # Let the frontend handle JSON parsing/validation of output (NIST Manage)
@@ -137,4 +143,194 @@ def generate_recommendations_for_system(system_id: int, user_id: str) -> dict:
             "data_sensitivity": system.data_sensitivity,
         },
     }
+
+
+def _extract_json_object(raw: str) -> dict[str, Any]:
+    # Handle plain JSON and markdown-fenced JSON responses.
+    cleaned = raw.strip()
+    fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", cleaned, re.DOTALL)
+    candidate = fenced.group(1).strip() if fenced else cleaned
+    try:
+        parsed = json.loads(candidate)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail="Claude policy response was not valid JSON",
+    )
+
+
+def explain_missing_controls(system_id: int, user_id: str, organization_id: str) -> dict:
+    """Generate a plain-English explanation of what governance controls a system is missing
+    and concrete action steps to become compliant. (Stretch goal — NIST Manage function.)"""
+    system = store.get_system(system_id, organization_id)
+    if system is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
+
+    if not settings.claude_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Claude API key not configured on server",
+        )
+
+    from app.services.policies import required_policies_for_risk
+
+    required = required_policies_for_risk(system.risk_tier) if system.risk_tier else []
+    missing = [p for p in required if p not in (system.required_policies or [])]
+    # Also surface any required policies that are simply not yet documented
+    all_required = system.required_policies or []
+    present = [p for p in all_required]
+
+    prompt_text = f"""You are a governance compliance advisor using the NIST AI Risk Management Framework.
+
+An AI system in the organization's registry is flagged as "Missing Required Controls".
+
+System details:
+- Name: {system.name}
+- Description: {system.description}
+- Risk tier: {system.risk_tier or 'Not assigned'}
+- Data sensitivity: {system.data_sensitivity}
+- Business unit: {system.business_unit}
+- Required policies: {[p.value for p in all_required] or 'None defined'}
+- Missing controls: {[p.value for p in missing] or 'General incompleteness'}
+- missing_required_controls flag: {system.missing_required_controls}
+
+Write a response in strict JSON with these keys:
+- "summary": 2–3 sentence plain-English explanation of what is missing and why it matters
+- "missing_controls": array of objects, each with "control" (name) and "why_required" (1 sentence)
+- "action_steps": array of 3–6 concrete numbered steps the system owner should take
+- "risk_if_ignored": 1–2 sentences on the consequence of not addressing this
+- "nist_functions": array of NIST AI RMF functions this addresses (Govern/Map/Measure/Manage)
+
+Keep the language clear and actionable. This output is shown directly to system owners.""".strip()
+
+    client = Anthropic(api_key=settings.claude_api_key)
+    now = datetime.now(timezone.utc)
+
+    try:
+        message = client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=900,
+            temperature=0.2,
+            messages=[{"role": "user", "content": prompt_text}],
+        )
+    except APIStatusError as exc:
+        store.log_llm_interaction(LLMInteractionLog(
+            timestamp=now, user_id=user_id, system_id=system_id,
+            prompt_template_version="v1-explain-missing",
+            input_summary=f"explain_missing for system {system_id}",
+            model_name=settings.anthropic_model,
+            response_summary=str(exc)[:500], success=False,
+        ), organization_id)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail=f"Claude API call failed: {exc}") from exc
+
+    text_parts = [c.text for c in message.content if getattr(c, "type", "") == "text"]
+    raw = "".join(text_parts).strip()
+
+    store.log_llm_interaction(LLMInteractionLog(
+        timestamp=now, user_id=user_id, system_id=system_id,
+        prompt_template_version="v1-explain-missing",
+        input_summary=f"System {system_id} ({system.name}) — missing controls explanation",
+        model_name=settings.anthropic_model,
+        response_summary=raw[:1000] + ("..." if len(raw) > 1000 else ""),
+        success=True,
+    ), organization_id)
+
+    payload = _extract_json_object(raw)
+    return {
+        **payload,
+        "system_name": system.name,
+        "risk_tier": system.risk_tier,
+        "disclaimer": "AI-generated guidance. Review with your compliance team before applying.",
+    }
+
+
+def generate_policy_recommendation(
+    prompt: str,
+    user_id: str,
+    history: list[str] | None = None,
+    organization_id: str | None = None,
+) -> dict:
+    org_id = organization_id or settings.default_organization_id
+    if not settings.claude_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Claude API key not configured on server",
+        )
+
+    compact_history = (history or [])[-6:]
+    history_block = "\n".join(f"- {item}" for item in compact_history if item.strip()) or "- (none)"
+    user_prompt = prompt.strip()[:MAX_INPUT_CHARS]
+    llm_prompt = f"""
+You are an enterprise AI governance policy assistant.
+Generate one policy in strict JSON format.
+
+Conversation context:
+{history_block}
+
+User request:
+{user_prompt}
+
+Return strict JSON with keys:
+- content: string (short explanation for user)
+- policy: object with:
+  - name: string
+  - description: string
+  - category: one of [model_restrictions, feature_control, security, quality_control, data_privacy, access_control, cost_management, compliance]
+  - severity: one of [low, medium, high]
+  - applies_to: array of strings
+  - creation_method: "ai_generated"
+- rules: object (machine-friendly enforcement fields)
+""".strip()
+
+    client = Anthropic(api_key=settings.claude_api_key)
+    now = datetime.now(timezone.utc)
+    try:
+        message = client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=1000,
+            temperature=0.2,
+            messages=[{"role": "user", "content": llm_prompt}],
+        )
+    except APIStatusError as exc:
+        error_detail = f"{type(exc).__name__}: {exc}"
+        store.log_llm_interaction(
+            LLMInteractionLog(
+                timestamp=now,
+                user_id=user_id,
+                system_id=None,
+                prompt_template_version="v1-policy-generator",
+                input_summary="Policy generation call failed",
+                model_name=settings.anthropic_model,
+                response_summary=error_detail[:1000],
+                success=False,
+            ),
+            org_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Claude API call failed ({error_detail})",
+        ) from exc
+
+    text_parts = [c.text for c in message.content if getattr(c, "type", "") == "text"]
+    raw = "".join(text_parts).strip()
+    payload = _extract_json_object(raw)
+
+    store.log_llm_interaction(
+        LLMInteractionLog(
+            timestamp=now,
+            user_id=user_id,
+            system_id=None,
+            prompt_template_version="v1-policy-generator",
+            input_summary=user_prompt[:200],
+            model_name=settings.anthropic_model,
+            response_summary=raw[:1000] + ("..." if len(raw) > 1000 else ""),
+            success=True,
+        ),
+        org_id,
+    )
+    return payload
 
