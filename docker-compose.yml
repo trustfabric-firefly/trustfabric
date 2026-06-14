@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        SERVICE_FIREBASE: firebase_credentials.json
+        FIREBASE_CREDENTIALS_FILE: firebase_credentials.json
     ports:
       - "8000:8000"   # host:container
     env_file:
