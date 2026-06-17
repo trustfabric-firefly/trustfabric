@@ -53,6 +53,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+            if (firebaseUser) {
+                document.cookie = "tf_session=1; path=/; SameSite=Lax";
+            } else {
+                document.cookie = "tf_session=; path=/; max-age=0";
+            }
             setUser(firebaseUser);
             setLoading(false);
         });
@@ -77,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const logOut = async () => {
         if (typeof window !== "undefined") {
             window.localStorage.removeItem("trustfabric_organization_id");
+            document.cookie = "tf_session=; path=/; max-age=0";
         }
         if (!isFirebaseConfigured || !auth) {
             setUser(null);
