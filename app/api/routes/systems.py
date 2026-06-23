@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 
 from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
 from app.core.security import Actor, get_actor, require_admin
@@ -17,6 +18,15 @@ from app.domain.models import (
 from app.services import claude as claude_service
 from app.services.notifications import notify_system_change
 from app.services.store import store
+
+
+class BulkImportRequest(BaseModel):
+    systems: List[AISystemCreate]
+
+
+class BulkImportResult(BaseModel):
+    created: int
+    errors: List[str]
 
 router = APIRouter()
 
@@ -39,6 +49,31 @@ async def create_system(payload: AISystemCreate, actor: Actor = Depends(require_
     except Exception:
         pass
     return system
+
+
+@router.post(
+    "/bulk",
+    response_model=BulkImportResult,
+    status_code=status.HTTP_200_OK,
+    summary="Bulk import AI systems from CSV (admin only)",
+)
+async def bulk_import_systems(
+    payload: BulkImportRequest,
+    actor: Actor = Depends(require_admin),
+) -> BulkImportResult:
+    created = 0
+    errors: List[str] = []
+    for i, sys_create in enumerate(payload.systems):
+        try:
+            system = store.create_system(sys_create, user_id=actor.user_id, organization_id=actor.organization_id)
+            try:
+                await notify_system_change(actor.organization_id, system, "created")
+            except Exception:
+                pass
+            created += 1
+        except Exception as exc:
+            errors.append(f"Row {i + 1} ({sys_create.name!r}): {exc}")
+    return BulkImportResult(created=created, errors=errors)
 
 
 @router.get(

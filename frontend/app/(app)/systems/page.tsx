@@ -20,13 +20,17 @@ import { Modal } from "@/components/ui/Modal";
 import { AIIcon } from "@/components/ui/AIIcon";
 import { auditApi, copilotApi, systemsApi, type ExplainMissingResponse } from "@/lib/api";
 import type {
+    AISystemCreate,
     AISystemInventoryItem,
     AISystemType,
     CopilotRecommendation,
     DataSensitivity,
     DataAccessType,
+    ModelType,
     ParsedRecommendation,
     RiskLevel,
+    RiskTier,
+    SystemStatus,
     SystemAuditEntry,
     AISystem as BackendAISystem,
 } from "@/types";
@@ -304,6 +308,33 @@ function ListView({
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
     const [filterOpen, setFilterOpen] = useState(false);
     const filterRef = useRef<HTMLDivElement>(null);
+    const importInputRef = useRef<HTMLInputElement>(null);
+    const [importState, setImportState] = useState<{ loading: boolean; message: string | null; error: string | null }>({ loading: false, message: null, error: null });
+    const importQueryClient = useQueryClient();
+
+    const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!e.target) return;
+        e.target.value = "";
+        if (!file) return;
+        setImportState({ loading: true, message: null, error: null });
+        try {
+            const text = await file.text();
+            const systems = parseCsvToSystems(text);
+            if (systems.length === 0) {
+                setImportState({ loading: false, message: null, error: "No valid rows found. Check the CSV format." });
+                return;
+            }
+            const result = await systemsApi.bulkCreate(systems);
+            await importQueryClient.invalidateQueries({ queryKey: ["systems"] });
+            const msg = result.errors.length > 0
+                ? `Imported ${result.created} system${result.created !== 1 ? "s" : ""}. ${result.errors.length} row${result.errors.length !== 1 ? "s" : ""} failed.`
+                : `Successfully imported ${result.created} system${result.created !== 1 ? "s" : ""}.`;
+            setImportState({ loading: false, message: msg, error: null });
+        } catch (err) {
+            setImportState({ loading: false, message: null, error: err instanceof Error ? err.message : "Import failed." });
+        }
+    }, [importQueryClient]);
 
     const departments = useMemo(
         () => [...new Set(systems.map((s) => s.department).filter(Boolean))].sort(),
@@ -396,9 +427,22 @@ function ListView({
                         <strong>{compliantPct}%</strong> compliant with active scans
                     </p>
                     <div className="systems-card__summary-actions">
-                        <button type="button" className="systems-btn systems-btn--outline" disabled title="Import CSV (coming soon)">
+                        <input
+                            ref={importInputRef}
+                            type="file"
+                            accept=".csv"
+                            style={{ display: "none" }}
+                            onChange={handleImportFile}
+                        />
+                        <button
+                            type="button"
+                            className="systems-btn systems-btn--outline"
+                            disabled={importState.loading}
+                            title="Import systems from CSV"
+                            onClick={() => importInputRef.current?.click()}
+                        >
                             <FileUploadOutlinedIcon sx={{ fontSize: 16 }} />
-                            Import
+                            {importState.loading ? "Importing…" : "Import"}
                         </button>
                         <button
                             type="button"
@@ -469,6 +513,17 @@ function ListView({
                         )}
                     </div>
                 </div>
+
+                {importState.message && (
+                    <div style={{ padding: "var(--s-2) var(--s-3)", fontSize: "var(--fs-12)", color: "var(--c-success, #16a34a)", background: "var(--c-success-surface, #f0fdf4)", borderRadius: "var(--radius-sm)", margin: "0 var(--s-3)" }}>
+                        {importState.message}
+                    </div>
+                )}
+                {importState.error && (
+                    <div style={{ padding: "var(--s-2) var(--s-3)", fontSize: "var(--fs-12)", color: "var(--c-danger, #dc2626)", background: "var(--c-danger-surface, #fef2f2)", borderRadius: "var(--radius-sm)", margin: "0 var(--s-3)" }}>
+                        {importState.error}
+                    </div>
+                )}
 
                 <div className="systems-card__search-row">
                     <div className="systems-search">
@@ -1396,6 +1451,71 @@ function riskLevelToBackendTier(level: RiskLevel): BackendAISystem["risk_tier"] 
     if (level === "critical") return "Tier 3";
     if (level === "high") return "Tier 2";
     return "Tier 1";
+}
+
+const VALID_MODEL_TYPES = new Set<string>(["LLM", "ML", "Agent", "Other"]);
+const VALID_DATA_SENSITIVITIES = new Set<string>(["Low", "Medium", "High"]);
+const VALID_RISK_TIERS = new Set<string>(["Tier 1", "Tier 2", "Tier 3"]);
+const VALID_STATUSES = new Set<string>(["Draft", "Active", "Retired"]);
+
+function parseCsvRow(line: string): string[] {
+    const cells: string[] = [];
+    let i = 0;
+    while (i < line.length) {
+        if (line[i] === '"') {
+            let cell = "";
+            i++;
+            while (i < line.length) {
+                if (line[i] === '"' && line[i + 1] === '"') { cell += '"'; i += 2; }
+                else if (line[i] === '"') { i++; break; }
+                else { cell += line[i++]; }
+            }
+            cells.push(cell);
+            if (line[i] === ",") i++;
+        } else {
+            const end = line.indexOf(",", i);
+            if (end === -1) { cells.push(line.slice(i)); break; }
+            cells.push(line.slice(i, end));
+            i = end + 1;
+        }
+    }
+    return cells;
+}
+
+function parseCsvToSystems(csv: string): AISystemCreate[] {
+    const lines = csv.split(/\r?\n/).filter((l) => l.trim());
+    if (lines.length < 2) return [];
+    const headers = parseCsvRow(lines[0]).map((h) => h.trim().toLowerCase());
+    const idx = (names: string[]) => names.map((n) => headers.indexOf(n)).find((i) => i !== -1) ?? -1;
+    const nameIdx = idx(["name"]);
+    const descIdx = idx(["description", "desc"]);
+    const ownerIdx = idx(["owner"]);
+    const deptIdx = idx(["department", "business unit"]);
+    const sensitivityIdx = idx(["data sensitivity", "data_sensitivity", "sensitivity"]);
+    const modelTypeIdx = idx(["model type", "model_type", "type"]);
+    const riskTierIdx = idx(["risk tier", "risk_tier", "risk"]);
+    const statusIdx = idx(["status"]);
+
+    return lines.slice(1).flatMap((line) => {
+        const cells = parseCsvRow(line);
+        const name = (nameIdx >= 0 ? cells[nameIdx] : "").trim();
+        if (!name) return [];
+        const rawSensitivity = (sensitivityIdx >= 0 ? cells[sensitivityIdx] : "").trim();
+        const rawModelType = (modelTypeIdx >= 0 ? cells[modelTypeIdx] : "").trim();
+        const rawRiskTier = (riskTierIdx >= 0 ? cells[riskTierIdx] : "").trim();
+        const rawStatus = (statusIdx >= 0 ? cells[statusIdx] : "").trim();
+        return [{
+            name,
+            description: (descIdx >= 0 ? cells[descIdx] : "").trim() || "",
+            owner: (ownerIdx >= 0 ? cells[ownerIdx] : "").trim() || "",
+            business_unit: (deptIdx >= 0 ? cells[deptIdx] : "").trim() || "General",
+            data_sensitivity: (VALID_DATA_SENSITIVITIES.has(rawSensitivity) ? rawSensitivity : "Low") as DataSensitivity,
+            model_type: (VALID_MODEL_TYPES.has(rawModelType) ? rawModelType : "LLM") as ModelType,
+            risk_tier: (VALID_RISK_TIERS.has(rawRiskTier) ? rawRiskTier : null) as RiskTier | null,
+            status: (VALID_STATUSES.has(rawStatus) ? rawStatus : "Draft") as SystemStatus,
+            external_integrations: [],
+        }];
+    });
 }
 
 function mapBackendSystemToInventory(system: BackendAISystem): AISystemInventoryItem {
