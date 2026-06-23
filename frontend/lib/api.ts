@@ -108,8 +108,9 @@ async function request<T>(
     });
 
     if (!res.ok) {
-        const error = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(parseApiErrorDetail(error.detail, res.statusText || "Request failed"));
+        const error = await res.json().catch(() => ({ error: { message: res.statusText } }));
+        const message = error?.error?.message || parseApiErrorDetail(error.detail, res.statusText || "Request failed");
+        throw new Error(message);
     }
 
     // 204 No Content
@@ -132,8 +133,9 @@ async function requestBlob(
     });
 
     if (!res.ok) {
-        const error = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(parseApiErrorDetail(error.detail, res.statusText || "Request failed"));
+        const error = await res.json().catch(() => ({ error: { message: res.statusText } }));
+        const message = error?.error?.message || parseApiErrorDetail(error.detail, res.statusText || "Request failed");
+        throw new Error(message);
     }
 
     return res.blob();
