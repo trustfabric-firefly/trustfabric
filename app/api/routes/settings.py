@@ -26,4 +26,6 @@ async def get_settings_status(actor: Actor = Depends(get_actor)):
         "slack_oauth_configured": settings.slack_oauth_ready,
         "aws_configured": bool(settings.aws_external_id),
         "rate_limit_per_minute": settings.rate_limit_per_minute,
+        "rate_limit_expensive_per_minute": settings.rate_limit_expensive_per_minute,
+        "rate_limit_auth_per_minute": settings.rate_limit_auth_per_minute,
     }

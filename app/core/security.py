@@ -10,7 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.core.config import settings
 from app.domain.models import OrgRole
 from app.integrations.firebase import verify_firebase_token
-from app.services.organizations import dev_organization_id, resolve_organization_for_actor
+from app.services.organizations import ensure_dev_actor_membership, resolve_organization_for_actor
 
 
 class Role(str, Enum):
@@ -84,16 +84,18 @@ def get_actor(
 
     if not is_production:
         if settings.admin_token and token == settings.admin_token:
+            org_id = ensure_dev_actor_membership("admin", OrgRole.owner)
             return Actor(
                 user_id="admin",
-                organization_id=dev_organization_id(),
+                organization_id=org_id,
                 role=Role.admin,
                 org_role=OrgRole.owner,
             )
         if settings.viewer_token and token == settings.viewer_token:
+            org_id = ensure_dev_actor_membership("viewer", OrgRole.viewer)
             return Actor(
                 user_id="viewer",
-                organization_id=dev_organization_id(),
+                organization_id=org_id,
                 role=Role.viewer,
                 org_role=OrgRole.viewer,
             )

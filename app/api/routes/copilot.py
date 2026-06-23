@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import List
 
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.core.rate_limit import rate_limit
+from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
 from app.core.security import Actor, get_actor
 from app.domain.models import AIChatMessage, AIChatMessageCreate, AIChatMessageRole
 from app.services.copilot import (
@@ -29,13 +29,12 @@ def _history_lines(messages: list[AIChatMessage]) -> list[str]:
 @router.post(
     "/systems/{system_id}/recommendations",
     summary="Generate NIST AI RMF-aligned governance recommendations for a system",
+    dependencies=[Depends(RateLimited(TIER_EXPENSIVE))],
 )
 def generate_system_recommendations(
     system_id: int,
-    request: Request,
     actor: Actor = Depends(get_actor),
 ) -> dict:
-    rate_limit(request)
     return generate_recommendations_for_system(
         system_id=system_id,
         user_id=actor.user_id,
@@ -46,13 +45,12 @@ def generate_system_recommendations(
 @router.post(
     "/policies/recommendations",
     summary="Generate AI governance policy recommendations",
+    dependencies=[Depends(RateLimited(TIER_EXPENSIVE))],
 )
 def generate_policy_with_provider(
     payload: PolicyGenerateRequest,
-    request: Request,
     actor: Actor = Depends(get_actor),
 ) -> dict:
-    rate_limit(request)
     return generate_policy_recommendation(
         prompt=payload.prompt,
         user_id=actor.user_id,
@@ -68,10 +66,8 @@ def generate_policy_with_provider(
 )
 def list_policy_chat_history(
     system_id: int,
-    request: Request,
     actor: Actor = Depends(get_actor),
 ) -> List[AIChatMessage]:
-    rate_limit(request)
     messages = store.list_system_chat_messages(
         system_id=system_id,
         user_id=actor.user_id,
@@ -91,10 +87,8 @@ def list_policy_chat_history(
 def create_policy_chat_message(
     system_id: int,
     payload: AIChatMessageCreate,
-    request: Request,
     actor: Actor = Depends(get_actor),
 ) -> AIChatMessage:
-    rate_limit(request)
     created = store.create_system_chat_message(
         system_id=system_id,
         user_id=actor.user_id,
@@ -113,14 +107,13 @@ class PersistentPolicyGenerateRequest(BaseModel):
 @router.post(
     "/systems/{system_id}/policy-chat/generate",
     summary="Generate a policy recommendation using persisted system chat history",
+    dependencies=[Depends(RateLimited(TIER_EXPENSIVE))],
 )
 def generate_policy_for_system_chat(
     system_id: int,
     payload: PersistentPolicyGenerateRequest,
-    request: Request,
     actor: Actor = Depends(get_actor),
 ) -> dict:
-    rate_limit(request)
     messages = store.list_system_chat_messages(
         system_id=system_id,
         user_id=actor.user_id,

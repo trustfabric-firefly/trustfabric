@@ -9,7 +9,12 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 
 from app.core.config import settings
-from app.core.secrets import decrypt_secret, encrypt_secret
+from app.core.secrets import (
+    INTEGRATION_TOKEN_FIELDS,
+    decrypt_secret,
+    encrypt_secret,
+    is_encrypted,
+)
 from app.domain.models import (
     AIChatMessage,
     AIChatMessageCreate,
@@ -305,18 +310,35 @@ class FirestoreStore:
     @staticmethod
     def _encrypt_integration_fields(doc: dict[str, Any]) -> dict[str, Any]:
         out = dict(doc)
-        for field in ("github_access_token", "slack_bot_token", "figma_access_token"):
+        for field in INTEGRATION_TOKEN_FIELDS:
             if out.get(field):
-                out[field] = encrypt_secret(str(out[field]))
+                value = str(out[field])
+                if not is_encrypted(value):
+                    out[field] = encrypt_secret(value)
         return out
 
     @staticmethod
     def _decrypt_integration_fields(doc: dict[str, Any]) -> dict[str, Any]:
         out = dict(doc)
-        for field in ("github_access_token", "slack_bot_token", "figma_access_token"):
+        for field in INTEGRATION_TOKEN_FIELDS:
             if out.get(field):
                 out[field] = decrypt_secret(str(out[field]))
         return out
+
+    def migrate_plaintext_integration_tokens(self) -> int:
+        """Encrypt legacy plaintext integration tokens. Returns updated document count."""
+        updated = 0
+        for doc in self._client().collection(self._integrations_collection).stream():
+            data = doc.to_dict() or {}
+            patches: dict[str, str] = {}
+            for field in INTEGRATION_TOKEN_FIELDS:
+                raw = data.get(field)
+                if raw and not is_encrypted(str(raw)):
+                    patches[field] = encrypt_secret(str(raw))
+            if patches:
+                doc.reference.update(patches)
+                updated += 1
+        return updated
 
     # --- Systems ---
     def create_system(self, data: AISystemCreate, user_id: str, organization_id: str) -> AISystem:

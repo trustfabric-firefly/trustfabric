@@ -8,6 +8,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.rate_limit import RateLimited, RateLimitedPublic, TIER_AUTH, TIER_EXPENSIVE
 from app.core.security import Actor, get_actor, require_admin
 from app.domain.models import (
     AwsConnectionInfo,
@@ -40,7 +41,7 @@ router = APIRouter()
 # ── GitHub ────────────────────────────────────────────────────────────────────
 
 
-@router.get("/github/connect")
+@router.get("/github/connect", dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 async def github_connect(actor: Actor = Depends(require_admin)) -> dict:
     """Return the GitHub OAuth URL. Frontend navigates the browser to this URL."""
     if not settings.github_oauth_ready:
@@ -52,7 +53,7 @@ async def github_connect(actor: Actor = Depends(require_admin)) -> dict:
     return {"url": build_oauth_url(state)}
 
 
-@router.get("/github/callback")
+@router.get("/github/callback", dependencies=[Depends(RateLimitedPublic(TIER_AUTH))])
 async def github_callback(code: str = Query(...), state: str = Query(...)):
     """GitHub OAuth callback. GitHub redirects here after user authorises the app."""
     frontend = settings.frontend_url
@@ -103,7 +104,7 @@ class SlackChannelUpdate(BaseModel):
     channel_name: str
 
 
-@router.get("/slack/connect")
+@router.get("/slack/connect", dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 async def slack_connect(actor: Actor = Depends(require_admin)) -> dict:
     """Return the Slack OAuth URL. Frontend navigates the browser to this URL."""
     if not settings.slack_oauth_ready:
@@ -115,7 +116,7 @@ async def slack_connect(actor: Actor = Depends(require_admin)) -> dict:
     return {"url": slack_integration.build_oauth_url(state)}
 
 
-@router.get("/slack/callback")
+@router.get("/slack/callback", dependencies=[Depends(RateLimitedPublic(TIER_AUTH))])
 async def slack_callback(
     code: Optional[str] = Query(None),
     state: Optional[str] = Query(None),
@@ -195,7 +196,7 @@ async def slack_update_channel(
     return {"message": f"Channel updated to #{body.channel_name}"}
 
 
-@router.post("/slack/test")
+@router.post("/slack/test", dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 async def slack_test(actor: Actor = Depends(require_admin)) -> dict:
     """Send a test notification to the configured Slack channel."""
     conn = store.get_slack_connection(actor.organization_id)
@@ -224,7 +225,7 @@ async def slack_disconnect(actor: Actor = Depends(require_admin)) -> dict:
 # ── AWS ──────────────────────────────────────────────────────────────────────
 
 
-@router.post("/aws/connect", response_model=AwsIntegrationStatus)
+@router.post("/aws/connect", response_model=AwsIntegrationStatus, dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 async def aws_connect(body: AwsConnectRequest, actor: Actor = Depends(require_admin)) -> AwsIntegrationStatus:
     """Validate the IAM Role ARN via STS AssumeRole and save the connection."""
     try:
@@ -272,7 +273,7 @@ async def aws_status(actor: Actor = Depends(get_actor)) -> AwsIntegrationStatus:
     )
 
 
-@router.post("/aws/test")
+@router.post("/aws/test", dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 async def aws_test(actor: Actor = Depends(require_admin)) -> dict:
     """Verify the stored AWS credentials still work."""
     conn = store.get_aws_connection(actor.organization_id)
@@ -298,7 +299,7 @@ async def aws_disconnect(actor: Actor = Depends(require_admin)) -> dict:
 # ── Figma ─────────────────────────────────────────────────────────────────────
 
 
-@router.post("/figma/connect", response_model=FigmaIntegrationStatus)
+@router.post("/figma/connect", response_model=FigmaIntegrationStatus, dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 async def figma_connect(
     body: FigmaConnectRequest,
     actor: Actor = Depends(require_admin),

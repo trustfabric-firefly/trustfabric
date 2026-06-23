@@ -9,6 +9,12 @@ from app.core.config import settings
 
 _ENCRYPTED_PREFIX = "enc:v1:"
 
+INTEGRATION_TOKEN_FIELDS = (
+    "github_access_token",
+    "slack_bot_token",
+    "figma_access_token",
+)
+
 
 def _fernet() -> Fernet:
     secret = settings.encryption_key or settings.oauth_state_secret or settings.admin_token
@@ -30,8 +36,10 @@ def decrypt_secret(value: str) -> str:
     if not value:
         return value
     if not value.startswith(_ENCRYPTED_PREFIX):
-        # Legacy plaintext tokens remain readable until re-saved.
-        return value
+        raise RuntimeError(
+            "Integration credential is stored in legacy plaintext format. "
+            "Reconnect the integration or run the integration token migration."
+        )
     payload = value[len(_ENCRYPTED_PREFIX) :]
     try:
         return _fernet().decrypt(payload.encode("utf-8")).decode("utf-8")

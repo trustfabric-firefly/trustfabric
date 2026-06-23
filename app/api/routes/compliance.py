@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
 from app.core.security import Actor, get_actor
 from app.services import frameworks as fw_service
 from app.services.store import store
@@ -25,7 +26,7 @@ async def list_frameworks(actor: Actor = Depends(get_actor)):
     return fw_service.list_frameworks()
 
 
-@router.get("/evaluate/{scan_id}")
+@router.get("/evaluate/{scan_id}", dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 async def evaluate_scan(
     scan_id: str,
     actor: Actor = Depends(get_actor),
@@ -50,7 +51,7 @@ async def evaluate_scan(
     return {"scan_id": scan_id, "frameworks": [r.model_dump() for r in results]}
 
 
-@router.get("/evaluate/{scan_id}/refresh")
+@router.get("/evaluate/{scan_id}/refresh", dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 async def evaluate_scan_refresh(
     scan_id: str,
     actor: Actor = Depends(get_actor),
