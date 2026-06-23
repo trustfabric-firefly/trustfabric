@@ -169,6 +169,11 @@ export const systemsApi = {
         }),
     delete: (id: number) =>
         request<void>(`/api/v1/systems/${id}`, { method: "DELETE" }),
+    bulkCreate: (systems: AISystemCreate[]) =>
+        request<{ created: number; errors: string[] }>("/api/v1/systems/bulk", {
+            method: "POST",
+            body: JSON.stringify({ systems }),
+        }),
 };
 
 /** Governance policies stored under Firestore `systems/{id}/policies/{policyId}`. */
