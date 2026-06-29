@@ -288,6 +288,18 @@ export default function SettingsPage() {
         queryFn: settingsApi.status,
         retry: false,
     });
+    const { data: copilotControls, refetch: refetchCopilotControls } = useQuery({
+        queryKey: ["copilot-controls", activeOrganizationId],
+        queryFn: organizationsApi.copilotControls,
+        enabled: !!activeOrganizationId,
+        retry: false,
+    });
+    const [copilotEnabled, setCopilotEnabled] = useState(true);
+    const [copilotMonthlyLimit, setCopilotMonthlyLimit] = useState("200");
+    const [copilotCostCap, setCopilotCostCap] = useState("25");
+    const [copilotDailyUserLimit, setCopilotDailyUserLimit] = useState("50");
+    const [copilotQuotaSaving, setCopilotQuotaSaving] = useState(false);
+    const [copilotQuotaSaved, setCopilotQuotaSaved] = useState(false);
     const { data: currentOrg } = useQuery({
         queryKey: ["org-current", activeOrganizationId],
         queryFn: organizationsApi.current,
@@ -352,6 +364,42 @@ export default function SettingsPage() {
         setSsoJit(ssoConfig.jit_provisioning ?? true);
         setSsoDefaultRole(ssoConfig.default_role ?? "viewer");
     }, [ssoConfig]);
+
+    useEffect(() => {
+        if (!copilotControls) return;
+        setCopilotEnabled(copilotControls.quota.enabled);
+        setCopilotMonthlyLimit(String(copilotControls.quota.monthly_request_limit));
+        setCopilotCostCap(
+            copilotControls.quota.monthly_cost_cap_usd == null
+                ? ""
+                : String(copilotControls.quota.monthly_cost_cap_usd)
+        );
+        setCopilotDailyUserLimit(
+            copilotControls.quota.daily_request_limit_per_user == null
+                ? ""
+                : String(copilotControls.quota.daily_request_limit_per_user)
+        );
+    }, [copilotControls]);
+
+    const saveCopilotQuota = async () => {
+        if (!canAdmin) return;
+        setCopilotQuotaSaving(true);
+        setCopilotQuotaSaved(false);
+        try {
+            await organizationsApi.updateCopilotControls({
+                enabled: copilotEnabled,
+                monthly_request_limit: Number(copilotMonthlyLimit) || 0,
+                monthly_cost_cap_usd: copilotCostCap.trim() === "" ? null : Number(copilotCostCap),
+                daily_request_limit_per_user:
+                    copilotDailyUserLimit.trim() === "" ? null : Number(copilotDailyUserLimit),
+            });
+            await refetchCopilotControls();
+            setCopilotQuotaSaved(true);
+            setTimeout(() => setCopilotQuotaSaved(false), 2000);
+        } finally {
+            setCopilotQuotaSaving(false);
+        }
+    };
 
     const saveSso = async () => {
         if (!canAdmin) return;
@@ -1639,6 +1687,99 @@ export default function SettingsPage() {
                                     <StatusPill ok={backendStatus.gemini_api_configured} labelOk={`Configured — ${backendStatus.gemini_model}`} labelNo="Not configured" />
                                 </div>
                             </div>
+
+                            <Divider />
+
+                            {copilotControls && (
+                                <div style={{ marginBottom: "var(--s-4)" }}>
+                                    <div style={{ fontSize: "var(--fs-13)", fontWeight: "var(--fw-medium)", marginBottom: "var(--s-3)" }}>
+                                        Copilot usage &amp; cost controls
+                                    </div>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "var(--s-3)", marginBottom: "var(--s-3)" }}>
+                                        <SettingRow
+                                            label="This month"
+                                            value={`${copilotControls.usage.request_count} requests`}
+                                        />
+                                        <SettingRow
+                                            label="Est. spend"
+                                            value={`$${copilotControls.usage.estimated_cost_usd.toFixed(2)}`}
+                                        />
+                                        <SettingRow
+                                            label="Period"
+                                            value={copilotControls.usage.period}
+                                        />
+                                        <SettingRow
+                                            label="Status"
+                                            value={copilotControls.quota.enabled ? "Enabled" : "Disabled"}
+                                        />
+                                    </div>
+                                    {copilotControls.quota.monthly_request_limit > 0 && (
+                                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)" }}>
+                                            Monthly limit: {copilotControls.usage.request_count} / {copilotControls.quota.monthly_request_limit} requests
+                                            {copilotControls.quota.monthly_cost_cap_usd != null && (
+                                                <> · ${copilotControls.usage.estimated_cost_usd.toFixed(2)} / ${copilotControls.quota.monthly_cost_cap_usd.toFixed(2)} cap</>
+                                            )}
+                                        </p>
+                                    )}
+                                    {canAdmin ? (
+                                        <div style={{ display: "grid", gap: "var(--s-3)" }}>
+                                            <NotifToggle
+                                                label="Enable governance copilot"
+                                                description="Disable to block all copilot recommendations and policy generation for this organization"
+                                                value={copilotEnabled}
+                                                onChange={setCopilotEnabled}
+                                            />
+                                            <div className="form-group">
+                                                <label className="form-label">Monthly request limit (0 = unlimited)</label>
+                                                <input
+                                                    className="input"
+                                                    type="number"
+                                                    min={0}
+                                                    max={copilotControls.platform_max_monthly_request_limit}
+                                                    value={copilotMonthlyLimit}
+                                                    onChange={(e) => setCopilotMonthlyLimit(e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="form-group">
+                                                <label className="form-label">Monthly cost cap (USD, blank = no cap)</label>
+                                                <input
+                                                    className="input"
+                                                    type="number"
+                                                    min={0}
+                                                    max={copilotControls.platform_max_monthly_cost_cap_usd}
+                                                    step="0.01"
+                                                    value={copilotCostCap}
+                                                    onChange={(e) => setCopilotCostCap(e.target.value)}
+                                                    placeholder="No cap"
+                                                />
+                                            </div>
+                                            <div className="form-group">
+                                                <label className="form-label">Per-user daily limit (blank = no limit)</label>
+                                                <input
+                                                    className="input"
+                                                    type="number"
+                                                    min={0}
+                                                    value={copilotDailyUserLimit}
+                                                    onChange={(e) => setCopilotDailyUserLimit(e.target.value)}
+                                                    placeholder="No limit"
+                                                />
+                                            </div>
+                                            <button
+                                                type="button"
+                                                className="btn btn--primary btn--sm"
+                                                onClick={() => void saveCopilotQuota()}
+                                                disabled={copilotQuotaSaving}
+                                            >
+                                                {copilotQuotaSaved ? "Saved" : copilotQuotaSaving ? "Saving…" : "Save copilot limits"}
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                                            Contact an organization admin to adjust copilot quotas.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
 
                             <Divider />
 

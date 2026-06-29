@@ -407,6 +407,34 @@ export const ssoApi = {
     },
 };
 
+export type OrganizationCopilotControls = {
+    quota: {
+        organization_id: string;
+        enabled: boolean;
+        monthly_request_limit: number;
+        monthly_cost_cap_usd: number | null;
+        daily_request_limit_per_user: number | null;
+        updated_at?: string | null;
+    };
+    usage: {
+        organization_id: string;
+        period: string;
+        request_count: number;
+        estimated_cost_usd: number;
+        last_request_at?: string | null;
+    };
+    platform_max_monthly_request_limit: number;
+    platform_max_monthly_cost_cap_usd: number;
+    estimated_cost_per_request_usd: number;
+};
+
+export type OrganizationCopilotQuotaUpdate = {
+    enabled?: boolean;
+    monthly_request_limit?: number;
+    monthly_cost_cap_usd?: number | null;
+    daily_request_limit_per_user?: number | null;
+};
+
 export const organizationsApi = {
     me: () => request<OrganizationContext>("/api/v1/organizations/me"),
     current: () =>
@@ -462,6 +490,13 @@ export const organizationsApi = {
             method: "POST",
             body: JSON.stringify({ name }),
         }),
+    copilotControls: () =>
+        request<OrganizationCopilotControls>("/api/v1/organizations/current/copilot-controls"),
+    updateCopilotControls: (body: OrganizationCopilotQuotaUpdate) =>
+        request<OrganizationCopilotControls>("/api/v1/organizations/current/copilot-controls", {
+            method: "PATCH",
+            body: JSON.stringify(body),
+        }),
 };
 
 export const complianceApi = {
@@ -490,6 +525,7 @@ export type PolicyRecommendationResponse = {
     rules?: Record<string, unknown>;
     provider?: string;
     model?: string;
+    disclaimer?: string;
 };
 
 export const policyApi = {

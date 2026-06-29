@@ -16,6 +16,7 @@ from app.domain.models import (
     GovernancePolicyUpdate,
 )
 from app.services import claude as claude_service
+from app.services.copilot_quota import CopilotOperation, assert_copilot_allowed, record_copilot_usage
 from app.services.notifications import notify_system_change
 from app.services.store import store
 
@@ -181,8 +182,15 @@ async def delete_system(system_id: int, actor: Actor = Depends(require_admin)) -
     dependencies=[Depends(RateLimited(TIER_EXPENSIVE))],
 )
 def explain_missing(system_id: int, actor: Actor = Depends(get_actor)) -> dict:
-    return claude_service.explain_missing_controls(
+    assert_copilot_allowed(actor.organization_id, actor.user_id)
+    result = claude_service.explain_missing_controls(
         system_id=system_id,
         user_id=actor.user_id,
         organization_id=actor.organization_id,
     )
+    record_copilot_usage(
+        actor.organization_id,
+        actor.user_id,
+        CopilotOperation.explain_missing,
+    )
+    return result

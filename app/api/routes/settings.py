@@ -28,4 +28,8 @@ async def get_settings_status(actor: Actor = Depends(get_actor)):
         "rate_limit_per_minute": settings.rate_limit_per_minute,
         "rate_limit_expensive_per_minute": settings.rate_limit_expensive_per_minute,
         "rate_limit_auth_per_minute": settings.rate_limit_auth_per_minute,
+        "copilot_timeout_seconds": settings.copilot_timeout_seconds,
+        "copilot_transport_retries": settings.copilot_transport_retries,
+        "copilot_circuit_failure_threshold": settings.copilot_circuit_failure_threshold,
+        "copilot_circuit_recovery_seconds": settings.copilot_circuit_recovery_seconds,
     }

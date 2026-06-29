@@ -39,6 +39,17 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
     copilot_provider: str = "auto"  # auto | openai | gemini | claude
+    copilot_timeout_seconds: float = 60.0
+    copilot_transport_retries: int = 2
+    copilot_retry_backoff_seconds: float = 1.0
+    copilot_circuit_failure_threshold: int = 5
+    copilot_circuit_recovery_seconds: int = 300
+    copilot_default_monthly_request_limit: int = 200
+    copilot_default_monthly_cost_cap_usd: float = 25.0
+    copilot_default_daily_request_limit_per_user: int = 50
+    copilot_platform_max_monthly_request_limit: int = 5000
+    copilot_platform_max_monthly_cost_cap_usd: float = 500.0
+    copilot_estimated_cost_per_request_usd: float = 0.02
 
     # Vision API (brand compliance scanner) — defaults to openai settings if not set
     vision_api_key: str = ""

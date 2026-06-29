@@ -10,6 +10,7 @@ from app.api.routes.dashboard import router as dashboard_router
 from app.api.routes.events import router as events_router
 from app.api.routes.health import router as health_router
 from app.api.routes.integrations import router as integrations_router
+from app.api.routes.llm_logs import router as llm_logs_router
 from app.api.routes.scan_policies import router as scan_policies_router
 from app.api.routes.scans import router as scans_router
 from app.api.routes.compliance import router as compliance_router
@@ -33,6 +34,7 @@ api_router.include_router(systems_router, prefix="/api/v1/systems", tags=["syste
 api_router.include_router(events_router, prefix="/api/v1/events", tags=["events"])
 api_router.include_router(dashboard_router, prefix="/api/v1/dashboard", tags=["dashboard"])
 api_router.include_router(audit_router, prefix="/api/v1/audit", tags=["audit"])
+api_router.include_router(llm_logs_router, prefix="/api/v1/llm-logs", tags=["llm-logs"])
 api_router.include_router(copilot_router, prefix="/api/v1/copilot", tags=["copilot"])
 api_router.include_router(integrations_router, prefix="/api/v1/integrations", tags=["integrations"])
 api_router.include_router(scans_router, prefix="/api/v1/scans", tags=["scans"])

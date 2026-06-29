@@ -114,6 +114,38 @@ class OrganizationSsoConfigUpdate(BaseModel):
         return role
 
 
+class OrganizationCopilotQuota(BaseModel):
+    organization_id: str
+    enabled: bool = True
+    monthly_request_limit: int = 200
+    monthly_cost_cap_usd: Optional[float] = 25.0
+    daily_request_limit_per_user: Optional[int] = 50
+    updated_at: Optional[datetime] = None
+
+
+class OrganizationCopilotQuotaUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    monthly_request_limit: Optional[int] = Field(default=None, ge=0, le=100_000)
+    monthly_cost_cap_usd: Optional[float] = Field(default=None, ge=0)
+    daily_request_limit_per_user: Optional[int] = Field(default=None, ge=0, le=10_000)
+
+
+class OrganizationCopilotUsage(BaseModel):
+    organization_id: str
+    period: str
+    request_count: int = 0
+    estimated_cost_usd: float = 0.0
+    last_request_at: Optional[datetime] = None
+
+
+class OrganizationCopilotControls(BaseModel):
+    quota: OrganizationCopilotQuota
+    usage: OrganizationCopilotUsage
+    platform_max_monthly_request_limit: int
+    platform_max_monthly_cost_cap_usd: float
+    estimated_cost_per_request_usd: float
+
+
 class SsoDiscoverRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=254)
 
@@ -246,6 +278,7 @@ class AuditEvent(BaseModel):
 
 class LLMInteractionLog(BaseModel):
     id: int | None = None
+    organization_id: str | None = None
     timestamp: datetime
     user_id: str
     system_id: Optional[int]

@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 
 from app.core.config import settings
 from app.domain.models import Organization, OrganizationCreate, OrganizationMember, OrgRole
+from app.services.copilot_quota import initialize_quota_for_organization
 from app.services.store import store
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -67,6 +68,7 @@ def ensure_default_organization() -> Organization:
         plan="trial",
     )
     store.create_organization(org)
+    initialize_quota_for_organization(org.id, plan=org.plan)
     return org
 
 
@@ -130,6 +132,7 @@ def create_organization_for_user(user_id: str, payload: OrganizationCreate, emai
             joined_at=datetime.utcnow(),
         )
     )
+    initialize_quota_for_organization(org_id, plan=org.plan)
     return org
 
 
