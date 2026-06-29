@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app.core.idempotency import (
+    begin_idempotent_request,
+    cached_idempotency_response,
+    complete_idempotent_request,
+    get_idempotency_key,
+)
 from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
 from app.core.security import Actor, get_actor
+from app.domain.models import WebhookEvent
 from app.services import frameworks as fw_service
 from app.services.store import store
+from app.services.webhooks import dispatch_webhook_event
 
 router = APIRouter(prefix="/compliance", tags=["compliance"])
 
@@ -18,6 +27,37 @@ class AttestationRequest(BaseModel):
     req_id: str
     item_index: int
     value: bool
+
+
+async def _maybe_dispatch_compliance_alerts(organization_id: str, scan_id: str, results) -> None:
+    alerts = []
+    for result in results:
+        failed = [req for req in result.requirements if req.status.value == "failed"]
+        if not failed:
+            continue
+        alerts.append(
+            {
+                "framework_id": result.framework_id,
+                "framework_name": result.framework_name,
+                "scan_id": scan_id,
+                "failed_requirements": len(failed),
+                "requirements": [req.model_dump(mode="json") for req in failed[:5]],
+            }
+        )
+    if not alerts:
+        return
+    try:
+        await dispatch_webhook_event(
+            organization_id,
+            WebhookEvent.compliance_alert,
+            {
+                "alert_type": "framework_gaps",
+                "scan_id": scan_id,
+                "frameworks": alerts,
+            },
+        )
+    except Exception:
+        pass
 
 
 @router.get("/frameworks")
@@ -48,6 +88,7 @@ async def evaluate_scan(
             store.save_framework_result(actor.user_id, result)
             results.append(result)
 
+    await _maybe_dispatch_compliance_alerts(actor.organization_id, scan_id, results)
     return {"scan_id": scan_id, "frameworks": [r.model_dump() for r in results]}
 
 
@@ -69,14 +110,26 @@ async def evaluate_scan_refresh(
             store.save_framework_result(actor.user_id, result)
             results.append(result)
 
+    await _maybe_dispatch_compliance_alerts(actor.organization_id, scan_id, results)
     return {"scan_id": scan_id, "frameworks": [r.model_dump() for r in results]}
 
 
 @router.post("/attestations")
 async def submit_attestation(
     body: AttestationRequest,
+    request: Request,
     actor: Actor = Depends(get_actor),
 ):
+    idempotency_key = get_idempotency_key(request)
+    key, cached = begin_idempotent_request(
+        actor.organization_id,
+        idempotency_key,
+        method=request.method,
+        path=str(request.url.path),
+    )
+    if cached:
+        return cached_idempotency_response(cached)
+
     store.save_attestation(
         actor.organization_id,
         actor.user_id,
@@ -85,7 +138,14 @@ async def submit_attestation(
         body.item_index,
         body.value,
     )
-    return {"ok": True}
+    response_body = {"ok": True}
+    complete_idempotent_request(
+        actor.organization_id,
+        key,
+        status_code=status.HTTP_200_OK,
+        response_body=response_body,
+    )
+    return response_body
 
 
 @router.get("/attestations/{framework_id}")

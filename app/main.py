@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.services.job_queue import job_queue
     from app.services.store import store
 
     try:
@@ -30,11 +31,20 @@ async def lifespan(app: FastAPI):
         logger.debug("Integration token migration skipped: %s", exc)
     except Exception:
         logger.exception("Integration token migration failed")
-    yield
+
+    await job_queue.start()
+    try:
+        yield
+    finally:
+        await job_queue.stop()
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
+    app = FastAPI(
+        title=settings.app_name,
+        version=settings.app_version,
+        lifespan=lifespan,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -46,5 +56,5 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
     return app
 
-#new comment test
+
 app = create_app()  # entry point

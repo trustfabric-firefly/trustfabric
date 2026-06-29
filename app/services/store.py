@@ -33,6 +33,8 @@ from app.domain.models import (
     NistCoverage,
     NistFunctionCoverage,
     Organization,
+    OrganizationCopilotQuota,
+    OrganizationCopilotUsage,
     OrganizationInvite,
     OrganizationInviteStatus,
     OrganizationMember,
@@ -58,6 +60,9 @@ class FirestoreStore:
         self._organization_sso_collection = "organization_sso"
         self._sso_exchange_collection = "sso_exchange_codes"
         self._integrations_collection = "organization_integrations"
+        self._copilot_quotas_collection = "organization_copilot_quotas"
+        self._copilot_usage_collection = "organization_copilot_usage"
+        self._copilot_user_daily_collection = "organization_copilot_user_daily"
         # Lazy init so importing the app without Firebase creds (e.g. unit tests) does not fail.
         self._db: Any = None
 
@@ -124,7 +129,7 @@ class FirestoreStore:
         docs = (
             self._client()
             .collection(self._organization_members_collection)
-            .where("user_id", "==", user_id)
+            .where(filter=firestore.FieldFilter("user_id", "==", user_id))
             .stream()
         )
         for doc in docs:
@@ -136,7 +141,7 @@ class FirestoreStore:
         docs = (
             self._client()
             .collection(self._organization_members_collection)
-            .where("organization_id", "==", organization_id)
+            .where(filter=firestore.FieldFilter("organization_id", "==", organization_id))
             .stream()
         )
         for doc in docs:
@@ -193,8 +198,8 @@ class FirestoreStore:
         docs = (
             self._client()
             .collection(self._organization_invites_collection)
-            .where("organization_id", "==", organization_id)
-            .where("status", "==", status.value)
+            .where(filter=firestore.FieldFilter("organization_id", "==", organization_id))
+            .where(filter=firestore.FieldFilter("status", "==", status.value))
             .stream()
         )
         for doc in docs:
@@ -207,8 +212,8 @@ class FirestoreStore:
         docs = (
             self._client()
             .collection(self._organization_invites_collection)
-            .where("email", "==", normalized)
-            .where("status", "==", OrganizationInviteStatus.pending.value)
+            .where(filter=firestore.FieldFilter("email", "==", normalized))
+            .where(filter=firestore.FieldFilter("status", "==", OrganizationInviteStatus.pending.value))
             .stream()
         )
         for doc in docs:
@@ -248,7 +253,7 @@ class FirestoreStore:
         docs = (
             self._client()
             .collection(self._organization_sso_collection)
-            .where("enabled", "==", True)
+            .where(filter=firestore.FieldFilter("enabled", "==", True))
             .stream()
         )
         for doc in docs:
@@ -306,6 +311,70 @@ class FirestoreStore:
             self._serialize(updated)
         )
         return updated
+
+    # --- Copilot quotas & usage ---
+    def get_copilot_quota(self, organization_id: str) -> Optional[OrganizationCopilotQuota]:
+        doc = self._client().collection(self._copilot_quotas_collection).document(organization_id).get()
+        if not doc.exists:
+            return None
+        payload = doc.to_dict() or {}
+        payload.setdefault("organization_id", organization_id)
+        return OrganizationCopilotQuota.model_validate(payload)
+
+    def upsert_copilot_quota(self, quota: OrganizationCopilotQuota) -> OrganizationCopilotQuota:
+        self._client().collection(self._copilot_quotas_collection).document(quota.organization_id).set(
+            self._serialize(quota),
+            merge=True,
+        )
+        return quota
+
+    def get_copilot_usage(self, organization_id: str, period: str) -> OrganizationCopilotUsage:
+        doc_id = f"{organization_id}_{period}"
+        doc = self._client().collection(self._copilot_usage_collection).document(doc_id).get()
+        if not doc.exists:
+            return OrganizationCopilotUsage(organization_id=organization_id, period=period)
+        payload = doc.to_dict() or {}
+        payload.setdefault("organization_id", organization_id)
+        payload.setdefault("period", period)
+        return OrganizationCopilotUsage.model_validate(payload)
+
+    def increment_copilot_usage(
+        self,
+        organization_id: str,
+        period: str,
+        *,
+        user_id: str,
+        day: str,
+        cost_usd: float,
+    ) -> OrganizationCopilotUsage:
+        now = datetime.utcnow()
+        usage_ref = self._client().collection(self._copilot_usage_collection).document(
+            f"{organization_id}_{period}"
+        )
+        usage_ref.set(
+            {
+                "organization_id": organization_id,
+                "period": period,
+                "request_count": firestore.Increment(1),
+                "estimated_cost_usd": firestore.Increment(float(cost_usd)),
+                "last_request_at": now.isoformat(),
+            },
+            merge=True,
+        )
+        daily_ref = self._client().collection(self._copilot_user_daily_collection).document(
+            f"{organization_id}_{day}_{user_id}"
+        )
+        daily_ref.set({"count": firestore.Increment(1)}, merge=True)
+        return self.get_copilot_usage(organization_id, period)
+
+    def get_user_daily_copilot_requests(self, organization_id: str, user_id: str, day: str) -> int:
+        doc = self._client().collection(self._copilot_user_daily_collection).document(
+            f"{organization_id}_{day}_{user_id}"
+        ).get()
+        if not doc.exists:
+            return 0
+        payload = doc.to_dict() or {}
+        return int(payload.get("count", 0))
 
     @staticmethod
     def _encrypt_integration_fields(doc: dict[str, Any]) -> dict[str, Any]:
@@ -540,17 +609,55 @@ class FirestoreStore:
     ) -> LLMInteractionLog:
         org_id = organization_id or settings.default_organization_id
         log_id = self._next_id("llm_log", org_id)
-        stored = log.model_copy(update={"id": log_id})
+        stored = log.model_copy(update={"id": log_id, "organization_id": org_id})
         self._client().collection(self._llm_logs_collection).document(str(log_id)).set(self._serialize(stored))
         return stored
 
-    def list_llm_logs(self) -> List[LLMInteractionLog]:
+    def list_llm_logs(
+        self,
+        organization_id: str,
+        *,
+        system_id: Optional[int] = None,
+        user_id: Optional[str] = None,
+        model_name: Optional[str] = None,
+        success: Optional[bool] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        limit: int = 200,
+    ) -> List[LLMInteractionLog]:
         logs: List[LLMInteractionLog] = []
         for doc in self._client().collection(self._llm_logs_collection).stream():
             payload = doc.to_dict() or {}
+            if not self._matches_org(payload, organization_id):
+                continue
             payload["id"] = int(doc.id)
+            payload.setdefault("organization_id", organization_id)
             logs.append(LLMInteractionLog.model_validate(payload))
-        return sorted(logs, key=lambda log: log.id or 0)
+        if system_id is not None:
+            logs = [log for log in logs if log.system_id == system_id]
+        if user_id is not None:
+            logs = [log for log in logs if log.user_id == user_id]
+        if model_name is not None:
+            logs = [log for log in logs if log.model_name == model_name]
+        if success is not None:
+            logs = [log for log in logs if log.success == success]
+        if start is not None:
+            logs = [log for log in logs if log.timestamp >= start]
+        if end is not None:
+            logs = [log for log in logs if log.timestamp <= end]
+        logs = sorted(logs, key=lambda log: log.id or 0, reverse=True)
+        return logs[: max(1, min(limit, 500))]
+
+    def get_llm_log(self, log_id: int, organization_id: str) -> Optional[LLMInteractionLog]:
+        doc = self._client().collection(self._llm_logs_collection).document(str(log_id)).get()
+        if not doc.exists:
+            return None
+        payload = doc.to_dict() or {}
+        if not self._matches_org(payload, organization_id):
+            return None
+        payload["id"] = int(doc.id)
+        payload.setdefault("organization_id", organization_id)
+        return LLMInteractionLog.model_validate(payload)
 
     # --- Governance policies (systems/{system_id}/policies) ---
     def _system_policies_collection(self, system_id: int) -> Any:
@@ -613,7 +720,9 @@ class FirestoreStore:
             return None
 
         messages: List[AIChatMessage] = []
-        docs = self._system_chat_collection(system_id).where("user_id", "==", user_id).stream()
+        docs = self._system_chat_collection(system_id).where(
+            filter=firestore.FieldFilter("user_id", "==", user_id)
+        ).stream()
         for doc in docs:
             raw = doc.to_dict() or {}
             raw["id"] = doc.id
@@ -698,7 +807,7 @@ class FirestoreStore:
             docs = (
                 self._client()
                 .collection_group("policies")
-                .where("status", "==", "active")
+                .where(filter=firestore.FieldFilter("status", "==", "active"))
                 .stream()
             )
             org_system_ids = {str(system.id) for system in self.list_systems(organization_id)}
@@ -927,7 +1036,7 @@ class FirestoreStore:
         docs = (
             self._client()
             .collection("scan_policies")
-            .where("organization_id", "==", organization_id)
+            .where(filter=firestore.FieldFilter("organization_id", "==", organization_id))
             .stream()
         )
         results = [ScanPolicy.model_validate(d.to_dict()) for d in docs]
@@ -1055,7 +1164,12 @@ class FirestoreStore:
             .collection("attestations")
             .document(doc_id)
             .set(
-                {field: value, "updated_at": datetime.utcnow().isoformat(), "user_id": user_id},
+                {
+                    field: value,
+                    "organization_id": organization_id,
+                    "updated_at": datetime.utcnow().isoformat(),
+                    "user_id": user_id,
+                },
                 merge=True,
             )
         )
@@ -1272,6 +1386,163 @@ class FirestoreStore:
         if organization_id is not None and not self._matches_org(payload, organization_id):
             return None
         return AwsScanRecord.model_validate(payload)
+
+    def update_scan(self, scan_id: str, organization_id: str, updates: dict) -> None:
+        doc_ref = self._client().collection("scans").document(scan_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            return
+        payload = doc.to_dict() or {}
+        if not self._matches_org(payload, organization_id):
+            return
+        doc_ref.update(updates)
+
+    def update_aws_scan(self, scan_id: str, organization_id: str, updates: dict) -> None:
+        doc_ref = self._client().collection("aws_scans").document(scan_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            return
+        payload = doc.to_dict() or {}
+        if not self._matches_org(payload, organization_id):
+            return
+        doc_ref.update(updates)
+
+    # --- Background Jobs ---
+
+    def save_job(self, job) -> None:
+        doc = job.model_dump(mode="json")
+        self._client().collection("jobs").document(job.job_id).set(doc)
+
+    def get_job(self, job_id: str, organization_id: str | None = None):
+        from app.domain.models import JobRecord
+        doc = self._client().collection("jobs").document(job_id).get()
+        if not doc.exists:
+            return None
+        payload = doc.to_dict() or {}
+        if organization_id is not None and payload.get("organization_id") != organization_id:
+            return None
+        return JobRecord.model_validate(payload)
+
+    def update_job(self, job_id: str, updates: dict) -> None:
+        self._client().collection("jobs").document(job_id).update(updates)
+
+    def list_pending_jobs(self, limit: int = 20) -> list:
+        from app.domain.models import JobRecord, JobStatus
+        results = []
+        docs = (
+            self._client()
+            .collection("jobs")
+            .where(filter=firestore.FieldFilter("status", "in", [JobStatus.pending.value, JobStatus.running.value]))
+            .limit(limit)
+            .stream()
+        )
+        for doc in docs:
+            try:
+                results.append(JobRecord.model_validate(doc.to_dict()))
+            except Exception:
+                pass
+        results.sort(key=lambda j: j.created_at)
+        return results
+
+    # --- Idempotency ---
+
+    def get_idempotency(self, organization_id: str, key: str):
+        from app.domain.models import IdempotencyRecord
+        doc_id = self._idempotency_doc_id(organization_id, key)
+        doc = self._client().collection("idempotency_keys").document(doc_id).get()
+        if not doc.exists:
+            return None
+        record = IdempotencyRecord.model_validate(doc.to_dict())
+        if record.expires_at < datetime.utcnow():
+            return None
+        return record
+
+    def save_idempotency(self, record) -> None:
+        doc = record.model_dump(mode="json")
+        doc_id = self._idempotency_doc_id(record.organization_id, record.key)
+        self._client().collection("idempotency_keys").document(doc_id).set(doc)
+
+    def complete_idempotency(
+        self,
+        organization_id: str,
+        key: str,
+        *,
+        status_code: int,
+        response_body: dict,
+        resource_id: str | None = None,
+    ) -> None:
+        doc_id = self._idempotency_doc_id(organization_id, key)
+        self._client().collection("idempotency_keys").document(doc_id).update(
+            {
+                "status": "completed",
+                "status_code": status_code,
+                "response_body": response_body,
+                "resource_id": resource_id,
+            }
+        )
+
+    @staticmethod
+    def _idempotency_doc_id(organization_id: str, key: str) -> str:
+        import hashlib
+        digest = hashlib.sha256(f"{organization_id}:{key}".encode()).hexdigest()
+        return digest
+
+    # --- Webhooks ---
+
+    def list_webhooks(self, organization_id: str) -> list:
+        from app.domain.models import WebhookEndpoint
+        results = []
+        docs = self._client().collection("webhook_endpoints").limit(200).stream()
+        for doc in docs:
+            payload = doc.to_dict() or {}
+            if payload.get("organization_id") != organization_id:
+                continue
+            results.append(WebhookEndpoint.model_validate(payload))
+        results.sort(key=lambda w: w.created_at, reverse=True)
+        return results
+
+    def get_webhook(self, webhook_id: str, organization_id: str | None = None):
+        from app.domain.models import WebhookEndpoint
+        doc = self._client().collection("webhook_endpoints").document(webhook_id).get()
+        if not doc.exists:
+            return None
+        payload = doc.to_dict() or {}
+        if organization_id is not None and payload.get("organization_id") != organization_id:
+            return None
+        return WebhookEndpoint.model_validate(payload)
+
+    def save_webhook(self, webhook) -> None:
+        doc = webhook.model_dump(mode="json")
+        self._client().collection("webhook_endpoints").document(webhook.webhook_id).set(doc)
+
+    def update_webhook(self, webhook_id: str, organization_id: str, updates: dict) -> None:
+        doc_ref = self._client().collection("webhook_endpoints").document(webhook_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            return
+        payload = doc.to_dict() or {}
+        if payload.get("organization_id") != organization_id:
+            return
+        doc_ref.update(updates)
+
+    def delete_webhook(self, webhook_id: str, organization_id: str) -> bool:
+        doc_ref = self._client().collection("webhook_endpoints").document(webhook_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            return False
+        payload = doc.to_dict() or {}
+        if payload.get("organization_id") != organization_id:
+            return False
+        doc_ref.delete()
+        return True
+
+    def list_webhooks_for_event(self, organization_id: str, event: str) -> list:
+        from app.domain.models import WebhookEndpoint
+        return [
+            w
+            for w in self.list_webhooks(organization_id)
+            if w.enabled and event in [e.value for e in w.events]
+        ]
 
     # --- Helpers ---
     @staticmethod

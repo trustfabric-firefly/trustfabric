@@ -277,6 +277,7 @@ export interface AwsScanResult {
   duration_seconds: number;
   triggered_by: string;
   status: ScanStatus;
+  error?: string;
 }
 
 // ─── Compliance Scans Domain ─────────────────────────────────────────────────
@@ -328,6 +329,7 @@ export interface ScanResult {
   duration_seconds: number;
   triggered_by: string;
   status: ScanStatus;
+  error?: string;
 }
 
 export interface ScanProgress {

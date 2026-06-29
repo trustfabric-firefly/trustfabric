@@ -101,7 +101,12 @@ AWS_CHECKS = {
 }
 
 
-def run_aws_scan(user_id: str, organization_id: str, triggered_by: str) -> AwsScanRecord:
+def run_aws_scan(
+    user_id: str,
+    organization_id: str,
+    triggered_by: str,
+    scan_id: str | None = None,
+) -> AwsScanRecord:
     conn = store.get_aws_connection(organization_id)
     if not conn or not conn.get("aws_role_arn"):
         raise ValueError("AWS is not connected. Add your IAM Role ARN in Settings first.")
@@ -133,7 +138,7 @@ def run_aws_scan(user_id: str, organization_id: str, triggered_by: str) -> AwsSc
     score = round((passed / len(checks)) * 100) if checks else 100
 
     record = AwsScanRecord(
-        scan_id=str(uuid4()),
+        scan_id=scan_id or str(uuid4()),
         account_id=account_info.get("account_id", conn.get("aws_account_id", "")),
         region=region,
         timestamp=datetime.utcnow(),

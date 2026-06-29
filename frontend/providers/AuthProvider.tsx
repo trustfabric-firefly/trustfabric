@@ -15,6 +15,7 @@ import {
     type User,
 } from "firebase/auth";
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
+import { clearAuthSession, establishAuthSession } from "@/lib/auth-session";
 
 interface AuthContextValue {
     user: User | null;
@@ -55,6 +56,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
             setUser(firebaseUser);
             setLoading(false);
+            if (firebaseUser) {
+                void establishAuthSession(firebaseUser).catch(() => {
+                    /* AppAuthGate will redirect if cookie sync fails */
+                });
+            } else {
+                void clearAuthSession();
+            }
         });
         return unsubscribe;
     }, []);
@@ -64,20 +72,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(DEV_USER);
             return;
         }
-        await signInWithEmailAndPassword(auth, email, password);
+        const credential = await signInWithEmailAndPassword(auth, email, password);
+        await establishAuthSession(credential.user);
     };
 
     const signInWithSsoToken = async (customToken: string) => {
         if (!isFirebaseConfigured || !auth) {
             throw new Error("Firebase is required for SSO sign-in");
         }
-        await signInWithCustomToken(auth, customToken);
+        const credential = await signInWithCustomToken(auth, customToken);
+        await establishAuthSession(credential.user);
     };
 
     const logOut = async () => {
         if (typeof window !== "undefined") {
             window.localStorage.removeItem("trustfabric_organization_id");
         }
+        await clearAuthSession();
         if (!isFirebaseConfigured || !auth) {
             setUser(null);
             return;

@@ -1,41 +1,105 @@
 from __future__ import annotations
 
 from typing import List
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
+from app.core.idempotency import (
+    begin_idempotent_request,
+    cached_idempotency_response,
+    complete_idempotent_request,
+    get_idempotency_key,
+)
 from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
-from app.core.security import Actor, get_actor
-from app.domain.models import AwsScanRecord, ScanRecord, ScanTriggerRequest
-from app.services.scan import run_scan
+from app.core.security import Actor, get_actor, require_operator
+from app.domain.models import AwsScanRecord, JobType, ScanRecord, ScanTriggerRequest
+from app.services.job_queue import (
+    build_pending_aws_scan,
+    build_pending_github_scan,
+    job_queue,
+)
 from app.services.scan_report_pdf import build_scan_report_pdf
 from app.services.store import store
 
 router = APIRouter()
 
 
-@router.post("/", response_model=ScanRecord, dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
-async def trigger_scan(body: ScanTriggerRequest, actor: Actor = Depends(get_actor)) -> ScanRecord:
-    """Run a compliance scan against the connected GitHub account."""
-    try:
-        record = await run_scan(
-            user_id=actor.user_id,
-            organization_id=actor.organization_id,
-            github_org=body.github_org,
-            triggered_by=actor.user_id,
+def _validate_github_ready(organization_id: str) -> None:
+    conn = store.get_github_connection(organization_id)
+    if not conn or not conn.get("github_access_token"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GitHub is not connected. Connect your GitHub account in Settings first.",
         )
-        from app.services.notifications import notify_scan_completed
 
-        try:
-            await notify_scan_completed(actor.organization_id, record)
-        except Exception:
-            pass
-        return record
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Scan failed: {str(exc)}")
+
+def _validate_aws_ready(organization_id: str) -> tuple[str, str]:
+    conn = store.get_aws_connection(organization_id)
+    if not conn or not conn.get("aws_role_arn"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="AWS is not connected. Add your IAM Role ARN in Settings first.",
+        )
+    account_id = conn.get("aws_account_id", "")
+    region = conn.get("aws_region", "us-east-1")
+    return account_id, region
+
+
+@router.post(
+    "/",
+    response_model=ScanRecord,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(RateLimited(TIER_EXPENSIVE))],
+)
+async def trigger_scan(
+    body: ScanTriggerRequest,
+    request: Request,
+    actor: Actor = Depends(require_operator),
+) -> ScanRecord | JSONResponse:
+    """Enqueue a GitHub compliance scan. Poll GET /scans/{scan_id} until completed."""
+    idempotency_key = get_idempotency_key(request)
+    key, cached = begin_idempotent_request(
+        actor.organization_id,
+        idempotency_key,
+        method=request.method,
+        path=str(request.url.path),
+    )
+    if cached:
+        return cached_idempotency_response(cached)
+
+    _validate_github_ready(actor.organization_id)
+
+    scan_id = str(uuid4())
+    pending = build_pending_github_scan(
+        scan_id=scan_id,
+        github_org=body.github_org,
+        scope=body.scope,
+        triggered_by=actor.user_id,
+    )
+    store.save_scan(actor.user_id, actor.organization_id, pending)
+    await job_queue.enqueue(
+        job_type=JobType.github_scan,
+        organization_id=actor.organization_id,
+        user_id=actor.user_id,
+        payload={
+            "github_org": body.github_org,
+            "scope": body.scope,
+            "triggered_by": actor.user_id,
+        },
+        resource_id=scan_id,
+    )
+
+    response_body = pending.model_dump(mode="json")
+    complete_idempotent_request(
+        actor.organization_id,
+        key,
+        status_code=status.HTTP_202_ACCEPTED,
+        response_body=response_body,
+        resource_id=scan_id,
+    )
+    return pending
 
 
 @router.get("/", response_model=List[ScanRecord])
@@ -44,27 +108,54 @@ def list_scans(actor: Actor = Depends(get_actor)) -> List[ScanRecord]:
     return store.list_scans(actor.organization_id)
 
 
-@router.post("/aws", response_model=AwsScanRecord, dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
-async def trigger_aws_scan(actor: Actor = Depends(get_actor)) -> AwsScanRecord:
-    """Run a compliance scan against the connected AWS account."""
-    from app.services.aws_scan import run_aws_scan
-    from app.services.notifications import notify_aws_scan_completed
+@router.post(
+    "/aws",
+    response_model=AwsScanRecord,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(RateLimited(TIER_EXPENSIVE))],
+)
+async def trigger_aws_scan(
+    request: Request,
+    actor: Actor = Depends(require_operator),
+) -> AwsScanRecord | JSONResponse:
+    """Enqueue an AWS compliance scan. Poll GET /scans/aws/{scan_id} until completed."""
+    idempotency_key = get_idempotency_key(request)
+    key, cached = begin_idempotent_request(
+        actor.organization_id,
+        idempotency_key,
+        method=request.method,
+        path=str(request.url.path),
+    )
+    if cached:
+        return cached_idempotency_response(cached)
 
-    try:
-        record = run_aws_scan(
-            user_id=actor.user_id,
-            organization_id=actor.organization_id,
-            triggered_by=actor.user_id,
-        )
-        try:
-            await notify_aws_scan_completed(actor.organization_id, record)
-        except Exception:
-            pass
-        return record
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AWS scan failed: {str(exc)}")
+    account_id, region = _validate_aws_ready(actor.organization_id)
+
+    scan_id = str(uuid4())
+    pending = build_pending_aws_scan(
+        scan_id=scan_id,
+        account_id=account_id,
+        region=region,
+        triggered_by=actor.user_id,
+    )
+    store.save_aws_scan(actor.user_id, actor.organization_id, pending)
+    await job_queue.enqueue(
+        job_type=JobType.aws_scan,
+        organization_id=actor.organization_id,
+        user_id=actor.user_id,
+        payload={"triggered_by": actor.user_id},
+        resource_id=scan_id,
+    )
+
+    response_body = pending.model_dump(mode="json")
+    complete_idempotent_request(
+        actor.organization_id,
+        key,
+        status_code=status.HTTP_202_ACCEPTED,
+        response_body=response_body,
+        resource_id=scan_id,
+    )
+    return pending
 
 
 @router.get("/aws", response_model=List[AwsScanRecord])
@@ -95,6 +186,8 @@ def get_scan_report(scan_id: str, actor: Actor = Depends(get_actor)) -> HTMLResp
     record = store.get_scan(scan_id, actor.organization_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Scan not found")
+    if record.status.value != "completed":
+        raise HTTPException(status_code=409, detail="Scan is not completed yet")
     return HTMLResponse(content=_build_report_html(record), status_code=200)
 
 
@@ -104,6 +197,8 @@ def get_scan_report_pdf(scan_id: str, actor: Actor = Depends(get_actor)) -> Resp
     record = store.get_scan(scan_id, actor.organization_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Scan not found")
+    if record.status.value != "completed":
+        raise HTTPException(status_code=409, detail="Scan is not completed yet")
     pdf_bytes = build_scan_report_pdf(record)
     filename = f"trustfabric-scan-{scan_id[:8]}.pdf"
     return Response(

@@ -14,6 +14,7 @@ from app.core.security import (
     _map_org_role_to_api_role,
     get_actor,
     require_admin,
+    require_operator,
 )
 from app.domain.models import OrgRole
 
@@ -74,6 +75,26 @@ def test_require_admin_blocks_viewer():
     actor = Actor("u", "org", Role.viewer, OrgRole.viewer)
     with pytest.raises(HTTPException) as exc:
         require_admin(actor)
+    assert exc.value.status_code == 403
+
+
+def test_require_operator_allows_security_admin():
+    actor = Actor("u", "org", Role.admin, OrgRole.security_admin)
+    assert require_operator(actor) is actor
+
+
+def test_require_operator_blocks_auditor():
+    actor = Actor("u", "org", Role.viewer, OrgRole.auditor)
+    with pytest.raises(HTTPException) as exc:
+        require_operator(actor)
+    assert exc.value.status_code == 403
+    assert "security admin" in exc.value.detail.lower()
+
+
+def test_require_operator_blocks_viewer():
+    actor = Actor("u", "org", Role.viewer, OrgRole.viewer)
+    with pytest.raises(HTTPException) as exc:
+        require_operator(actor)
     assert exc.value.status_code == 403
 
 

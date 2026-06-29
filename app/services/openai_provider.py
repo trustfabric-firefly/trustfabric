@@ -5,74 +5,24 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
-from openai import APIError, OpenAI
+from openai import APIError
 
 from app.core.config import settings
-from app.domain.models import AISystem, DataSensitivity, LLMInteractionLog, RiskTier
+from app.domain.models import AISystem, LLMInteractionLog, RiskTier
+from app.services.copilot_disclaimer import COPILOT_ADVISORY_DISCLAIMER
+from app.services.llm_resilience import (
+    build_system_recommendation_fallback,
+    openai_client,
+    parse_json_payload,
+    provider_error_detail,
+    with_transport_retries,
+)
 from app.services.store import store
 
 
 PROMPT_TEMPLATE_VERSION = "v1-nist"
 MAX_INPUT_CHARS = 4000
 POLICY_PROMPT_TEMPLATE_VERSION = "v1-policy-generator"
-
-
-def _parse_json_payload(text: str) -> dict[str, Any] | None:
-    candidate = text.strip()
-    if not candidate:
-        return None
-    try:
-        parsed = json.loads(candidate)
-        return parsed if isinstance(parsed, dict) else None
-    except json.JSONDecodeError:
-        pass
-
-    first_brace = candidate.find("{")
-    if first_brace < 0:
-        return None
-    depth = 0
-    end_index = -1
-    for idx in range(first_brace, len(candidate)):
-        if candidate[idx] == "{":
-            depth += 1
-        elif candidate[idx] == "}":
-            depth -= 1
-            if depth == 0:
-                end_index = idx
-                break
-    if end_index < 0:
-        return None
-
-    try:
-        parsed = json.loads(candidate[first_brace : end_index + 1])
-        return parsed if isinstance(parsed, dict) else None
-    except json.JSONDecodeError:
-        return None
-
-
-def _build_fallback_payload(system: AISystem, raw_text: str) -> dict[str, Any]:
-    if system.data_sensitivity == DataSensitivity.high:
-        policies = ["logging_required", "human_review_required", "pii_restrictions"]
-    elif system.data_sensitivity == DataSensitivity.medium:
-        policies = ["logging_required", "human_review_required"]
-    else:
-        policies = ["logging_required"]
-
-    return {
-        "suggested_model_type": str(system.model_type),
-        "suggested_data_sensitivity": str(system.data_sensitivity),
-        "suggested_risk_tier": str(system.risk_tier or RiskTier.tier2),
-        "suggested_policies": policies,
-        "rationale": (
-            "Structured fallback generated because provider returned malformed JSON. "
-            f"Original model output excerpt: {(raw_text[:300] + '...') if len(raw_text) > 300 else raw_text}"
-        ),
-        "clarifying_questions": [
-            "Which user groups can access this system?",
-            "What human review step is required before high-impact actions?",
-            "What logging and retention controls are currently in place?",
-        ],
-    }
 
 
 def _build_prompt(system: AISystem) -> str:
@@ -159,7 +109,7 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
 
     prompt = _build_prompt(system)
     now = datetime.now(timezone.utc)
-    client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url or None)
+    client = openai_client()
 
     parsed_obj: dict[str, Any] | None = None
     raw = ""
@@ -169,18 +119,36 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
             if attempt == 1:
                 attempt_prompt = f"{prompt}\n\nReturn ONLY a valid JSON object."
 
-            response = client.chat.completions.create(
-                model=settings.openai_model,
-                messages=[{"role": "user", "content": attempt_prompt}],
-                temperature=0.2,
-                max_tokens=1200,
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            response = with_transport_retries(
+                "openai",
+                lambda attempt_prompt=attempt_prompt: client.chat.completions.create(
+                    model=settings.openai_model,
+                    messages=[{"role": "user", "content": attempt_prompt}],
+                    temperature=0.2,
+                    max_tokens=1200,
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                ),
             )
             raw = (response.choices[0].message.content or "").strip()
-            parsed_obj = _parse_json_payload(raw)
+            parsed_obj = parse_json_payload(raw)
             if parsed_obj is not None:
                 raw = json.dumps(parsed_obj, separators=(",", ":"))
                 break
+    except HTTPException:
+        store.log_llm_interaction(
+            LLMInteractionLog(
+                timestamp=now,
+                user_id=user_id,
+                system_id=system_id,
+                prompt_template_version=PROMPT_TEMPLATE_VERSION,
+                input_summary="OpenAI-compatible call failed",
+                model_name=settings.openai_model,
+                response_summary="transport error",
+                success=False,
+            ),
+            organization_id,
+        )
+        raise
     except APIError as exc:  # pragma: no cover - network/provider error handling
         provider_error = str(exc).strip() or type(exc).__name__
         store.log_llm_interaction(
@@ -193,18 +161,16 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
                 model_name=settings.openai_model,
                 response_summary=provider_error,
                 success=False,
-            )
+            ),
+            organization_id,
         )
-        detail = "OpenAI-compatible API call failed"
-        if settings.app_env.lower() in {"dev", "local", "development"}:
-            detail = f"{detail}: {provider_error[:500]}"
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=detail,
+            detail=provider_error_detail("OpenAI-compatible API call failed", exc),
         ) from exc
 
     if parsed_obj is None:
-        parsed_obj = _build_fallback_payload(system, raw)
+        parsed_obj = build_system_recommendation_fallback(system, raw)
         raw = json.dumps(parsed_obj, separators=(",", ":"))
         store.log_llm_interaction(
             LLMInteractionLog(
@@ -216,7 +182,8 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
                 model_name=settings.openai_model,
                 response_summary=(raw[:500] + "...") if len(raw) > 500 else raw,
                 success=True,
-            )
+            ),
+            organization_id,
         )
 
     summary = raw[:1000] + "..." if len(raw) > 1000 else raw
@@ -230,14 +197,15 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
             model_name=settings.openai_model,
             response_summary=summary,
             success=True,
-        )
+        ),
+        organization_id,
     )
 
     return {
         "raw_response": raw,
         "model": settings.openai_model,
         "provider": "openai",
-        "disclaimer": "AI-generated recommendations for governance only. Human review required before applying.",
+        "disclaimer": COPILOT_ADVISORY_DISCLAIMER,
         "nist_ai_rmf_functions": ["Govern", "Map", "Measure", "Manage"],
         "system_risk_hint": {
             "current_risk_tier": system.risk_tier or RiskTier.tier2,
@@ -258,10 +226,11 @@ def generate_policy_recommendation(
             detail="OpenAI-compatible API key not configured on server",
         )
 
+    org_id = organization_id or settings.default_organization_id
     llm_prompt = _build_policy_prompt(prompt, history)
     user_prompt = prompt.strip()[:MAX_INPUT_CHARS]
     now = datetime.now(timezone.utc)
-    client = OpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url or None)
+    client = openai_client()
 
     parsed_obj: dict[str, Any] | None = None
     raw = ""
@@ -271,17 +240,35 @@ def generate_policy_recommendation(
             if attempt == 1:
                 attempt_prompt = f"{llm_prompt}\n\nReturn ONLY a valid JSON object."
 
-            response = client.chat.completions.create(
-                model=settings.openai_model,
-                messages=[{"role": "user", "content": attempt_prompt}],
-                temperature=0.2,
-                max_tokens=1200,
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            response = with_transport_retries(
+                "openai",
+                lambda attempt_prompt=attempt_prompt: client.chat.completions.create(
+                    model=settings.openai_model,
+                    messages=[{"role": "user", "content": attempt_prompt}],
+                    temperature=0.2,
+                    max_tokens=1200,
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                ),
             )
             raw = (response.choices[0].message.content or "").strip()
-            parsed_obj = _parse_json_payload(raw)
+            parsed_obj = parse_json_payload(raw)
             if parsed_obj is not None:
                 break
+    except HTTPException:
+        store.log_llm_interaction(
+            LLMInteractionLog(
+                timestamp=now,
+                user_id=user_id,
+                system_id=None,
+                prompt_template_version=POLICY_PROMPT_TEMPLATE_VERSION,
+                input_summary="Policy generation call failed",
+                model_name=settings.openai_model,
+                response_summary="transport error",
+                success=False,
+            ),
+            org_id,
+        )
+        raise
     except APIError as exc:  # pragma: no cover - network/provider error handling
         provider_error = str(exc).strip() or type(exc).__name__
         store.log_llm_interaction(
@@ -294,14 +281,12 @@ def generate_policy_recommendation(
                 model_name=settings.openai_model,
                 response_summary=provider_error[:1000],
                 success=False,
-            )
+            ),
+            org_id,
         )
-        detail = "OpenAI-compatible API call failed"
-        if settings.app_env.lower() in {"dev", "local", "development"}:
-            detail = f"{detail}: {provider_error[:500]}"
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=detail,
+            detail=provider_error_detail("OpenAI-compatible API call failed", exc),
         ) from exc
 
     if parsed_obj is None:
@@ -320,8 +305,10 @@ def generate_policy_recommendation(
             model_name=settings.openai_model,
             response_summary=raw[:1000] + ("..." if len(raw) > 1000 else ""),
             success=True,
-        )
+        ),
+        org_id,
     )
+    parsed_obj.setdefault("disclaimer", COPILOT_ADVISORY_DISCLAIMER)
     parsed_obj.setdefault("provider", "openai")
     parsed_obj.setdefault("model", settings.openai_model)
     return parsed_obj

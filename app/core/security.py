@@ -19,6 +19,7 @@ class Role(str, Enum):
 
 
 _WRITE_ORG_ROLES = {OrgRole.owner, OrgRole.admin, OrgRole.security_admin}
+_OPERATOR_ORG_ROLES = _WRITE_ORG_ROLES
 
 
 @dataclass(frozen=True)
@@ -116,4 +117,14 @@ def get_actor(
 def require_admin(actor: Actor = Depends(get_actor)) -> Actor:
     if not actor.can_write:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    return actor
+
+
+def require_operator(actor: Actor = Depends(get_actor)) -> Actor:
+    """Require owner, admin, or security_admin for scans and copilot LLM operations."""
+    if actor.org_role not in _OPERATOR_ORG_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or security admin role required",
+        )
     return actor
