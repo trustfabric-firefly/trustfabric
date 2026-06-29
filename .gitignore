@@ -2,6 +2,7 @@
 .env.local
 trustfabric-creds.json
 .claude/
+changelog.md
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

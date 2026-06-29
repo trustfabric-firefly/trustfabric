@@ -20,6 +20,7 @@ from app.api.routes.sso import router as sso_router
 from app.api.routes.systems import router as systems_router
 from app.api.routes.brand_compliance import router as brand_compliance_router
 from app.api.routes.figma import router as figma_router
+from app.api.routes.webhooks import router as webhooks_router
 
 api_router = APIRouter()
 
@@ -43,4 +44,5 @@ api_router.include_router(settings_router, prefix="/api/v1/settings", tags=["set
 api_router.include_router(compliance_router, prefix="/api/v1", tags=["compliance"])
 api_router.include_router(brand_compliance_router, prefix="/api/v1/brand-compliance", tags=["brand-compliance"])
 api_router.include_router(figma_router, prefix="/api/v1/figma", tags=["figma"])
+api_router.include_router(webhooks_router, prefix="/api/v1/webhooks", tags=["webhooks"])
 

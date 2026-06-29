@@ -2,9 +2,16 @@ from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app.core.idempotency import (
+    begin_idempotent_request,
+    cached_idempotency_response,
+    complete_idempotent_request,
+    get_idempotency_key,
+)
 from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
 from app.core.security import Actor, get_actor, require_admin
 from app.domain.models import (
@@ -43,12 +50,34 @@ def list_systems(actor: Actor = Depends(get_actor)) -> List[AISystem]:
     status_code=status.HTTP_201_CREATED,
     summary="Create AI system (admin only)",
 )
-async def create_system(payload: AISystemCreate, actor: Actor = Depends(require_admin)) -> AISystem:
+async def create_system(
+    payload: AISystemCreate,
+    request: Request,
+    actor: Actor = Depends(require_admin),
+) -> AISystem | JSONResponse:
+    idempotency_key = get_idempotency_key(request)
+    key, cached = begin_idempotent_request(
+        actor.organization_id,
+        idempotency_key,
+        method=request.method,
+        path=str(request.url.path),
+    )
+    if cached:
+        return cached_idempotency_response(cached)
+
     system = store.create_system(payload, user_id=actor.user_id, organization_id=actor.organization_id)
     try:
         await notify_system_change(actor.organization_id, system, "created")
     except Exception:
         pass
+    response_body = system.model_dump(mode="json")
+    complete_idempotent_request(
+        actor.organization_id,
+        key,
+        status_code=status.HTTP_201_CREATED,
+        response_body=response_body,
+        resource_id=str(system.id),
+    )
     return system
 
 

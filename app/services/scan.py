@@ -134,6 +134,7 @@ async def run_scan(
     organization_id: str,
     github_org: str,
     triggered_by: str,
+    scan_id: str | None = None,
 ) -> ScanRecord:
     start = time.monotonic()
 
@@ -356,7 +357,7 @@ async def run_scan(
     )
 
     record = ScanRecord(
-        scan_id=str(uuid4()),
+        scan_id=scan_id or str(uuid4()),
         organization=github_org,
         timestamp=datetime.utcnow(),
         config=ScanConfig(

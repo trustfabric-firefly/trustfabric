@@ -403,6 +403,7 @@ class ScanRecord(BaseModel):
     duration_seconds: float
     triggered_by: str
     status: ScanStatus
+    error: Optional[str] = None
 
 
 class ScanTriggerRequest(BaseModel):
@@ -522,6 +523,7 @@ class AwsScanRecord(BaseModel):
     duration_seconds: float
     triggered_by: str
     status: ScanStatus
+    error: Optional[str] = None
 
 
 # --- Compliance Framework Evaluation ---
@@ -617,3 +619,97 @@ class AIChatMessage(AIChatMessageCreate):
     system_id: int
     user_id: str
     created_at: datetime
+
+
+# --- Background Jobs ---
+
+
+class JobType(str, Enum):
+    github_scan = "github_scan"
+    aws_scan = "aws_scan"
+
+
+class JobStatus(str, Enum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
+
+class JobRecord(BaseModel):
+    job_id: str
+    job_type: JobType
+    organization_id: str
+    user_id: str
+    status: JobStatus
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    resource_id: Optional[str] = None
+    error: Optional[str] = None
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+
+# --- Webhooks ---
+
+
+class WebhookEvent(str, Enum):
+    scan_completed = "scan.completed"
+    scan_failed = "scan.failed"
+    compliance_alert = "compliance.alert"
+
+
+class WebhookEndpointCreate(BaseModel):
+    url: str = Field(..., min_length=8, max_length=2048)
+    events: List[WebhookEvent] = Field(default_factory=lambda: [WebhookEvent.scan_completed])
+    secret: Optional[str] = Field(default=None, min_length=16, max_length=256)
+    enabled: bool = True
+
+
+class WebhookEndpointUpdate(BaseModel):
+    url: Optional[str] = Field(default=None, min_length=8, max_length=2048)
+    events: Optional[List[WebhookEvent]] = None
+    secret: Optional[str] = Field(default=None, min_length=16, max_length=256)
+    enabled: Optional[bool] = None
+
+
+class WebhookEndpoint(BaseModel):
+    webhook_id: str
+    organization_id: str
+    url: str
+    events: List[WebhookEvent]
+    secret: str
+    enabled: bool = True
+    created_at: datetime
+    updated_at: datetime
+
+
+class WebhookEndpointPublic(BaseModel):
+    webhook_id: str
+    organization_id: str
+    url: str
+    events: List[WebhookEvent]
+    enabled: bool = True
+    created_at: datetime
+    updated_at: datetime
+
+
+# --- Idempotency ---
+
+
+class IdempotencyStatus(str, Enum):
+    processing = "processing"
+    completed = "completed"
+
+
+class IdempotencyRecord(BaseModel):
+    key: str
+    organization_id: str
+    method: str
+    path: str
+    status: IdempotencyStatus
+    status_code: int
+    response_body: Dict[str, Any] = Field(default_factory=dict)
+    resource_id: Optional[str] = None
+    created_at: datetime
+    expires_at: datetime

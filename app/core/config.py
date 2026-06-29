@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 60
     rate_limit_expensive_per_minute: int = 10
     rate_limit_auth_per_minute: int = 20
+    job_queue_max_concurrent: int = 2
+    idempotency_ttl_hours: int = 24
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [
             "http://localhost:3000",
