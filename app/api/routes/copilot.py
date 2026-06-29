@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
-from app.core.security import Actor, get_actor
+from app.core.security import Actor, get_actor, require_operator
 from app.domain.models import AIChatMessage, AIChatMessageCreate, AIChatMessageRole
 from app.services.copilot import (
     generate_policy_recommendation,
@@ -33,7 +33,7 @@ def _history_lines(messages: list[AIChatMessage]) -> list[str]:
 )
 def generate_system_recommendations(
     system_id: int,
-    actor: Actor = Depends(get_actor),
+    actor: Actor = Depends(require_operator),
 ) -> dict:
     return generate_recommendations_for_system(
         system_id=system_id,
@@ -49,7 +49,7 @@ def generate_system_recommendations(
 )
 def generate_policy_with_provider(
     payload: PolicyGenerateRequest,
-    actor: Actor = Depends(get_actor),
+    actor: Actor = Depends(require_operator),
 ) -> dict:
     return generate_policy_recommendation(
         prompt=payload.prompt,
@@ -87,7 +87,7 @@ def list_policy_chat_history(
 def create_policy_chat_message(
     system_id: int,
     payload: AIChatMessageCreate,
-    actor: Actor = Depends(get_actor),
+    actor: Actor = Depends(require_operator),
 ) -> AIChatMessage:
     created = store.create_system_chat_message(
         system_id=system_id,
@@ -112,7 +112,7 @@ class PersistentPolicyGenerateRequest(BaseModel):
 def generate_policy_for_system_chat(
     system_id: int,
     payload: PersistentPolicyGenerateRequest,
-    actor: Actor = Depends(get_actor),
+    actor: Actor = Depends(require_operator),
 ) -> dict:
     messages = store.list_system_chat_messages(
         system_id=system_id,

@@ -1,0 +1,217 @@
+rules_version = '2';
+
+// TrustFabric Firestore security rules
+//
+// The FastAPI backend uses the Firebase Admin SDK (bypasses these rules).
+// These rules enforce org isolation for any direct client SDK access.
+//
+// Role hierarchy (mirrors app/core/security.py):
+//   owner, admin, security_admin — admin operations
+//   auditor — read audits / compliance history
+//   viewer — read-only org data
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function memberDoc(orgId) {
+      return /databases/$(database)/documents/organization_members/$(orgId + '_' + request.auth.uid);
+    }
+
+    function memberExists(orgId) {
+      return isSignedIn() && exists(memberDoc(orgId));
+    }
+
+    function member(orgId) {
+      return get(memberDoc(orgId));
+    }
+
+    function isOrgMember(orgId) {
+      return memberExists(orgId) && member(orgId).data.user_id == request.auth.uid;
+    }
+
+    function orgRole(orgId) {
+      return member(orgId).data.role;
+    }
+
+    function isOrgAdmin(orgId) {
+      return isOrgMember(orgId)
+        && orgRole(orgId) in ['owner', 'admin', 'security_admin'];
+    }
+
+    function isOrgAuditor(orgId) {
+      return isOrgMember(orgId)
+        && orgRole(orgId) in ['owner', 'admin', 'security_admin', 'auditor'];
+    }
+
+    function isOrgSecurityAdmin(orgId) {
+      return isOrgMember(orgId)
+        && orgRole(orgId) in ['owner', 'admin', 'security_admin'];
+    }
+
+    function systemOrgId(systemId) {
+      return get(/databases/$(database)/documents/systems/$(systemId)).data.organization_id;
+    }
+
+    // ── Server-only collections (Admin SDK only) ────────────────────────────
+
+    match /_counters/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /organization_integrations/{orgId} {
+      allow read, write: if false;
+    }
+
+    match /sso_exchange_codes/{code} {
+      allow read, write: if false;
+    }
+
+    match /jobs/{jobId} {
+      allow read, write: if false;
+    }
+
+    match /idempotency_keys/{keyId} {
+      allow read, write: if false;
+    }
+
+    match /webhook_endpoints/{webhookId} {
+      allow read, write: if false;
+    }
+
+    // ── Organizations ───────────────────────────────────────────────────────
+
+    match /organizations/{orgId} {
+      allow read: if isOrgMember(orgId);
+      allow create: if isSignedIn();
+      allow update: if isOrgAdmin(orgId);
+      allow delete: if false;
+    }
+
+    match /organization_members/{memberId} {
+      allow read: if isSignedIn()
+        && (resource.data.user_id == request.auth.uid
+            || isOrgMember(resource.data.organization_id));
+      allow create: if isOrgAdmin(request.resource.data.organization_id);
+      allow update: if isOrgAdmin(resource.data.organization_id);
+      allow delete: if isOrgAdmin(resource.data.organization_id);
+    }
+
+    match /organization_invites/{inviteId} {
+      allow read: if isOrgAdmin(resource.data.organization_id);
+      allow create: if isOrgAdmin(request.resource.data.organization_id);
+      allow update: if isOrgAdmin(resource.data.organization_id);
+      allow delete: if isOrgAdmin(resource.data.organization_id);
+    }
+
+    match /organization_sso/{orgId} {
+      allow read, write: if isOrgAdmin(orgId);
+    }
+
+    match /organization_copilot_quotas/{orgId} {
+      allow read: if isOrgMember(orgId);
+      allow write: if isOrgAdmin(orgId);
+    }
+
+    match /organization_copilot_usage/{docId} {
+      allow read: if isOrgAdmin(resource.data.organization_id);
+      allow write: if false;
+    }
+
+    match /organization_copilot_user_daily/{docId} {
+      allow read: if isOrgAdmin(resource.data.organization_id);
+      allow write: if false;
+    }
+
+    // ── AI systems registry ─────────────────────────────────────────────────
+
+    match /systems/{systemId} {
+      allow read: if isOrgMember(resource.data.organization_id);
+      allow create: if isOrgAdmin(request.resource.data.organization_id);
+      allow update: if isOrgAdmin(resource.data.organization_id);
+      allow delete: if isOrgAdmin(resource.data.organization_id);
+
+      match /policies/{policyId} {
+        allow read: if isOrgMember(systemOrgId(systemId));
+        allow create, update, delete: if isOrgAdmin(systemOrgId(systemId));
+      }
+
+      match /copilot_chat/{messageId} {
+        allow read: if isOrgMember(systemOrgId(systemId))
+          && resource.data.user_id == request.auth.uid;
+        allow create: if isOrgMember(systemOrgId(systemId))
+          && request.resource.data.user_id == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    // Collection-group query for active governance policies (scan engine)
+    match /{path=**}/policies/{policyId} {
+      allow read: if isSignedIn()
+        && resource.data.system_id != null
+        && isOrgMember(systemOrgId(string(resource.data.system_id)));
+      allow write: if false;
+    }
+
+    // ── Activity & audit ────────────────────────────────────────────────────
+
+    match /events/{eventId} {
+      allow read: if isOrgMember(resource.data.organization_id);
+      allow write: if false;
+    }
+
+    match /audits/{auditId} {
+      allow read: if isOrgAuditor(resource.data.organization_id);
+      allow write: if false;
+    }
+
+    match /llm_logs/{logId} {
+      allow read: if isOrgSecurityAdmin(resource.data.organization_id);
+      allow write: if false;
+    }
+
+    // ── Compliance scans ────────────────────────────────────────────────────
+
+    match /scan_policies/{policyId} {
+      allow read: if isOrgMember(resource.data.organization_id);
+      allow create: if isOrgMember(request.resource.data.organization_id);
+      allow update: if isOrgMember(resource.data.organization_id)
+        && request.resource.data.organization_id == resource.data.organization_id;
+      allow delete: if isOrgAdmin(resource.data.organization_id);
+    }
+
+    match /scans/{scanId} {
+      allow read: if isOrgMember(resource.data.organization_id);
+      allow write: if false;
+
+      match /frameworks/{frameworkId} {
+        allow read: if isOrgMember(
+          get(/databases/$(database)/documents/scans/$(scanId)).data.organization_id
+        );
+        allow write: if false;
+      }
+    }
+
+    match /aws_scans/{scanId} {
+      allow read: if isOrgMember(resource.data.organization_id);
+      allow write: if false;
+    }
+
+    match /attestations/{docId} {
+      allow read: if isOrgMember(resource.data.organization_id);
+      allow create, update: if isOrgMember(request.resource.data.organization_id);
+      allow delete: if isOrgAdmin(resource.data.organization_id);
+    }
+
+    // ── Default deny ────────────────────────────────────────────────────────
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

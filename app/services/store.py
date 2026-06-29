@@ -1164,7 +1164,12 @@ class FirestoreStore:
             .collection("attestations")
             .document(doc_id)
             .set(
-                {field: value, "updated_at": datetime.utcnow().isoformat(), "user_id": user_id},
+                {
+                    field: value,
+                    "organization_id": organization_id,
+                    "updated_at": datetime.utcnow().isoformat(),
+                    "user_id": user_id,
+                },
                 merge=True,
             )
         )

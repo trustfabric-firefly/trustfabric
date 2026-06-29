@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends
 
 from app.core.rate_limit import RateLimited, TIER_DEFAULT, TIER_EXPENSIVE
-from app.core.security import Actor, get_actor
+from app.core.security import Actor, get_actor, require_operator
 from app.services.figma import (
     resolve_figma_token,
     get_team_projects,
@@ -62,7 +62,7 @@ def list_file_frames(
 @router.post("/scan", dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 def batch_scan_figma_file(
     payload: BatchScanRequest,
-    actor: Actor = Depends(get_actor),
+    actor: Actor = Depends(require_operator),
 ) -> dict:
     """Scan frames from a Figma file for brand compliance."""
     token = resolve_figma_token(actor.organization_id)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, status
 
 from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
-from app.core.security import Actor, get_actor
+from app.core.security import Actor, get_actor, require_operator
 from app.services.brand_compliance import scan_image_compliance, get_default_guidelines
 
 
@@ -18,7 +18,7 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 @router.post("/scan", dependencies=[Depends(RateLimited(TIER_EXPENSIVE))])
 async def scan_brand_compliance(
     file: UploadFile = File(...),
-    actor: Actor = Depends(get_actor),
+    actor: Actor = Depends(require_operator),
 ):
     """Upload a marketing image and receive a brand compliance analysis."""
     if file.content_type not in ALLOWED_MIME_TYPES:

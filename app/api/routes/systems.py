@@ -13,7 +13,7 @@ from app.core.idempotency import (
     get_idempotency_key,
 )
 from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
-from app.core.security import Actor, get_actor, require_admin
+from app.core.security import Actor, get_actor, require_operator
 from app.domain.models import (
     AISystem,
     AISystemCreate,
@@ -210,7 +210,7 @@ async def delete_system(system_id: int, actor: Actor = Depends(require_admin)) -
     summary="Ask Claude to explain missing required controls for a system",
     dependencies=[Depends(RateLimited(TIER_EXPENSIVE))],
 )
-def explain_missing(system_id: int, actor: Actor = Depends(get_actor)) -> dict:
+def explain_missing(system_id: int, actor: Actor = Depends(require_operator)) -> dict:
     assert_copilot_allowed(actor.organization_id, actor.user_id)
     result = claude_service.explain_missing_controls(
         system_id=system_id,

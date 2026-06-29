@@ -13,7 +13,7 @@ from app.core.idempotency import (
     get_idempotency_key,
 )
 from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
-from app.core.security import Actor, get_actor
+from app.core.security import Actor, get_actor, require_operator
 from app.domain.models import AwsScanRecord, JobType, ScanRecord, ScanTriggerRequest
 from app.services.job_queue import (
     build_pending_aws_scan,
@@ -56,7 +56,7 @@ def _validate_aws_ready(organization_id: str) -> tuple[str, str]:
 async def trigger_scan(
     body: ScanTriggerRequest,
     request: Request,
-    actor: Actor = Depends(get_actor),
+    actor: Actor = Depends(require_operator),
 ) -> ScanRecord | JSONResponse:
     """Enqueue a GitHub compliance scan. Poll GET /scans/{scan_id} until completed."""
     idempotency_key = get_idempotency_key(request)
@@ -116,7 +116,7 @@ def list_scans(actor: Actor = Depends(get_actor)) -> List[ScanRecord]:
 )
 async def trigger_aws_scan(
     request: Request,
-    actor: Actor = Depends(get_actor),
+    actor: Actor = Depends(require_operator),
 ) -> AwsScanRecord | JSONResponse:
     """Enqueue an AWS compliance scan. Poll GET /scans/aws/{scan_id} until completed."""
     idempotency_key = get_idempotency_key(request)
