@@ -108,8 +108,9 @@ async function request<T>(
     });
 
     if (!res.ok) {
-        const error = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(parseApiErrorDetail(error.detail, res.statusText || "Request failed"));
+        const error = await res.json().catch(() => ({ error: { message: res.statusText } }));
+        const message = error?.error?.message || parseApiErrorDetail(error.detail, res.statusText || "Request failed");
+        throw new Error(message);
     }
 
     // 204 No Content
@@ -132,8 +133,9 @@ async function requestBlob(
     });
 
     if (!res.ok) {
-        const error = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(parseApiErrorDetail(error.detail, res.statusText || "Request failed"));
+        const error = await res.json().catch(() => ({ error: { message: res.statusText } }));
+        const message = error?.error?.message || parseApiErrorDetail(error.detail, res.statusText || "Request failed");
+        throw new Error(message);
     }
 
     return res.blob();
@@ -169,6 +171,11 @@ export const systemsApi = {
         }),
     delete: (id: number) =>
         request<void>(`/api/v1/systems/${id}`, { method: "DELETE" }),
+    bulkCreate: (systems: AISystemCreate[]) =>
+        request<{ created: number; errors: string[] }>("/api/v1/systems/bulk", {
+            method: "POST",
+            body: JSON.stringify({ systems }),
+        }),
 };
 
 /** Governance policies stored under Firestore `systems/{id}/policies/{policyId}`. */

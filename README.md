@@ -148,6 +148,33 @@ Send `Authorization: Bearer <token>` with `ADMIN_TOKEN`, `VIEWER_TOKEN`, or a Fi
 
 ---
 
+### 9. Running tests
+
+Make sure the venv is active, then run from the repo root:
+
+```bash
+source .venv/bin/activate
+pytest
+```
+
+Expected output when all tests pass:
+
+```
+145 passed in 1.41s
+```
+
+Useful flags:
+
+```bash
+pytest -v                          # show each test name
+pytest tests/test_policy_eval.py   # run a single file
+pytest tests/test_copilot.py -v    # single file, verbose
+```
+
+If a test fails you'll see `FAILED tests/<file>.py::<test_name>` followed by the assertion error. The test suite covers: security/auth, Firestore helpers, compliance frameworks, YAML policy config, LLM routing, scan guards, Slack notifications, and Pydantic domain models — all with mocked external services (no real DB or API calls required).
+
+---
+
 ### Main routes (reference)
 
 - `GET /health`
