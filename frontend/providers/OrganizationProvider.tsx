@@ -24,7 +24,7 @@ interface OrganizationContextValue {
     activeOrganizationId: string | null;
     activeOrganization: OrganizationEntry | null;
     canAdmin: boolean;
-    refresh: () => Promise<void>;
+    refresh: (organizationIdToActivate?: string) => Promise<void>;
     switchOrganization: (organizationId: string) => void;
 }
 
@@ -37,34 +37,47 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
     const [activeOrganizationId, setActiveOrganizationIdState] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
 
-    const refresh = useCallback(async () => {
-        if (authLoading) return;
-        if (!user && !isDevMode) {
-            setContext(null);
-            setActiveOrganizationIdState(null);
-            setLoading(false);
-            return;
-        }
-
-        setLoading(true);
-        try {
-            const ctx = await organizationsApi.me();
-            setContext(ctx);
-            const stored =
-                typeof window !== "undefined" ? window.localStorage.getItem(LOCAL_ORG_KEY) : null;
-            const validStored = stored && ctx.organizations.some((o) => o.organization.id === stored);
-            const nextId = validStored ? stored! : ctx.primary_organization_id;
-            setActiveOrganizationIdState(nextId);
-            setActiveOrganizationId(nextId);
-        } catch {
-            if (isDevMode) {
-                setActiveOrganizationIdState("default");
-                setActiveOrganizationId("default");
+    const refresh = useCallback(
+        async (organizationIdToActivate?: string) => {
+            if (authLoading) return;
+            if (!user && !isDevMode) {
+                setContext(null);
+                setActiveOrganizationIdState(null);
+                setLoading(false);
+                return;
             }
-        } finally {
-            setLoading(false);
-        }
-    }, [authLoading, user, isDevMode]);
+
+            setLoading(true);
+            try {
+                const ctx = await organizationsApi.me();
+                setContext(ctx);
+                const requestedValid =
+                    organizationIdToActivate &&
+                    ctx.organizations.some((o) => o.organization.id === organizationIdToActivate);
+                const stored =
+                    typeof window !== "undefined" ? window.localStorage.getItem(LOCAL_ORG_KEY) : null;
+                const validStored = stored && ctx.organizations.some((o) => o.organization.id === stored);
+                const nextId = requestedValid
+                    ? organizationIdToActivate!
+                    : validStored
+                        ? stored!
+                        : ctx.primary_organization_id;
+                setActiveOrganizationIdState(nextId);
+                setActiveOrganizationId(nextId);
+                if (requestedValid) {
+                    void queryClient.invalidateQueries();
+                }
+            } catch {
+                if (isDevMode) {
+                    setActiveOrganizationIdState("default");
+                    setActiveOrganizationId("default");
+                }
+            } finally {
+                setLoading(false);
+            }
+        },
+        [authLoading, user, isDevMode, queryClient]
+    );
 
     useEffect(() => {
         void refresh();

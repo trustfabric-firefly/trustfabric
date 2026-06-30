@@ -1,10 +1,11 @@
 "use client";
-import { SettingsOutlinedIcon, LogoutOutlinedIcon, LinkOutlinedIcon, ContentCopyOutlinedIcon, CheckOutlinedIcon, GitHubIcon, CheckCircleOutlinedIcon, LinkOffOutlinedIcon, BrushOutlinedIcon, AutoAwesomeOutlinedIcon, BusinessOutlinedIcon, GroupOutlinedIcon, PersonRemoveOutlinedIcon, VpnKeyOutlinedIcon, NotificationsOutlinedIcon, SearchOutlinedIcon, InfoOutlinedIcon, WarningAmberOutlinedIcon, SendOutlinedIcon, TagOutlinedIcon, CloudOutlinedIcon } from "@/lib/icons";
+import { SettingsOutlinedIcon, LogoutOutlinedIcon, LinkOutlinedIcon, ContentCopyOutlinedIcon, CheckOutlinedIcon, GitHubIcon, CheckCircleOutlinedIcon, LinkOffOutlinedIcon, BrushOutlinedIcon, AutoAwesomeOutlinedIcon, BusinessOutlinedIcon, GroupOutlinedIcon, PersonRemoveOutlinedIcon, VpnKeyOutlinedIcon, NotificationsOutlinedIcon, SearchOutlinedIcon, InfoOutlinedIcon, WarningAmberOutlinedIcon, SendOutlinedIcon, TagOutlinedIcon, CloudOutlinedIcon, AddOutlinedIcon } from "@/lib/icons";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { TopBar } from "@/components/layout/TopBar";
+import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/providers/AuthProvider";
 import {
     RESOLVED_API_BASE_URL,
@@ -466,6 +467,27 @@ export default function SettingsPage() {
         }
     };
 
+    const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
+    const [newWorkspaceName, setNewWorkspaceName] = useState("");
+    const [createWorkspaceSaving, setCreateWorkspaceSaving] = useState(false);
+    const [createWorkspaceError, setCreateWorkspaceError] = useState<string | null>(null);
+
+    const handleCreateWorkspace = async () => {
+        if (!newWorkspaceName.trim()) return;
+        setCreateWorkspaceSaving(true);
+        setCreateWorkspaceError(null);
+        try {
+            const { organization } = await organizationsApi.create(newWorkspaceName.trim());
+            await refreshOrganizations(organization.id);
+            setCreateWorkspaceOpen(false);
+            setNewWorkspaceName("");
+        } catch (err) {
+            setCreateWorkspaceError(err instanceof Error ? err.message : "Failed to create workspace");
+        } finally {
+            setCreateWorkspaceSaving(false);
+        }
+    };
+
     // Scan defaults (localStorage)
     const [defaultGithubOrg, setDefaultGithubOrg] = useState(() => ls(LS_DEFAULT_GITHUB_ORG));
     const [scanDefaultsSaved, setScanDefaultsSaved] = useState(false);
@@ -760,6 +782,23 @@ export default function SettingsPage() {
                         icon={<BusinessOutlinedIcon sx={{ fontSize: 24 }} />}
                         title="Organization"
                         subtitle="Workspace profile used in scan reports and AI policy generation"
+                        badge={
+                            canAdmin && (
+                                <button
+                                    type="button"
+                                    className="btn btn--secondary btn--sm"
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                    onClick={() => {
+                                        setCreateWorkspaceError(null);
+                                        setNewWorkspaceName("");
+                                        setCreateWorkspaceOpen(true);
+                                    }}
+                                >
+                                    <AddOutlinedIcon sx={{ fontSize: 16 }} />
+                                    Create workspace
+                                </button>
+                            )
+                        }
                     />
                     {(orgContext?.organizations.length ?? 0) > 1 && (
                         <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
@@ -1782,6 +1821,54 @@ export default function SettingsPage() {
                 </SectionCard>
 
             </div>
+
+            <Modal
+                open={createWorkspaceOpen}
+                onClose={() => setCreateWorkspaceOpen(false)}
+                title="Create workspace"
+                subtitle="Spin up a new organization. You'll be its owner."
+                footer={
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--s-2)", width: "100%" }}>
+                        <button
+                            type="button"
+                            className="btn btn--secondary btn--sm"
+                            onClick={() => setCreateWorkspaceOpen(false)}
+                            disabled={createWorkspaceSaving}
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn--primary btn--sm"
+                            onClick={() => void handleCreateWorkspace()}
+                            disabled={createWorkspaceSaving || !newWorkspaceName.trim()}
+                        >
+                            {createWorkspaceSaving ? "Creating…" : "Create"}
+                        </button>
+                    </div>
+                }
+            >
+                <div className="form-group">
+                    <label className="form-label">Workspace name</label>
+                    <input
+                        className="input"
+                        value={newWorkspaceName}
+                        onChange={(e) => setNewWorkspaceName(e.target.value)}
+                        placeholder="e.g. Acme Corp"
+                        autoFocus
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter" && newWorkspaceName.trim() && !createWorkspaceSaving) {
+                                void handleCreateWorkspace();
+                            }
+                        }}
+                    />
+                </div>
+                {createWorkspaceError && (
+                    <p style={{ fontSize: "var(--fs-12)", color: "var(--c-danger)", marginTop: "var(--s-2)" }}>
+                        {createWorkspaceError}
+                    </p>
+                )}
+            </Modal>
         </main>
     );
 }
