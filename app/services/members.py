@@ -17,7 +17,7 @@ from app.domain.models import (
     OrgRole,
 )
 from app.integrations.firebase import lookup_user_id_by_email
-from app.services.email import send_invite_email
+from app.services.email import send_added_to_org_email, send_invite_email
 from app.services.store import store
 
 _ADMIN_ROLES = {OrgRole.owner, OrgRole.admin, OrgRole.security_admin}
@@ -185,6 +185,15 @@ def invite_member(actor: Actor, payload: OrganizationInviteCreate) -> dict:
             actor.organization_id,
             f"Added {email} as {payload.role.value}",
         )
+
+        organization = store.get_organization(actor.organization_id)
+        send_added_to_org_email(
+            to_email=email,
+            organization_name=organization.name if organization else actor.organization_id,
+            role=payload.role.value,
+            invited_by_email=actor.email,
+        )
+
         return {"status": "added", "member": member}
 
     invite = OrganizationInvite(

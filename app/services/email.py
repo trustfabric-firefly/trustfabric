@@ -52,3 +52,24 @@ def send_invite_email(
         "If you weren't expecting this invite, you can ignore this email."
     )
     return _send(to_email, subject, body)
+
+
+def send_added_to_org_email(
+    *,
+    to_email: str,
+    organization_name: str,
+    role: str,
+    invited_by_email: str | None,
+) -> bool:
+    """For users with an existing account who are added to an org immediately (no pending invite)."""
+    inviter = invited_by_email or "An organization admin"
+    login_url = f"{settings.frontend_url.rstrip('/')}/login"
+
+    subject = f"You've been added to {organization_name} on TrustFabric"
+    body = (
+        f"{inviter} added you to {organization_name} on TrustFabric as {role}.\n\n"
+        f"Log in with this email address ({to_email}) to get access:\n"
+        f"{login_url}\n\n"
+        "If you weren't expecting this, please contact your organization admin."
+    )
+    return _send(to_email, subject, body)
