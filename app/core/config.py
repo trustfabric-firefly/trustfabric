@@ -84,6 +84,18 @@ class Settings(BaseSettings):
     aws_secret_access_key: str = ""
     aws_default_region: str = "us-east-1"
 
+    # SMTP (transactional email, e.g. org invites)
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_use_tls: bool = True
+
+    @property
+    def smtp_ready(self) -> bool:
+        return bool(self.smtp_host and self.smtp_from_email)
+
     @model_validator(mode="after")
     def derive_integration_urls(self) -> "Settings":
         """Default OAuth callback URLs from API_BASE_URL when not explicitly set."""
