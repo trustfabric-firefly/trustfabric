@@ -22,6 +22,9 @@ import type {
     ScanResult,
     SlackChannel,
     SlackIntegrationStatus,
+    WebhookCreateResponse,
+    WebhookEndpoint,
+    WebhookEvent,
 } from "@/types";
 
 const RAW_BASE_URL =
@@ -705,4 +708,34 @@ export const figmaApi = {
             method: "POST",
             body: JSON.stringify({ file_key: fileKey, node_ids: nodeIds }),
         }),
+};
+
+// --- Webhooks / SIEM export ---
+
+export const webhooksApi = {
+    list: () => request<WebhookEndpoint[]>("/api/v1/webhooks/"),
+    events: () => request<WebhookEvent[]>("/api/v1/webhooks/events"),
+    create: (body: { url: string; events: WebhookEvent[]; enabled?: boolean }) =>
+        request<WebhookCreateResponse>("/api/v1/webhooks/", {
+            method: "POST",
+            body: JSON.stringify(body),
+            headers: { "Idempotency-Key": newIdempotencyKey() },
+        }),
+    update: (
+        webhookId: string,
+        body: { url?: string; events?: WebhookEvent[]; enabled?: boolean },
+    ) =>
+        request<WebhookEndpoint>(`/api/v1/webhooks/${encodeURIComponent(webhookId)}`, {
+            method: "PATCH",
+            body: JSON.stringify(body),
+        }),
+    remove: (webhookId: string) =>
+        request<void>(`/api/v1/webhooks/${encodeURIComponent(webhookId)}`, {
+            method: "DELETE",
+        }),
+    test: (webhookId: string) =>
+        request<{ ok: boolean; status_code: number; event: string }>(
+            `/api/v1/webhooks/${encodeURIComponent(webhookId)}/test`,
+            { method: "POST" },
+        ),
 };

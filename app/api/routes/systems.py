@@ -13,7 +13,7 @@ from app.core.idempotency import (
     get_idempotency_key,
 )
 from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
-from app.core.security import Actor, get_actor, require_operator
+from app.core.security import Actor, get_actor, require_admin, require_operator
 from app.domain.models import (
     AISystem,
     AISystemCreate,

@@ -1,5 +1,5 @@
 "use client";
-import { SettingsOutlinedIcon, LogoutOutlinedIcon, LinkOutlinedIcon, ContentCopyOutlinedIcon, CheckOutlinedIcon, GitHubIcon, CheckCircleOutlinedIcon, LinkOffOutlinedIcon, BrushOutlinedIcon, AutoAwesomeOutlinedIcon, BusinessOutlinedIcon, GroupOutlinedIcon, PersonRemoveOutlinedIcon, VpnKeyOutlinedIcon, NotificationsOutlinedIcon, SearchOutlinedIcon, InfoOutlinedIcon, WarningAmberOutlinedIcon, SendOutlinedIcon, TagOutlinedIcon, CloudOutlinedIcon } from "@/lib/icons";
+import { SettingsOutlinedIcon, LogoutOutlinedIcon, LinkOutlinedIcon, ContentCopyOutlinedIcon, CheckOutlinedIcon, GitHubIcon, CheckCircleOutlinedIcon, LinkOffOutlinedIcon, BrushOutlinedIcon, AutoAwesomeOutlinedIcon, BusinessOutlinedIcon, GroupOutlinedIcon, PersonRemoveOutlinedIcon, VpnKeyOutlinedIcon, NotificationsOutlinedIcon, SearchOutlinedIcon, InfoOutlinedIcon, WarningAmberOutlinedIcon, SendOutlinedIcon, TagOutlinedIcon, CloudOutlinedIcon, SecurityOutlinedIcon } from "@/lib/icons";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -11,13 +11,21 @@ import {
     integrationsApi,
     organizationsApi,
     settingsApi,
+    webhooksApi,
     type OrgRole,
 } from "@/lib/api";
 import { useOrganization } from "@/providers/OrganizationProvider";
-import type { SlackChannel, AwsIntegrationStatus } from "@/types";
+import type { SlackChannel, AwsIntegrationStatus, WebhookEndpoint, WebhookEvent } from "@/types";
 import { isFirebaseConfigured } from "@/lib/firebase";
 import { IS_PRODUCTION_BUILD } from "@/lib/auth-config";
 import { INTEGRATION_SECTION_IDS } from "@/lib/integration-sections";
+
+const WEBHOOK_EVENT_OPTIONS: { value: WebhookEvent; label: string; hint: string }[] = [
+    { value: "audit.created", label: "Audit / SIEM", hint: "Stream governance audit events to your SIEM" },
+    { value: "scan.completed", label: "Scan completed", hint: "Successful GitHub/AWS scans" },
+    { value: "scan.failed", label: "Scan failed", hint: "Failed or errored scans" },
+    { value: "compliance.alert", label: "Compliance alert", hint: "Violations and framework gaps" },
+];
 
 // ─── Local storage keys ────────────────────────────────────────────────────────
 const LS_DEFAULT_GITHUB_ORG = "tf_default_github_org";
@@ -656,6 +664,81 @@ export default function SettingsPage() {
         }
         setAwsTesting(false);
         setTimeout(() => setAwsTestResult(null), 3000);
+    };
+
+    // Webhooks / SIEM export
+    const {
+        data: webhooks = [],
+        isLoading: webhooksLoading,
+        refetch: refetchWebhooks,
+    } = useQuery({
+        queryKey: ["webhooks"],
+        queryFn: webhooksApi.list,
+        enabled: canAdmin,
+        retry: false,
+    });
+    const [webhookUrl, setWebhookUrl] = useState("");
+    const [webhookEvents, setWebhookEvents] = useState<WebhookEvent[]>(["audit.created"]);
+    const [webhookCreating, setWebhookCreating] = useState(false);
+    const [webhookError, setWebhookError] = useState<string | null>(null);
+    const [createdSecret, setCreatedSecret] = useState<string | null>(null);
+    const [webhookTestId, setWebhookTestId] = useState<string | null>(null);
+    const [webhookTestResult, setWebhookTestResult] = useState<"ok" | "error" | null>(null);
+
+    const toggleWebhookEvent = (event: WebhookEvent) => {
+        setWebhookEvents((prev) =>
+            prev.includes(event) ? prev.filter((e) => e !== event) : [...prev, event],
+        );
+    };
+
+    const createWebhookEndpoint = async () => {
+        if (!webhookUrl.trim() || webhookEvents.length === 0) return;
+        setWebhookCreating(true);
+        setWebhookError(null);
+        setCreatedSecret(null);
+        try {
+            const result = await webhooksApi.create({
+                url: webhookUrl.trim(),
+                events: webhookEvents,
+                enabled: true,
+            });
+            setCreatedSecret(result.secret);
+            setWebhookUrl("");
+            setWebhookEvents(["audit.created"]);
+            await refetchWebhooks();
+        } catch (err) {
+            setWebhookError(err instanceof Error ? err.message : "Failed to create webhook");
+        }
+        setWebhookCreating(false);
+    };
+
+    const toggleWebhookEnabled = async (hook: WebhookEndpoint) => {
+        try {
+            await webhooksApi.update(hook.webhook_id, { enabled: !hook.enabled });
+            await refetchWebhooks();
+        } catch { /* ignore */ }
+    };
+
+    const removeWebhook = async (webhookId: string) => {
+        try {
+            await webhooksApi.remove(webhookId);
+            await refetchWebhooks();
+        } catch { /* ignore */ }
+    };
+
+    const testWebhookEndpoint = async (webhookId: string) => {
+        setWebhookTestId(webhookId);
+        setWebhookTestResult(null);
+        try {
+            const result = await webhooksApi.test(webhookId);
+            setWebhookTestResult(result.ok ? "ok" : "error");
+        } catch {
+            setWebhookTestResult("error");
+        }
+        setTimeout(() => {
+            setWebhookTestId(null);
+            setWebhookTestResult(null);
+        }, 3000);
     };
 
     // Figma actions
@@ -1820,6 +1903,177 @@ export default function SettingsPage() {
                     )}
                 </SectionCard>
 
+                {/* ── 5b. SIEM / Webhook export ───────────────────────────── */}
+                <SectionCard>
+                    <SectionHeader
+                        icon={<SecurityOutlinedIcon sx={{ fontSize: 24 }} />}
+                        title="SIEM & webhook export"
+                        subtitle="Stream audit logs and scan events to Splunk, Datadog, Sentinel, or any HTTPS collector"
+                        badge={
+                            webhooks.some((w) => w.enabled)
+                                ? <span className="badge badge--live">Active</span>
+                                : <span className="badge badge--neutral">Not configured</span>
+                        }
+                    />
+
+                    <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-4)", lineHeight: 1.5 }}>
+                        Subscribe to <code style={{ fontFamily: "monospace" }}>audit.created</code> to export governance audit events in real time.
+                        Payloads are HMAC-signed with <code style={{ fontFamily: "monospace" }}>X-TrustFabric-Signature</code>.
+                    </p>
+
+                    {!canAdmin && (
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                            Only workspace administrators can manage webhook endpoints.
+                        </p>
+                    )}
+
+                    {canAdmin && (
+                        <>
+                            {webhooksLoading && (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>Loading endpoints…</p>
+                            )}
+
+                            {webhooks.map((hook) => (
+                                <div
+                                    key={hook.webhook_id}
+                                    style={{
+                                        border: "1px solid var(--c-border)",
+                                        borderRadius: "var(--r-md)",
+                                        padding: "var(--s-3) var(--s-4)",
+                                        marginBottom: "var(--s-3)",
+                                        background: "var(--c-surface)",
+                                    }}
+                                >
+                                    <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--s-3)", flexWrap: "wrap" }}>
+                                        <div style={{ minWidth: 0, flex: 1 }}>
+                                            <div style={{ fontSize: "var(--fs-13)", fontFamily: "monospace", wordBreak: "break-all" }}>
+                                                {hook.url}
+                                            </div>
+                                            <div style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginTop: 4 }}>
+                                                {hook.events.join(" · ")}
+                                            </div>
+                                        </div>
+                                        <span className={`badge ${hook.enabled ? "badge--live" : "badge--neutral"}`}>
+                                            {hook.enabled ? "Enabled" : "Disabled"}
+                                        </span>
+                                    </div>
+                                    <div style={{ display: "flex", gap: "var(--s-2)", marginTop: "var(--s-3)", flexWrap: "wrap" }}>
+                                        <button
+                                            type="button"
+                                            className="btn btn--ghost btn--sm"
+                                            onClick={() => void toggleWebhookEnabled(hook)}
+                                        >
+                                            {hook.enabled ? "Disable" : "Enable"}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn btn--ghost btn--sm"
+                                            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                                            disabled={webhookTestId === hook.webhook_id}
+                                            onClick={() => void testWebhookEndpoint(hook.webhook_id)}
+                                        >
+                                            <SendOutlinedIcon sx={{ fontSize: 14 }} />
+                                            {webhookTestId === hook.webhook_id
+                                                ? webhookTestResult === "ok"
+                                                    ? "Sent!"
+                                                    : webhookTestResult === "error"
+                                                        ? "Failed"
+                                                        : "Sending…"
+                                                : "Send test"}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn btn--ghost btn--sm"
+                                            style={{ color: "var(--c-critical-text)" }}
+                                            onClick={() => void removeWebhook(hook.webhook_id)}
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+
+                            <Divider />
+
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">Endpoint URL</label>
+                                <input
+                                    className="input"
+                                    type="url"
+                                    placeholder="https://siem.example.com/hooks/trustfabric"
+                                    value={webhookUrl}
+                                    onChange={(e) => setWebhookUrl(e.target.value)}
+                                />
+                            </div>
+
+                            <div style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">Events</label>
+                                <div style={{ display: "grid", gap: "var(--s-2)" }}>
+                                    {WEBHOOK_EVENT_OPTIONS.map((opt) => (
+                                        <label
+                                            key={opt.value}
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "flex-start",
+                                                gap: "var(--s-2)",
+                                                fontSize: "var(--fs-13)",
+                                                cursor: "pointer",
+                                            }}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={webhookEvents.includes(opt.value)}
+                                                onChange={() => toggleWebhookEvent(opt.value)}
+                                                style={{ marginTop: 3 }}
+                                            />
+                                            <span>
+                                                <strong style={{ fontWeight: "var(--fw-semibold)" }}>{opt.label}</strong>
+                                                <span style={{ color: "var(--c-text-muted)", display: "block", fontSize: "var(--fs-12)" }}>
+                                                    {opt.hint} · <code style={{ fontFamily: "monospace" }}>{opt.value}</code>
+                                                </span>
+                                            </span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {webhookError && (
+                                <p style={{ fontSize: "var(--fs-12)", color: "var(--c-critical-text)", marginBottom: "var(--s-2)" }}>
+                                    {webhookError}
+                                </p>
+                            )}
+
+                            {createdSecret && (
+                                <div
+                                    style={{
+                                        marginBottom: "var(--s-3)",
+                                        padding: "var(--s-3)",
+                                        borderRadius: "var(--r-md)",
+                                        border: "1px solid var(--c-live)",
+                                        background: "rgba(16,185,129,0.06)",
+                                        fontSize: "var(--fs-12)",
+                                        lineHeight: 1.5,
+                                    }}
+                                >
+                                    <strong>Signing secret (copy now — shown once):</strong>
+                                    <code style={{ display: "block", marginTop: 6, fontFamily: "monospace", wordBreak: "break-all" }}>
+                                        {createdSecret}
+                                    </code>
+                                </div>
+                            )}
+
+                            <button
+                                type="button"
+                                className="btn btn--primary btn--sm"
+                                disabled={webhookCreating || !webhookUrl.trim() || webhookEvents.length === 0}
+                                onClick={() => void createWebhookEndpoint()}
+                            >
+                                {webhookCreating ? "Creating…" : "Add webhook endpoint"}
+                            </button>
+                        </>
+                    )}
+                </SectionCard>
+
                 {/* ── 6. Notification Preferences ──────────────────────────── */}
                 <SectionCard>
                     <SectionHeader
@@ -1846,7 +2100,7 @@ export default function SettingsPage() {
                         onChange={v => { setNotifPolicyChanges(v); saveNotif(LS_NOTIF_POLICY_CHANGES, v); }}
                     />
                     <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-1)", lineHeight: 1.5 }}>
-                        Preferences are saved in this browser. Email and webhook delivery can be configured by your administrator via Slack.
+                        Preferences are saved in this browser. For SIEM delivery, configure a webhook endpoint above and subscribe to <code style={{ fontFamily: "monospace" }}>audit.created</code>.
                     </p>
                 </SectionCard>
 

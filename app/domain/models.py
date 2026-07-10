@@ -657,6 +657,7 @@ class WebhookEvent(str, Enum):
     scan_completed = "scan.completed"
     scan_failed = "scan.failed"
     compliance_alert = "compliance.alert"
+    audit_created = "audit.created"
 
 
 class WebhookEndpointCreate(BaseModel):

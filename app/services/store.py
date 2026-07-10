@@ -589,6 +589,13 @@ class FirestoreStore:
             summary=summary,
         )
         self._client().collection(self._audits_collection).document(str(audit_id)).set(self._serialize(audit))
+        # Push to SIEM / audit webhook subscribers (best-effort; never fail the write).
+        try:
+            from app.services.webhooks import export_audit_event
+
+            export_audit_event(audit)
+        except Exception:
+            pass
 
     def list_audits(self, organization_id: str) -> List[AuditEvent]:
         audits: List[AuditEvent] = []

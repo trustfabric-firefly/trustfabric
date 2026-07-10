@@ -22,6 +22,7 @@ jobs:
 
       - name: Run tests
         env:
+          PYTHONPATH: .
           ENCRYPTION_KEY: ci-test-encryption-key
           OAUTH_STATE_SECRET: ci-test-oauth-secret
           ADMIN_TOKEN: ci-test-admin

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import List
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -14,10 +15,23 @@ from app.core.idempotency import (
     complete_idempotent_request,
     get_idempotency_key,
 )
+from app.core.secrets import decrypt_secret
 from app.core.security import Actor, require_admin
-from app.domain.models import WebhookEndpointCreate, WebhookEndpointPublic, WebhookEndpointUpdate
+from app.domain.models import (
+    WebhookEndpointCreate,
+    WebhookEndpointPublic,
+    WebhookEndpointUpdate,
+    WebhookEvent,
+)
 from app.services.store import store
-from app.services.webhooks import create_webhook, generate_webhook_secret, update_webhook
+from app.services.webhooks import (
+    _build_envelope,
+    _sign_payload,
+    build_siem_test_payload,
+    create_webhook,
+    generate_webhook_secret,
+    update_webhook,
+)
 
 router = APIRouter()
 
@@ -34,6 +48,11 @@ def _to_public(webhook) -> WebhookEndpointPublic:
 @router.get("/", response_model=List[WebhookEndpointPublic])
 def list_webhooks(actor: Actor = Depends(require_admin)) -> List[WebhookEndpointPublic]:
     return [_to_public(w) for w in store.list_webhooks(actor.organization_id)]
+
+
+@router.get("/events", response_model=List[str], summary="List supported webhook event types")
+def list_webhook_events(actor: Actor = Depends(require_admin)) -> List[str]:
+    return [e.value for e in WebhookEvent]
 
 
 @router.post("/", response_model=WebhookCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -76,6 +95,48 @@ def patch_webhook(
     if updated is None:
         raise HTTPException(status_code=404, detail="Webhook not found")
     return _to_public(updated)
+
+
+@router.post("/{webhook_id}/test", summary="Send a sample SIEM/audit webhook payload")
+def test_webhook(webhook_id: str, actor: Actor = Depends(require_admin)) -> dict:
+    webhook = store.get_webhook(webhook_id, actor.organization_id)
+    if webhook is None:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+    if not webhook.enabled:
+        raise HTTPException(status_code=400, detail="Webhook is disabled")
+
+    event = (
+        WebhookEvent.audit_created
+        if WebhookEvent.audit_created in webhook.events
+        else (webhook.events[0] if webhook.events else WebhookEvent.audit_created)
+    )
+    payload = build_siem_test_payload(actor.organization_id)
+    body, timestamp = _build_envelope(actor.organization_id, event, payload)
+    secret = decrypt_secret(webhook.secret)
+    signature = _sign_payload(secret, body, timestamp)
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                webhook.url,
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": "TrustFabric-Webhooks/1.0",
+                    "X-TrustFabric-Event": event.value,
+                    "X-TrustFabric-Timestamp": timestamp,
+                    "X-TrustFabric-Signature": signature,
+                },
+            )
+        return {
+            "ok": response.status_code < 400,
+            "status_code": response.status_code,
+            "event": event.value,
+        }
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to reach webhook endpoint: {exc}",
+        ) from exc
 
 
 @router.delete("/{webhook_id}", status_code=status.HTTP_204_NO_CONTENT)

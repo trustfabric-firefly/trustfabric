@@ -20,6 +20,14 @@ from app.services.llm_resilience import (
 
 
 @pytest.fixture(autouse=True)
+def _allow_copilot_quota():
+    with patch("app.services.copilot.assert_copilot_allowed"), patch(
+        "app.services.copilot.record_copilot_usage"
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def _reset_circuit():
     provider_circuit.reset()
     yield
