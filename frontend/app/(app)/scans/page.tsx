@@ -71,13 +71,15 @@ export default function ScansPage() {
 
     const { data: scanHistory = [] } = useQuery({
         queryKey: ["scans"],
-        queryFn: scansApi.list,
+        queryFn: () => scansApi.list({ limit: 50 }),
+        select: (page) => page.items,
         retry: false,
     });
 
     const { data: awsScanHistory = [], refetch: refetchAwsScans } = useQuery({
         queryKey: ["aws-scans"],
-        queryFn: awsScansApi.list,
+        queryFn: () => awsScansApi.list({ limit: 50 }),
+        select: (page) => page.items,
         retry: false,
     });
 

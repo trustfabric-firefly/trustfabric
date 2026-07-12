@@ -156,6 +156,30 @@ function downloadBlob(blob: Blob, filename: string) {
     URL.revokeObjectURL(url);
 }
 
+export type ListParams = {
+    limit?: number;
+    offset?: number;
+};
+
+export type Paginated<T> = {
+    items: T[];
+    total: number;
+    limit: number;
+    offset: number;
+    has_more: boolean;
+};
+
+function buildListQuery(params?: ListParams & Record<string, string | number | undefined | null>): string {
+    if (!params) return "";
+    const qs = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+        if (value === undefined || value === null || value === "") continue;
+        qs.set(key, String(value));
+    }
+    const encoded = qs.toString();
+    return encoded ? `?${encoded}` : "";
+}
+
 function newIdempotencyKey(): string {
     if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
         return crypto.randomUUID();
@@ -202,7 +226,8 @@ async function pollScan<T extends ScanLike>(
 
 
 export const systemsApi = {
-    list: () => request<AISystem[]>("/api/v1/systems/"),
+    list: (params?: ListParams) =>
+        request<Paginated<AISystem>>(`/api/v1/systems/${buildListQuery(params)}`),
     get: (id: number) => request<AISystem>(`/api/v1/systems/${id}`),
     create: (data: AISystemCreate) =>
         request<AISystem>("/api/v1/systems/", {
@@ -244,10 +269,8 @@ export const systemPoliciesApi = {
 
 
 export const eventsApi = {
-    list: (systemId?: number) => {
-        const qs = systemId ? `?system_id=${systemId}` : "";
-        return request<ActivityEvent[]>(`/api/v1/events${qs}`);
-    },
+    list: (params?: ListParams & { system_id?: number; event_type?: string }) =>
+        request<Paginated<ActivityEvent>>(`/api/v1/events/${buildListQuery(params)}`),
 };
 
 
@@ -258,7 +281,8 @@ export const dashboardApi = {
 
 
 export const auditApi = {
-    list: () => request<AuditEvent[]>("/api/v1/audit"),
+    list: (params?: ListParams) =>
+        request<Paginated<AuditEvent>>(`/api/v1/audit/${buildListQuery(params)}`),
 };
 
 
@@ -288,7 +312,8 @@ export const scansApi = {
         });
         return pollScan((scanId) => scansApi.get(scanId), pending);
     },
-    list: () => request<ScanResult[]>("/api/v1/scans/"),
+    list: (params?: ListParams) =>
+        request<Paginated<ScanResult>>(`/api/v1/scans/${buildListQuery(params)}`),
     get: (scanId: string) => request<ScanResult>(`/api/v1/scans/${scanId}`),
     reportUrl: (scanId: string) => `${RESOLVED_API_BASE_URL}/api/v1/scans/${scanId}/report`,
     downloadReportPdf: async (scanId: string) => {
@@ -305,7 +330,8 @@ export const awsScansApi = {
         });
         return pollScan((scanId) => awsScansApi.get(scanId), pending);
     },
-    list: () => request<AwsScanResult[]>("/api/v1/scans/aws"),
+    list: (params?: ListParams) =>
+        request<Paginated<AwsScanResult>>(`/api/v1/scans/aws${buildListQuery(params)}`),
     get: (scanId: string) => request<AwsScanResult>(`/api/v1/scans/aws/${scanId}`),
 };
 

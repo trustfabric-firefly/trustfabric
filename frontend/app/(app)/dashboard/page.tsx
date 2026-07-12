@@ -112,12 +112,14 @@ export default function DashboardPage() {
 
     const { data: systems = [] } = useQuery({
         queryKey: ["systems"],
-        queryFn: systemsApi.list,
+        queryFn: () => systemsApi.list({ limit: 200 }),
+        select: (page) => page.items,
     });
 
     const { data: auditEvents = [] } = useQuery({
         queryKey: ["audit"],
-        queryFn: auditApi.list,
+        queryFn: () => auditApi.list({ limit: 50 }),
+        select: (page) => page.items,
     });
 
     const { data: nistCoverage } = useQuery({
@@ -159,7 +161,8 @@ export default function DashboardPage() {
 
     const { data: latestScans = [] } = useQuery({
         queryKey: ["scans"],
-        queryFn: scansApi.list,
+        queryFn: () => scansApi.list({ limit: 50 }),
+        select: (page) => page.items,
         retry: false,
     });
     const latestScan = latestScans[0] ?? null;

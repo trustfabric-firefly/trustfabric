@@ -97,13 +97,15 @@ export default function PoliciesPage() {
 
     const { data: systems = [], isLoading: systemsLoading } = useQuery({
         queryKey: ["systems"],
-        queryFn: systemsApi.list,
+        queryFn: () => systemsApi.list({ limit: 200 }),
+        select: (page) => page.items,
     });
 
     const { data: policies = [], isLoading: policiesLoading, isError: policiesError } = useQuery({
         queryKey: ["governance-policies"],
         queryFn: async () => {
-            const list = await systemsApi.list();
+            const page = await systemsApi.list({ limit: 200 });
+            const list = page.items;
             if (list.length === 0) return [];
             const chunks = await Promise.all(
                 list.map(async (s) => {
@@ -738,7 +740,8 @@ function AIGenerateTab({
         error: systemsError,
     } = useQuery({
         queryKey: ["systems"],
-        queryFn: systemsApi.list,
+        queryFn: () => systemsApi.list({ limit: 200 }),
+        select: (page) => page.items,
         refetchOnMount: "always",
     });
     const resolvedSelectedSystemId = resolveSystemIdOrEmpty(selectedSystemId, systems[0]);

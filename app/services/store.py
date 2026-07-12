@@ -567,7 +567,7 @@ class FirestoreStore:
             events = [e for e in events if e.timestamp >= start]
         if end is not None:
             events = [e for e in events if e.timestamp <= end]
-        return sorted(events, key=lambda event: event.id)
+        return sorted(events, key=lambda event: event.timestamp, reverse=True)
 
     # --- Audit ---
     def _record_audit(
@@ -606,7 +606,7 @@ class FirestoreStore:
             payload["id"] = int(doc.id)
             payload.setdefault("organization_id", organization_id)
             audits.append(AuditEvent.model_validate(payload))
-        return sorted(audits, key=lambda audit: audit.id)
+        return sorted(audits, key=lambda audit: audit.timestamp, reverse=True)
 
     # --- LLM Logs ---
     def log_llm_interaction(
@@ -1098,14 +1098,14 @@ class FirestoreStore:
     def list_scans(self, organization_id: str) -> list:
         from app.domain.models import ScanRecord
         results = []
-        docs = self._client().collection("scans").limit(200).stream()
+        docs = self._client().collection("scans").limit(500).stream()
         for doc in docs:
             payload = doc.to_dict() or {}
             if not self._matches_org(payload, organization_id):
                 continue
             results.append(ScanRecord.model_validate(payload))
         results.sort(key=lambda r: r.timestamp, reverse=True)
-        return results[:50]
+        return results
 
     def get_scan(self, scan_id: str, organization_id: str | None = None):
         from app.domain.models import ScanRecord
@@ -1375,14 +1375,14 @@ class FirestoreStore:
     def list_aws_scans(self, organization_id: str) -> list:
         from app.domain.models import AwsScanRecord
         results = []
-        docs = self._client().collection("aws_scans").limit(200).stream()
+        docs = self._client().collection("aws_scans").limit(500).stream()
         for doc in docs:
             payload = doc.to_dict() or {}
             if not self._matches_org(payload, organization_id):
                 continue
             results.append(AwsScanRecord.model_validate(payload))
         results.sort(key=lambda r: r.timestamp, reverse=True)
-        return results[:50]
+        return results
 
     def get_aws_scan(self, scan_id: str, organization_id: str | None = None):
         from app.domain.models import AwsScanRecord

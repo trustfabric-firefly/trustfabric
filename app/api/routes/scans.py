@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import List
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -12,6 +11,7 @@ from app.core.idempotency import (
     complete_idempotent_request,
     get_idempotency_key,
 )
+from app.core.pagination import LimitQuery, OffsetQuery, PaginatedResponse, paginate
 from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
 from app.core.security import Actor, get_actor, require_operator
 from app.domain.models import AwsScanRecord, JobType, ScanRecord, ScanTriggerRequest
@@ -102,10 +102,14 @@ async def trigger_scan(
     return pending
 
 
-@router.get("/", response_model=List[ScanRecord])
-def list_scans(actor: Actor = Depends(get_actor)) -> List[ScanRecord]:
+@router.get("/", response_model=PaginatedResponse[ScanRecord])
+def list_scans(
+    actor: Actor = Depends(get_actor),
+    limit: int = LimitQuery(),
+    offset: int = OffsetQuery(),
+) -> PaginatedResponse[ScanRecord]:
     """Return scan history for the current organization."""
-    return store.list_scans(actor.organization_id)
+    return paginate(store.list_scans(actor.organization_id), limit=limit, offset=offset)
 
 
 @router.post(
@@ -158,10 +162,14 @@ async def trigger_aws_scan(
     return pending
 
 
-@router.get("/aws", response_model=List[AwsScanRecord])
-def list_aws_scans(actor: Actor = Depends(get_actor)) -> List[AwsScanRecord]:
+@router.get("/aws", response_model=PaginatedResponse[AwsScanRecord])
+def list_aws_scans(
+    actor: Actor = Depends(get_actor),
+    limit: int = LimitQuery(),
+    offset: int = OffsetQuery(),
+) -> PaginatedResponse[AwsScanRecord]:
     """Return AWS scan history for the current organization."""
-    return store.list_aws_scans(actor.organization_id)
+    return paginate(store.list_aws_scans(actor.organization_id), limit=limit, offset=offset)
 
 
 @router.get("/aws/{scan_id}", response_model=AwsScanRecord)

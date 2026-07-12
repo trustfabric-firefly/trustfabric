@@ -12,6 +12,7 @@ from app.core.idempotency import (
     complete_idempotent_request,
     get_idempotency_key,
 )
+from app.core.pagination import LimitQuery, OffsetQuery, PaginatedResponse, paginate
 from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
 from app.core.security import Actor, get_actor, require_admin, require_operator
 from app.domain.models import (
@@ -39,9 +40,13 @@ class BulkImportResult(BaseModel):
 router = APIRouter()
 
 
-@router.get("/", response_model=List[AISystem], summary="List AI systems")
-def list_systems(actor: Actor = Depends(get_actor)) -> List[AISystem]:
-    return store.list_systems(actor.organization_id)
+@router.get("/", response_model=PaginatedResponse[AISystem], summary="List AI systems")
+def list_systems(
+    actor: Actor = Depends(get_actor),
+    limit: int = LimitQuery(),
+    offset: int = OffsetQuery(),
+) -> PaginatedResponse[AISystem]:
+    return paginate(store.list_systems(actor.organization_id), limit=limit, offset=offset)
 
 
 @router.post(

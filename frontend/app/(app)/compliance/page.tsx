@@ -331,9 +331,10 @@ export default function CompliancePage() {
   const queryClient = useQueryClient();
 
   // Load recent scans to pick the latest
-  const { data: scans } = useQuery<ScanResult[]>({
+  const { data: scans } = useQuery({
     queryKey: ["scans"],
-    queryFn: scansApi.list,
+    queryFn: () => scansApi.list({ limit: 50 }),
+    select: (page) => page.items,
   });
 
   const latestScan = scans?.[0] ?? null;

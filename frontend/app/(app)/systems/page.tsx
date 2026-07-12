@@ -114,11 +114,13 @@ export default function SystemsPage() {
 
     const { data: backendSystems = [] } = useQuery({
         queryKey: ["systems"],
-        queryFn: systemsApi.list,
+        queryFn: () => systemsApi.list({ limit: 200 }),
+        select: (page) => page.items,
     });
     const { data: backendAudit = [] } = useQuery({
         queryKey: ["audit"],
-        queryFn: auditApi.list,
+        queryFn: () => auditApi.list({ limit: 200 }),
+        select: (page) => page.items,
     });
 
     const createSystemMutation = useMutation({
