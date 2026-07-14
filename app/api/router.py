@@ -10,6 +10,7 @@ from app.api.routes.dashboard import router as dashboard_router
 from app.api.routes.events import router as events_router
 from app.api.routes.health import router as health_router
 from app.api.routes.integrations import router as integrations_router
+from app.api.routes.llm_logs import router as llm_logs_router
 from app.api.routes.scan_policies import router as scan_policies_router
 from app.api.routes.scans import router as scans_router
 from app.api.routes.compliance import router as compliance_router
@@ -19,6 +20,7 @@ from app.api.routes.sso import router as sso_router
 from app.api.routes.systems import router as systems_router
 from app.api.routes.brand_compliance import router as brand_compliance_router
 from app.api.routes.figma import router as figma_router
+from app.api.routes.webhooks import router as webhooks_router
 
 api_router = APIRouter()
 
@@ -33,6 +35,7 @@ api_router.include_router(systems_router, prefix="/api/v1/systems", tags=["syste
 api_router.include_router(events_router, prefix="/api/v1/events", tags=["events"])
 api_router.include_router(dashboard_router, prefix="/api/v1/dashboard", tags=["dashboard"])
 api_router.include_router(audit_router, prefix="/api/v1/audit", tags=["audit"])
+api_router.include_router(llm_logs_router, prefix="/api/v1/llm-logs", tags=["llm-logs"])
 api_router.include_router(copilot_router, prefix="/api/v1/copilot", tags=["copilot"])
 api_router.include_router(integrations_router, prefix="/api/v1/integrations", tags=["integrations"])
 api_router.include_router(scans_router, prefix="/api/v1/scans", tags=["scans"])
@@ -41,4 +44,5 @@ api_router.include_router(settings_router, prefix="/api/v1/settings", tags=["set
 api_router.include_router(compliance_router, prefix="/api/v1", tags=["compliance"])
 api_router.include_router(brand_compliance_router, prefix="/api/v1/brand-compliance", tags=["brand-compliance"])
 api_router.include_router(figma_router, prefix="/api/v1/figma", tags=["figma"])
+api_router.include_router(webhooks_router, prefix="/api/v1/webhooks", tags=["webhooks"])
 

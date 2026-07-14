@@ -331,9 +331,10 @@ export default function CompliancePage() {
   const queryClient = useQueryClient();
 
   // Load recent scans to pick the latest
-  const { data: scans } = useQuery<ScanResult[]>({
+  const { data: scans } = useQuery({
     queryKey: ["scans"],
-    queryFn: scansApi.list,
+    queryFn: () => scansApi.list({ limit: 50 }),
+    select: (page) => page.items,
   });
 
   const latestScan = scans?.[0] ?? null;
@@ -442,113 +443,106 @@ export default function CompliancePage() {
   const manualPending = frameworks.reduce((s, f) => s + f.requirements.filter(r => r.status === "manual").length, 0);
 
   return (
-    <div style={{ padding: "var(--s-8)", maxWidth: 960, margin: "0 auto" }}>
-      {/* Page header */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "var(--s-6)", flexWrap: "wrap", gap: "var(--s-3)" }}>
-        <div>
-          <h1 style={{ fontSize: "var(--fs-24)", fontWeight: "var(--fw-bold)", marginBottom: "var(--s-1)" }}>
-            Compliance Frameworks
-          </h1>
-          <p style={{ color: "var(--c-text-muted)", fontSize: "var(--fs-13)" }}>
-            Evaluated against scan{" "}
-            <span style={{ fontFamily: "monospace", fontSize: "var(--fs-12)", color: "var(--c-accent)" }}>
-              {activeScanId.slice(0, 12)}…
-            </span>
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: "var(--s-2)" }}>
-          {scans && scans.length > 1 && (
-            <select
-              value={selectedScanId ?? latestScan?.scan_id ?? ""}
-              onChange={(e) => setSelectedScanId(e.target.value)}
-              className="input"
-              style={{ fontSize: "var(--fs-12)", padding: "var(--s-2) var(--s-3)" }}
+    <>
+      <TopBar
+        title="Compliance Frameworks"
+        subtitle={`EU AI Act · NIST AI RMF · NIST CSF · SOC 2 · scan ${activeScanId.slice(0, 12)}…`}
+        actions={
+          <div style={{ display: "flex", gap: "var(--s-2)", alignItems: "center" }}>
+            {scans && scans.length > 1 && (
+              <select
+                value={selectedScanId ?? latestScan?.scan_id ?? ""}
+                onChange={(e) => setSelectedScanId(e.target.value)}
+                className="input"
+                style={{ fontSize: "var(--fs-12)", padding: "var(--s-2) var(--s-3)" }}
+              >
+                {scans.map((s) => (
+                  <option key={s.scan_id} value={s.scan_id}>
+                    {new Date(s.timestamp).toLocaleDateString()} — {s.organization}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              className="btn btn--ghost"
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshMutation.isPending}
+              style={{ display: "flex", alignItems: "center", gap: "var(--s-1)", fontSize: "var(--fs-12)" }}
             >
-              {scans.map((s) => (
-                <option key={s.scan_id} value={s.scan_id}>
-                  {new Date(s.timestamp).toLocaleDateString()} — {s.organization}
-                </option>
-              ))}
-            </select>
+              <RefreshIcon style={{ fontSize: 16 }} />
+              {refreshMutation.isPending ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
+        }
+      />
+      <main className="page">
+        {/* Summary stat cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "var(--s-3)", marginBottom: "var(--s-6)" }}>
+          <div className="stat-card stat-card--info">
+            <div className="stat-card__value">{avgScore}%</div>
+            <div className="stat-card__label">Average Score</div>
+          </div>
+          <div className="stat-card stat-card--success">
+            <div className="stat-card__value">{passedReqs}/{totalReqs}</div>
+            <div className="stat-card__label">Requirements Passed</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-card__value">{totalFrameworks}</div>
+            <div className="stat-card__label">Frameworks Evaluated</div>
+          </div>
+          {manualPending > 0 && (
+            <div className="stat-card stat-card--danger">
+              <div className="stat-card__value">{manualPending}</div>
+              <div className="stat-card__label">Awaiting Attestation</div>
+            </div>
           )}
-          <button
-            className="btn btn--ghost"
-            onClick={() => refreshMutation.mutate()}
-            disabled={refreshMutation.isPending}
-            style={{ display: "flex", alignItems: "center", gap: "var(--s-1)", fontSize: "var(--fs-12)" }}
-          >
-            <RefreshIcon style={{ fontSize: 16 }} />
-            {refreshMutation.isPending ? "Refreshing…" : "Refresh"}
-          </button>
         </div>
-      </div>
 
-      {/* Summary stat cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "var(--s-3)", marginBottom: "var(--s-6)" }}>
-        <div className="stat-card stat-card--info">
-          <div className="stat-card__value">{avgScore}%</div>
-          <div className="stat-card__label">Average Score</div>
-        </div>
-        <div className="stat-card stat-card--success">
-          <div className="stat-card__value">{passedReqs}/{totalReqs}</div>
-          <div className="stat-card__label">Requirements Passed</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-card__value">{totalFrameworks}</div>
-          <div className="stat-card__label">Frameworks Evaluated</div>
-        </div>
+        {/* Manual attestation notice */}
         {manualPending > 0 && (
-          <div className="stat-card stat-card--danger">
-            <div className="stat-card__value">{manualPending}</div>
-            <div className="stat-card__label">Awaiting Attestation</div>
+          <div
+            style={{
+              padding: "var(--s-3) var(--s-5)",
+              borderRadius: "var(--r-lg)",
+              border: "1px solid var(--c-border-strong)",
+              background: "rgba(255,255,255,0.03)",
+              marginBottom: "var(--s-6)",
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--s-3)",
+              fontSize: "var(--fs-13)",
+            }}
+          >
+            <AIIcon size={20} style={{ opacity: 0.8 }} />
+            <span style={{ color: "var(--c-text)", lineHeight: 1.5 }}>
+              <strong style={{ color: "var(--c-text)", fontWeight: "var(--fw-bold)" }}>{manualPending} requirements</strong> need manual attestation.
+              Expand each framework below and check off completed items to improve your score.
+            </span>
           </div>
         )}
-      </div>
 
-      {/* Manual attestation notice */}
-      {manualPending > 0 && (
-        <div
-          style={{
-            padding: "var(--s-3) var(--s-5)",
-            borderRadius: "var(--r-lg)",
-            border: "1px solid var(--c-border-strong)",
-            background: "rgba(255,255,255,0.03)",
-            marginBottom: "var(--s-6)",
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--s-3)",
-            fontSize: "var(--fs-13)",
-          }}
-        >
-          <AIIcon size={20} style={{ opacity: 0.8 }} />
-          <span style={{ color: "var(--c-text)", lineHeight: 1.5 }}>
-            <strong style={{ color: "var(--c-text)", fontWeight: "var(--fw-bold)" }}>{manualPending} requirements</strong> need manual attestation.
-            Expand each framework below and check off completed items to improve your score.
-          </span>
-        </div>
-      )}
+        {/* Framework cards */}
+        {frameworks.length === 0 ? (
+          <div className="panel" style={{ textAlign: "center", padding: "var(--s-8)" }}>
+            <p style={{ color: "var(--c-text-muted)" }}>No framework results available. Try refreshing.</p>
+          </div>
+        ) : (
+          frameworks
+            .sort((a, b) => b.overall_score - a.overall_score)
+            .map((fw) => (
+              <FrameworkCard
+                key={fw.framework_id}
+                fw={fw}
+                scanId={activeScanId}
+                onAttest={handleAttest}
+              />
+            ))
+        )}
 
-      {/* Framework cards */}
-      {frameworks.length === 0 ? (
-        <div className="panel" style={{ textAlign: "center", padding: "var(--s-8)" }}>
-          <p style={{ color: "var(--c-text-muted)" }}>No framework results available. Try refreshing.</p>
-        </div>
-      ) : (
-        frameworks
-          .sort((a, b) => b.overall_score - a.overall_score)
-          .map((fw) => (
-            <FrameworkCard
-              key={fw.framework_id}
-              fw={fw}
-              scanId={activeScanId}
-              onAttest={handleAttest}
-            />
-          ))
-      )}
-
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-      `}</style>
-    </div>
+        <style>{`
+          @keyframes spin { to { transform: rotate(360deg); } }
+        `}</style>
+      </main>
+    </>
   );
 }

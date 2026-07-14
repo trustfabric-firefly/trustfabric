@@ -46,10 +46,15 @@ export default function AuditPage() {
     const [view, setView] = useState<PageView>("list");
     const [selectedEvent, setSelectedEvent] = useState<AuditLogEntry | null>(null);
     const [showExportMenu, setShowExportMenu] = useState(false);
-    const { data: auditEvents = [] } = useQuery({
-        queryKey: ["audit"],
-        queryFn: auditApi.list,
+    const [offset, setOffset] = useState(0);
+    const pageSize = 50;
+    const { data: auditPage } = useQuery({
+        queryKey: ["audit", pageSize, offset],
+        queryFn: () => auditApi.list({ limit: pageSize, offset }),
     });
+    const auditEvents = auditPage?.items ?? [];
+    const totalCount = auditPage?.total ?? 0;
+    const hasMore = auditPage?.has_more ?? false;
     const events = useMemo(() => mapBackendAuditToLog(auditEvents), [auditEvents]);
 
     const handleViewDetails = useCallback((event: AuditLogEntry) => {
@@ -62,8 +67,8 @@ export default function AuditPage() {
         setSelectedEvent(null);
     }, []);
 
-    // Stats
-    const totalEvents = events.length;
+    // Stats for the current page
+    const totalEvents = totalCount;
     const uniqueUsers = new Set(events.map((e) => e.user_email)).size;
     const criticalEvents = events.filter((e) => e.severity === "critical").length;
 
@@ -92,13 +97,49 @@ export default function AuditPage() {
 
             <main className="page">
                 {view === "list" && (
-                    <ListView
-                        events={events}
-                        totalEvents={totalEvents}
-                        uniqueUsers={uniqueUsers}
-                        criticalEvents={criticalEvents}
-                        onViewDetails={handleViewDetails}
-                    />
+                    <>
+                        <ListView
+                            events={events}
+                            totalEvents={totalEvents}
+                            uniqueUsers={uniqueUsers}
+                            criticalEvents={criticalEvents}
+                            onViewDetails={handleViewDetails}
+                        />
+                        <div
+                            style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                marginTop: "var(--s-4)",
+                                paddingBottom: "var(--s-4)",
+                                gap: "var(--s-3)",
+                                flexWrap: "wrap",
+                            }}
+                        >
+                            <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                                Showing {totalCount === 0 ? 0 : offset + 1}–
+                                {Math.min(offset + events.length, totalCount)} of {totalCount}
+                            </span>
+                            <div style={{ display: "flex", gap: "var(--s-2)" }}>
+                                <button
+                                    type="button"
+                                    className="btn btn--ghost btn--sm"
+                                    disabled={offset <= 0}
+                                    onClick={() => setOffset((o) => Math.max(0, o - pageSize))}
+                                >
+                                    Previous
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn--ghost btn--sm"
+                                    disabled={!hasMore}
+                                    onClick={() => setOffset((o) => o + pageSize)}
+                                >
+                                    Next
+                                </button>
+                            </div>
+                        </div>
+                    </>
                 )}
 
                 {view === "details" && selectedEvent && (

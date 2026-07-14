@@ -5,6 +5,11 @@ from collections.abc import Callable
 from fastapi import HTTPException, status
 
 from app.core.config import settings
+from app.services.copilot_quota import (
+    CopilotOperation,
+    assert_copilot_allowed,
+    record_copilot_usage,
+)
 from app.services.claude import (
     generate_policy_recommendation as generate_policy_with_claude,
     generate_recommendations_for_system as generate_with_claude,
@@ -13,6 +18,7 @@ from app.services.gemini import (
     generate_policy_recommendation as generate_policy_with_gemini,
     generate_recommendations_for_system as generate_with_gemini,
 )
+from app.services.llm_resilience import provider_circuit
 from app.services.openai_provider import (
     generate_policy_recommendation as generate_policy_with_openai,
     generate_recommendations_for_system as generate_with_openai,
@@ -67,9 +73,13 @@ def _policy_provider_fn(name: str) -> PolicyProviderFn:
 
 
 def generate_recommendations_for_system(system_id: int, user_id: str, organization_id: str) -> dict:
+    assert_copilot_allowed(organization_id, user_id)
     errors: list[str] = []
 
     for provider in _provider_order():
+        if provider_circuit.is_open(provider):
+            errors.append(f"{provider}: circuit open")
+            continue
         try:
             result = _provider_fn(provider)(
                 system_id=system_id,
@@ -78,6 +88,13 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
             )
             if "provider" not in result:
                 result["provider"] = provider
+            record_copilot_usage(
+                organization_id,
+                user_id,
+                CopilotOperation.system_recommendation,
+                provider=str(result.get("provider")),
+                model=str(result.get("model")) if result.get("model") else None,
+            )
             return result
         except HTTPException as exc:
             # Preserve not found from underlying service immediately.
@@ -104,9 +121,14 @@ def generate_policy_recommendation(
     history: list[str] | None = None,
     organization_id: str | None = None,
 ) -> dict:
+    org_id = organization_id or settings.default_organization_id
+    assert_copilot_allowed(org_id, user_id)
     errors: list[str] = []
 
     for provider in _provider_order():
+        if provider_circuit.is_open(provider):
+            errors.append(f"{provider}: circuit open")
+            continue
         try:
             result = _policy_provider_fn(provider)(
                 prompt=prompt,
@@ -116,6 +138,13 @@ def generate_policy_recommendation(
             )
             if "provider" not in result:
                 result["provider"] = provider
+            record_copilot_usage(
+                org_id,
+                user_id,
+                CopilotOperation.policy_recommendation,
+                provider=str(result.get("provider")) if result.get("provider") else None,
+                model=str(result.get("model")) if result.get("model") else None,
+            )
             return result
         except HTTPException as exc:
             if exc.status_code in (

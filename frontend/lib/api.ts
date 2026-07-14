@@ -22,6 +22,9 @@ import type {
     ScanResult,
     SlackChannel,
     SlackIntegrationStatus,
+    WebhookCreateResponse,
+    WebhookEndpoint,
+    WebhookEvent,
 } from "@/types";
 
 const RAW_BASE_URL =
@@ -153,14 +156,84 @@ function downloadBlob(blob: Blob, filename: string) {
     URL.revokeObjectURL(url);
 }
 
+export type ListParams = {
+    limit?: number;
+    offset?: number;
+};
+
+export type Paginated<T> = {
+    items: T[];
+    total: number;
+    limit: number;
+    offset: number;
+    has_more: boolean;
+};
+
+function buildListQuery(params?: ListParams & Record<string, string | number | undefined | null>): string {
+    if (!params) return "";
+    const qs = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+        if (value === undefined || value === null || value === "") continue;
+        qs.set(key, String(value));
+    }
+    const encoded = qs.toString();
+    return encoded ? `?${encoded}` : "";
+}
+
+function newIdempotencyKey(): string {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+        return crypto.randomUUID();
+    }
+    return `tf-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+type ScanLike = ScanResult | AwsScanResult;
+
+function isScanTerminal(scan: ScanLike): boolean {
+    return scan.status === "completed" || scan.status === "failed";
+}
+
+async function pollScan<T extends ScanLike>(
+    fetchScan: (scanId: string) => Promise<T>,
+    initial: T,
+    opts?: { intervalMs?: number; maxAttempts?: number },
+): Promise<T> {
+    if (isScanTerminal(initial)) {
+        if (initial.status === "failed") {
+            throw new Error(initial.error ?? "Scan failed");
+        }
+        return initial;
+    }
+
+    const intervalMs = opts?.intervalMs ?? 2000;
+    const maxAttempts = opts?.maxAttempts ?? 120;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        await sleep(intervalMs);
+        const scan = await fetchScan(initial.scan_id);
+        if (!isScanTerminal(scan)) continue;
+        if (scan.status === "failed") {
+            throw new Error(scan.error ?? "Scan failed");
+        }
+        return scan;
+    }
+    throw new Error("Scan timed out waiting for completion");
+}
+
 
 export const systemsApi = {
-    list: () => request<AISystem[]>("/api/v1/systems/"),
+    list: (params?: ListParams) =>
+        request<Paginated<AISystem>>(`/api/v1/systems/${buildListQuery(params)}`),
     get: (id: number) => request<AISystem>(`/api/v1/systems/${id}`),
     create: (data: AISystemCreate) =>
         request<AISystem>("/api/v1/systems/", {
             method: "POST",
             body: JSON.stringify(data),
+            headers: { "Idempotency-Key": newIdempotencyKey() },
         }),
     explainMissing: (id: number) =>
         request<ExplainMissingResponse>(`/api/v1/systems/${id}/explain-missing`, { method: "POST" }),
@@ -196,10 +269,8 @@ export const systemPoliciesApi = {
 
 
 export const eventsApi = {
-    list: (systemId?: number) => {
-        const qs = systemId ? `?system_id=${systemId}` : "";
-        return request<ActivityEvent[]>(`/api/v1/events${qs}`);
-    },
+    list: (params?: ListParams & { system_id?: number; event_type?: string }) =>
+        request<Paginated<ActivityEvent>>(`/api/v1/events/${buildListQuery(params)}`),
 };
 
 
@@ -210,7 +281,8 @@ export const dashboardApi = {
 
 
 export const auditApi = {
-    list: () => request<AuditEvent[]>("/api/v1/audit"),
+    list: (params?: ListParams) =>
+        request<Paginated<AuditEvent>>(`/api/v1/audit/${buildListQuery(params)}`),
 };
 
 
@@ -232,9 +304,16 @@ export const scanPoliciesApi = {
 };
 
 export const scansApi = {
-    trigger: (body: { github_org: string; scope: string }) =>
-        request<ScanResult>("/api/v1/scans/", { method: "POST", body: JSON.stringify(body) }),
-    list: () => request<ScanResult[]>("/api/v1/scans/"),
+    trigger: async (body: { github_org: string; scope: string }) => {
+        const pending = await request<ScanResult>("/api/v1/scans/", {
+            method: "POST",
+            body: JSON.stringify(body),
+            headers: { "Idempotency-Key": newIdempotencyKey() },
+        });
+        return pollScan((scanId) => scansApi.get(scanId), pending);
+    },
+    list: (params?: ListParams) =>
+        request<Paginated<ScanResult>>(`/api/v1/scans/${buildListQuery(params)}`),
     get: (scanId: string) => request<ScanResult>(`/api/v1/scans/${scanId}`),
     reportUrl: (scanId: string) => `${RESOLVED_API_BASE_URL}/api/v1/scans/${scanId}/report`,
     downloadReportPdf: async (scanId: string) => {
@@ -244,9 +323,15 @@ export const scansApi = {
 };
 
 export const awsScansApi = {
-    trigger: () =>
-        request<AwsScanResult>("/api/v1/scans/aws", { method: "POST" }),
-    list: () => request<AwsScanResult[]>("/api/v1/scans/aws"),
+    trigger: async () => {
+        const pending = await request<AwsScanResult>("/api/v1/scans/aws", {
+            method: "POST",
+            headers: { "Idempotency-Key": newIdempotencyKey() },
+        });
+        return pollScan((scanId) => awsScansApi.get(scanId), pending);
+    },
+    list: (params?: ListParams) =>
+        request<Paginated<AwsScanResult>>(`/api/v1/scans/aws${buildListQuery(params)}`),
     get: (scanId: string) => request<AwsScanResult>(`/api/v1/scans/aws/${scanId}`),
 };
 
@@ -407,6 +492,34 @@ export const ssoApi = {
     },
 };
 
+export type OrganizationCopilotControls = {
+    quota: {
+        organization_id: string;
+        enabled: boolean;
+        monthly_request_limit: number;
+        monthly_cost_cap_usd: number | null;
+        daily_request_limit_per_user: number | null;
+        updated_at?: string | null;
+    };
+    usage: {
+        organization_id: string;
+        period: string;
+        request_count: number;
+        estimated_cost_usd: number;
+        last_request_at?: string | null;
+    };
+    platform_max_monthly_request_limit: number;
+    platform_max_monthly_cost_cap_usd: number;
+    estimated_cost_per_request_usd: number;
+};
+
+export type OrganizationCopilotQuotaUpdate = {
+    enabled?: boolean;
+    monthly_request_limit?: number;
+    monthly_cost_cap_usd?: number | null;
+    daily_request_limit_per_user?: number | null;
+};
+
 export const organizationsApi = {
     me: () => request<OrganizationContext>("/api/v1/organizations/me"),
     current: () =>
@@ -462,6 +575,13 @@ export const organizationsApi = {
             method: "POST",
             body: JSON.stringify({ name }),
         }),
+    copilotControls: () =>
+        request<OrganizationCopilotControls>("/api/v1/organizations/current/copilot-controls"),
+    updateCopilotControls: (body: OrganizationCopilotQuotaUpdate) =>
+        request<OrganizationCopilotControls>("/api/v1/organizations/current/copilot-controls", {
+            method: "PATCH",
+            body: JSON.stringify(body),
+        }),
 };
 
 export const complianceApi = {
@@ -490,6 +610,7 @@ export type PolicyRecommendationResponse = {
     rules?: Record<string, unknown>;
     provider?: string;
     model?: string;
+    disclaimer?: string;
 };
 
 export const policyApi = {
@@ -613,4 +734,34 @@ export const figmaApi = {
             method: "POST",
             body: JSON.stringify({ file_key: fileKey, node_ids: nodeIds }),
         }),
+};
+
+// --- Webhooks / SIEM export ---
+
+export const webhooksApi = {
+    list: () => request<WebhookEndpoint[]>("/api/v1/webhooks/"),
+    events: () => request<WebhookEvent[]>("/api/v1/webhooks/events"),
+    create: (body: { url: string; events: WebhookEvent[]; enabled?: boolean }) =>
+        request<WebhookCreateResponse>("/api/v1/webhooks/", {
+            method: "POST",
+            body: JSON.stringify(body),
+            headers: { "Idempotency-Key": newIdempotencyKey() },
+        }),
+    update: (
+        webhookId: string,
+        body: { url?: string; events?: WebhookEvent[]; enabled?: boolean },
+    ) =>
+        request<WebhookEndpoint>(`/api/v1/webhooks/${encodeURIComponent(webhookId)}`, {
+            method: "PATCH",
+            body: JSON.stringify(body),
+        }),
+    remove: (webhookId: string) =>
+        request<void>(`/api/v1/webhooks/${encodeURIComponent(webhookId)}`, {
+            method: "DELETE",
+        }),
+    test: (webhookId: string) =>
+        request<{ ok: boolean; status_code: number; event: string }>(
+            `/api/v1/webhooks/${encodeURIComponent(webhookId)}/test`,
+            { method: "POST" },
+        ),
 };

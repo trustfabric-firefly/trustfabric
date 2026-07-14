@@ -2,6 +2,7 @@
 .env.local
 trustfabric-creds.json
 .claude/
+changelog.md
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -9,6 +10,10 @@ __pycache__/
 *$py.class
 
 firebase_credentials.json
+
+# Firestore rules test harness
+firestore-rules-tests/node_modules/
+firestore-debug.log
 
 # C extensions
 *.so

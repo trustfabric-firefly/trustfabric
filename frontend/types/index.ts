@@ -13,7 +13,34 @@ export type AuditEventType =
   | "system_updated"
   | "system_deleted"
   | "risk_tier_changed"
-  | "policy_mapping_changed";
+  | "policy_mapping_changed"
+  | "policy_created"
+  | "policy_updated"
+  | "member_invited"
+  | "member_role_changed"
+  | "member_removed"
+  | "invite_revoked";
+
+export type WebhookEvent =
+  | "scan.completed"
+  | "scan.failed"
+  | "compliance.alert"
+  | "audit.created";
+
+export interface WebhookEndpoint {
+  webhook_id: string;
+  organization_id: string;
+  url: string;
+  events: WebhookEvent[];
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WebhookCreateResponse {
+  webhook: WebhookEndpoint;
+  secret: string;
+}
 
 // ─── Core Domain ─────────────────────────────────────────────────────────────
 
@@ -277,6 +304,7 @@ export interface AwsScanResult {
   duration_seconds: number;
   triggered_by: string;
   status: ScanStatus;
+  error?: string;
 }
 
 // ─── Compliance Scans Domain ─────────────────────────────────────────────────
@@ -328,6 +356,7 @@ export interface ScanResult {
   duration_seconds: number;
   triggered_by: string;
   status: ScanStatus;
+  error?: string;
 }
 
 export interface ScanProgress {

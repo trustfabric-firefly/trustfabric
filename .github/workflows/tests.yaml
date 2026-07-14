@@ -22,8 +22,28 @@ jobs:
 
       - name: Run tests
         env:
+          PYTHONPATH: .
           ENCRYPTION_KEY: ci-test-encryption-key
           OAUTH_STATE_SECRET: ci-test-oauth-secret
           ADMIN_TOKEN: ci-test-admin
           APP_ENV: dev
         run: pytest tests/ -v
+
+  firestore-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: firestore-rules-tests/package-lock.json
+
+      - name: Install rules test dependencies
+        working-directory: firestore-rules-tests
+        run: npm ci
+
+      - name: Run Firestore security rules tests
+        working-directory: firestore-rules-tests
+        run: npm run test:rules

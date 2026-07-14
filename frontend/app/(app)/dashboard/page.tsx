@@ -13,7 +13,8 @@ import { dashboardIntegrationSettingsHref } from "@/lib/integration-sections";
 import type { RiskTier } from "@/types";
 const TIER_ORDER: RiskTier[] = ["Tier 3", "Tier 2", "Tier 1"];
 
-/* framework heatmap configs — nist_rmf uses real backend data; others are placeholders */
+/* Framework heatmap layouts. NIST AI RMF cells come from /dashboard/nist-coverage;
+   other frameworks show unevaluated cells until live coverage is available. */
 const FRAMEWORK_CONFIGS = {
     nist_rmf: {
         label: "NIST AI RMF",
@@ -57,6 +58,29 @@ const FRAMEWORK_CONFIGS = {
     },
 } as const;
 
+function emptyHeatmap(
+    categories: readonly { id: string; name: string; controls: number }[],
+): number[][] {
+    return categories.map((cat) => Array(cat.controls).fill(0) as number[]);
+}
+
+function coverageToHeatmap(
+    categories: readonly { id: string; name: string; controls: number }[],
+    functions: { function: string; active: number; draft: number; inactive: number; missing: number }[],
+): number[][] {
+    return categories.map((cat) => {
+        const fn = functions.find((f) => f.function === cat.name);
+        if (!fn) return Array(cat.controls).fill(0) as number[];
+        const cells: number[] = [];
+        for (let i = 0; i < fn.active; i++) cells.push(3);
+        for (let i = 0; i < fn.draft; i++) cells.push(2);
+        for (let i = 0; i < fn.inactive; i++) cells.push(1);
+        for (let i = 0; i < fn.missing; i++) cells.push(0);
+        while (cells.length < cat.controls) cells.push(0);
+        return cells.slice(0, cat.controls);
+    });
+}
+
 type FrameworkKey = keyof typeof FRAMEWORK_CONFIGS;
 
 type IntegrationCardStatus = "connected" | "needs_setup" | "coming_soon" | "disconnected";
@@ -88,12 +112,14 @@ export default function DashboardPage() {
 
     const { data: systems = [] } = useQuery({
         queryKey: ["systems"],
-        queryFn: systemsApi.list,
+        queryFn: () => systemsApi.list({ limit: 200 }),
+        select: (page) => page.items,
     });
 
     const { data: auditEvents = [] } = useQuery({
         queryKey: ["audit"],
-        queryFn: auditApi.list,
+        queryFn: () => auditApi.list({ limit: 50 }),
+        select: (page) => page.items,
     });
 
     const { data: nistCoverage } = useQuery({
@@ -118,32 +144,25 @@ export default function DashboardPage() {
     const [selectedFramework, setSelectedFramework] = useState<FrameworkKey>("nist_rmf");
     const activeFramework = FRAMEWORK_CONFIGS[selectedFramework];
 
-    // For NIST RMF: use real backend coverage data. For other frameworks: deterministic placeholder.
     const heatmapData = useMemo(() => {
         if (selectedFramework === "nist_rmf" && nistCoverage) {
-            return activeFramework.categories.map((cat) => {
-                const fn = nistCoverage.functions.find((f) => f.function === cat.name);
-                if (!fn) return Array(cat.controls).fill(0) as number[];
-                const cells: number[] = [];
-                for (let i = 0; i < fn.active; i++) cells.push(3);
-                for (let i = 0; i < fn.draft; i++) cells.push(2);
-                for (let i = 0; i < fn.inactive; i++) cells.push(1);
-                for (let i = 0; i < fn.missing; i++) cells.push(0);
-                return cells.slice(0, cat.controls);
-            });
+            return coverageToHeatmap(activeFramework.categories, nistCoverage.functions);
         }
-        return generateHeatmap(systems.length, missingControls.length, activeFramework.categories as unknown as { id: string; name: string; controls: number }[]);
-    }, [selectedFramework, nistCoverage, systems.length, missingControls.length]); // eslint-disable-line react-hooks/exhaustive-deps
+        // No live coverage API yet for SOC 2 / EU AI Act / NIST CSF — show unevaluated cells only.
+        return emptyHeatmap(activeFramework.categories);
+    }, [selectedFramework, nistCoverage, activeFramework.categories]);
 
     const totalControls = activeFramework.categories.reduce((n: number, c: { controls: number }) => n + c.controls, 0);
     const passingControls = heatmapData.flat().filter((v) => v >= 3).length;
+    const cellCount = heatmapData.flat().length || 1;
 
     // Recently viewed items synthesized from audit events + systems
     const recentlyViewed = useMemo(() => buildRecentlyViewed(systems, auditEvents), [systems, auditEvents]);
 
     const { data: latestScans = [] } = useQuery({
         queryKey: ["scans"],
-        queryFn: scansApi.list,
+        queryFn: () => scansApi.list({ limit: 50 }),
+        select: (page) => page.items,
         retry: false,
     });
     const latestScan = latestScans[0] ?? null;
@@ -184,7 +203,7 @@ export default function DashboardPage() {
     const needsSetupCount = INTEGRATIONS.filter((i) => !dynamicNames.has(i.name) && i.status === "needs_setup").length
         + (!githubConnected ? 1 : 0) + (!figmaConnected ? 1 : 0) + (!slackConnected ? 1 : 0) + (!awsConnected ? 1 : 0);
 
-    const frameworkIsPreview = selectedFramework !== "nist_rmf";
+    const frameworkHasLiveCoverage = selectedFramework === "nist_rmf";
     const evaluatedControls = heatmapData.flat().filter((v) => v !== 0).length;
 
     return (
@@ -231,7 +250,7 @@ export default function DashboardPage() {
                                     </span>
                                     <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
                                         Completion: <span style={{ color: "var(--c-live-text)", fontWeight: "var(--fw-semibold)" }}>
-                                            {total > 0 ? Math.round((passingControls / heatmapData.flat().length) * 100) : 0}%
+                                            {Math.round((passingControls / cellCount) * 100)}%
                                         </span>
                                     </span>
                                 </div>
@@ -277,7 +296,7 @@ export default function DashboardPage() {
                                 </div>
                             </div>
                             <div className="panel__body">
-                                {frameworkIsPreview && (
+                                {!frameworkHasLiveCoverage && (
                                     <p style={{
                                         fontSize: "var(--fs-12)",
                                         color: "var(--c-text-muted)",
@@ -288,7 +307,7 @@ export default function DashboardPage() {
                                         background: "rgba(255,255,255,0.02)",
                                         lineHeight: 1.5,
                                     }}>
-                                        Illustrative preview. Run compliance scans and register AI systems to populate live NIST AI RMF coverage.
+                                        Live control coverage for {activeFramework.label} is not available yet. Cells show as not evaluated.
                                     </p>
                                 )}
                                 {/* Category rows */}
@@ -784,22 +803,6 @@ function IntegrationSummaryPill({ count, label }: { count: number; label: string
             </span>
         </div>
     );
-}
-
-function generateHeatmap(systemCount: number, missingCount: number, categories: { id: string; name: string; controls: number }[]): number[][] {
-    return categories.map((cat) => {
-        const cells: number[] = [];
-        for (let i = 0; i < cat.controls; i++) {
-            if (systemCount === 0) {
-                cells.push(0);
-            } else if (missingCount > 0 && i % 3 === 0 && cells.filter((c) => c < 0).length < missingCount) {
-                cells.push(-1);
-            } else {
-                cells.push(((i + cat.controls) % 4) + 1);
-            }
-        }
-        return cells;
-    });
 }
 
 type RecentItem = {

@@ -7,6 +7,22 @@ from fastapi import HTTPException, status
 
 from app.core.config import settings
 from app.services import copilot
+from app.services.llm_resilience import provider_circuit
+
+
+@pytest.fixture(autouse=True)
+def _allow_copilot_quota():
+    with patch("app.services.copilot.assert_copilot_allowed"), patch(
+        "app.services.copilot.record_copilot_usage"
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_provider_circuit():
+    provider_circuit.reset()
+    yield
+    provider_circuit.reset()
 
 
 def _set_provider(monkeypatch: pytest.MonkeyPatch, value: str) -> None:

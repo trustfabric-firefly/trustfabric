@@ -2,11 +2,19 @@ from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app.core.idempotency import (
+    begin_idempotent_request,
+    cached_idempotency_response,
+    complete_idempotent_request,
+    get_idempotency_key,
+)
+from app.core.pagination import LimitQuery, OffsetQuery, PaginatedResponse, paginate
 from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
-from app.core.security import Actor, get_actor, require_admin
+from app.core.security import Actor, get_actor, require_admin, require_operator
 from app.domain.models import (
     AISystem,
     AISystemCreate,
@@ -16,6 +24,7 @@ from app.domain.models import (
     GovernancePolicyUpdate,
 )
 from app.services import claude as claude_service
+from app.services.copilot_quota import CopilotOperation, assert_copilot_allowed, record_copilot_usage
 from app.services.notifications import notify_system_change
 from app.services.store import store
 
@@ -31,9 +40,13 @@ class BulkImportResult(BaseModel):
 router = APIRouter()
 
 
-@router.get("/", response_model=List[AISystem], summary="List AI systems")
-def list_systems(actor: Actor = Depends(get_actor)) -> List[AISystem]:
-    return store.list_systems(actor.organization_id)
+@router.get("/", response_model=PaginatedResponse[AISystem], summary="List AI systems")
+def list_systems(
+    actor: Actor = Depends(get_actor),
+    limit: int = LimitQuery(),
+    offset: int = OffsetQuery(),
+) -> PaginatedResponse[AISystem]:
+    return paginate(store.list_systems(actor.organization_id), limit=limit, offset=offset)
 
 
 @router.post(
@@ -42,12 +55,34 @@ def list_systems(actor: Actor = Depends(get_actor)) -> List[AISystem]:
     status_code=status.HTTP_201_CREATED,
     summary="Create AI system (admin only)",
 )
-async def create_system(payload: AISystemCreate, actor: Actor = Depends(require_admin)) -> AISystem:
+async def create_system(
+    payload: AISystemCreate,
+    request: Request,
+    actor: Actor = Depends(require_admin),
+) -> AISystem | JSONResponse:
+    idempotency_key = get_idempotency_key(request)
+    key, cached = begin_idempotent_request(
+        actor.organization_id,
+        idempotency_key,
+        method=request.method,
+        path=str(request.url.path),
+    )
+    if cached:
+        return cached_idempotency_response(cached)
+
     system = store.create_system(payload, user_id=actor.user_id, organization_id=actor.organization_id)
     try:
         await notify_system_change(actor.organization_id, system, "created")
     except Exception:
         pass
+    response_body = system.model_dump(mode="json")
+    complete_idempotent_request(
+        actor.organization_id,
+        key,
+        status_code=status.HTTP_201_CREATED,
+        response_body=response_body,
+        resource_id=str(system.id),
+    )
     return system
 
 
@@ -180,9 +215,16 @@ async def delete_system(system_id: int, actor: Actor = Depends(require_admin)) -
     summary="Ask Claude to explain missing required controls for a system",
     dependencies=[Depends(RateLimited(TIER_EXPENSIVE))],
 )
-def explain_missing(system_id: int, actor: Actor = Depends(get_actor)) -> dict:
-    return claude_service.explain_missing_controls(
+def explain_missing(system_id: int, actor: Actor = Depends(require_operator)) -> dict:
+    assert_copilot_allowed(actor.organization_id, actor.user_id)
+    result = claude_service.explain_missing_controls(
         system_id=system_id,
         user_id=actor.user_id,
         organization_id=actor.organization_id,
     )
+    record_copilot_usage(
+        actor.organization_id,
+        actor.user_id,
+        CopilotOperation.explain_missing,
+    )
+    return result

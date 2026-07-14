@@ -13,6 +13,7 @@ import {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AIIcon, AIIconWrapper } from "@/components/ui/AIIcon";
+import { CopilotAdvisoryNotice } from "@/components/ui/CopilotAdvisoryNotice";
 import { TopBar } from "@/components/layout/TopBar";
 import { PageEmptyIllustration } from "@/components/ui/PageEmptyIllustration";
 import { policyApi, systemPoliciesApi, systemsApi, scanPoliciesApi } from "@/lib/api";
@@ -96,13 +97,15 @@ export default function PoliciesPage() {
 
     const { data: systems = [], isLoading: systemsLoading } = useQuery({
         queryKey: ["systems"],
-        queryFn: systemsApi.list,
+        queryFn: () => systemsApi.list({ limit: 200 }),
+        select: (page) => page.items,
     });
 
     const { data: policies = [], isLoading: policiesLoading, isError: policiesError } = useQuery({
         queryKey: ["governance-policies"],
         queryFn: async () => {
-            const list = await systemsApi.list();
+            const page = await systemsApi.list({ limit: 200 });
+            const list = page.items;
             if (list.length === 0) return [];
             const chunks = await Promise.all(
                 list.map(async (s) => {
@@ -737,7 +740,8 @@ function AIGenerateTab({
         error: systemsError,
     } = useQuery({
         queryKey: ["systems"],
-        queryFn: systemsApi.list,
+        queryFn: () => systemsApi.list({ limit: 200 }),
+        select: (page) => page.items,
         refetchOnMount: "always",
     });
     const resolvedSelectedSystemId = resolveSystemIdOrEmpty(selectedSystemId, systems[0]);
@@ -962,6 +966,9 @@ function AIGenerateTab({
                         <div className="chat__empty-desc">
                             Describe the policy you need in plain language. I will generate a structured, enforceable policy for your organization. You can keep refining it through conversation.
                         </div>
+                        <div style={{ maxWidth: 520, width: "100%", marginTop: "var(--s-3)" }}>
+                            <CopilotAdvisoryNotice />
+                        </div>
                         <div className="chat__suggestions">
                             {AI_SUGGESTIONS.map((s, i) => (
                                 <button key={i} className="chat__suggestion" onClick={() => handleSend(s)}>
@@ -1137,8 +1144,8 @@ function AIGenerateTab({
                         <SendOutlinedIcon sx={{ fontSize: 16 }} />
                     </button>
                 </div>
-                <div style={{ maxWidth: 760, margin: "6px auto 0", fontSize: "var(--fs-11)", color: "var(--c-text-muted)", textAlign: "center" }}>
-                    AI can make mistakes. Review generated policies before enforcing. Conversation history is saved per system.
+                <div style={{ maxWidth: 760, margin: "6px auto 0" }}>
+                    <CopilotAdvisoryNotice />
                 </div>
             </div>
         </div>

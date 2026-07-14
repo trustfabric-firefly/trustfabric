@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { TopBar } from "@/components/layout/TopBar";
 import { Modal } from "@/components/ui/Modal";
+import { CopilotAdvisoryNotice } from "@/components/ui/CopilotAdvisoryNotice";
 import { AIIcon } from "@/components/ui/AIIcon";
 import { auditApi, copilotApi, systemsApi, type ExplainMissingResponse } from "@/lib/api";
 import type {
@@ -113,11 +114,13 @@ export default function SystemsPage() {
 
     const { data: backendSystems = [] } = useQuery({
         queryKey: ["systems"],
-        queryFn: systemsApi.list,
+        queryFn: () => systemsApi.list({ limit: 200 }),
+        select: (page) => page.items,
     });
     const { data: backendAudit = [] } = useQuery({
         queryKey: ["audit"],
-        queryFn: auditApi.list,
+        queryFn: () => auditApi.list({ limit: 200 }),
+        select: (page) => page.items,
     });
 
     const createSystemMutation = useMutation({
@@ -249,27 +252,33 @@ export default function SystemsPage() {
                 title={`Recommendation: ${scanSystemName || "System"}`}
                 subtitle="NIST AI RMF system recommendation"
                 footer={
-                    <div style={{ display: "flex", justifyContent: "space-between", width: "100%", gap: "var(--s-2)" }}>
-                        <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
-                            {runScanMutation.isPending ? "You can close this and keep working while the request finishes." : "Review the guidance before updating the system record."}
+                    <div style={{ display: "flex", flexDirection: "column", width: "100%", gap: "var(--s-3)" }}>
+                        <CopilotAdvisoryNotice
+                            text={scanResult?.disclaimer}
+                            style={{ margin: 0 }}
+                        />
+                        <div style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
+                            <button
+                                className="btn btn--primary btn--sm"
+                                onClick={handleCloseRecommendationModal}
+                            >
+                                Close
+                            </button>
                         </div>
-                        <button
-                            className="btn btn--primary btn--sm"
-                            onClick={handleCloseRecommendationModal}
-                        >
-                            Close
-                        </button>
                     </div>
                 }
             >
                 {runScanMutation.isPending && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
-                        <div style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
-                            Generating recommendation...
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
+                            <div style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
+                                Generating recommendation...
+                            </div>
+                            <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                                This evaluates the selected system and suggests risk tier, data sensitivity, policies, and follow-up questions.
+                            </div>
                         </div>
-                        <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
-                            This evaluates the selected system and suggests risk tier, data sensitivity, policies, and follow-up questions.
-                        </div>
+                        <CopilotAdvisoryNotice />
                     </div>
                 )}
                 {!!scanError && (
@@ -1134,9 +1143,12 @@ function DetailsView({
                                 style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
                             >
                                 <AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />
-                                {explaining ? "Asking Claude…" : "Explain what's missing"}
+                                {explaining ? "Generating explanation…" : "Explain what's missing"}
                             </button>
                         )}
+                    </div>
+                    <div style={{ marginTop: "var(--s-3)", maxWidth: 720 }}>
+                        <CopilotAdvisoryNotice />
                     </div>
 
                     {explainError && (
@@ -1154,14 +1166,11 @@ function DetailsView({
                             <div style={{ display: "flex", alignItems: "center", gap: "var(--s-2)", marginBottom: "var(--s-3)" }}>
                                 <AutoAwesomeOutlinedIcon sx={{ fontSize: 16, color: "var(--c-accent)" }} />
                                 <span style={{ fontWeight: "var(--fw-semibold)", fontSize: "var(--fs-13)" }}>
-                                    Claude&apos;s Explanation — {explanation.system_name}
-                                </span>
-                                <span style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", marginLeft: "auto" }}>
-                                    {explanation.disclaimer}
+                                    AI explanation — {explanation.system_name}
                                 </span>
                                 <button
                                     type="button"
-                                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--c-text-muted)", fontSize: 16 }}
+                                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--c-text-muted)", fontSize: 16, marginLeft: "auto" }}
                                     onClick={() => setExplanation(null)}
                                 >✕</button>
                             </div>
@@ -1201,6 +1210,8 @@ function DetailsView({
                                     <strong style={{ color: "var(--c-critical)" }}>Risk if ignored:</strong> {explanation.risk_if_ignored}
                                 </p>
                             </div>
+
+                            <CopilotAdvisoryNotice text={explanation.disclaimer} style={{ marginTop: "var(--s-3)" }} />
                         </div>
                     )}
                 </div>
@@ -1287,25 +1298,29 @@ function RecommendationResult({ recommendation }: { recommendation: CopilotRecom
 
     if (!parsed) {
         return (
-            <pre
-                style={{
-                    whiteSpace: "pre-wrap",
-                    fontSize: "var(--fs-12)",
-                    background: "var(--c-surface-raised)",
-                    padding: "var(--s-3)",
-                    borderRadius: "var(--r-md)",
-                    border: "1px solid var(--c-border)",
-                    maxHeight: 420,
-                    overflow: "auto",
-                }}
-            >
-                {recommendation.raw_response}
-            </pre>
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
+                <pre
+                    style={{
+                        whiteSpace: "pre-wrap",
+                        fontSize: "var(--fs-12)",
+                        background: "var(--c-surface-raised)",
+                        padding: "var(--s-3)",
+                        borderRadius: "var(--r-md)",
+                        border: "1px solid var(--c-border)",
+                        maxHeight: 420,
+                        overflow: "auto",
+                    }}
+                >
+                    {recommendation.raw_response}
+                </pre>
+                <CopilotAdvisoryNotice text={recommendation.disclaimer} />
+            </div>
         );
     }
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
+            <CopilotAdvisoryNotice text={recommendation.disclaimer} />
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "var(--s-3)" }}>
                 <RecommendationMetric label="Model Type" value={parsed.suggested_model_type} />
                 <RecommendationMetric label="Data Sensitivity" value={parsed.suggested_data_sensitivity} />

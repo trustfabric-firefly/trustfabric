@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.security import Actor, get_actor, require_admin
 from app.domain.models import (
+    OrganizationCopilotControls,
+    OrganizationCopilotQuotaUpdate,
     OrganizationCreate,
     OrganizationInvite,
     OrganizationInviteCreate,
@@ -14,6 +16,7 @@ from app.domain.models import (
     OrganizationSsoConfigUpdate,
     OrganizationUpdate,
 )
+from app.services.copilot_quota import get_controls, update_quota
 from app.services.members import (
     invite_member,
     list_pending_invites,
@@ -121,6 +124,27 @@ def update_current_organization_sso(
 def disable_current_organization_sso(actor: Actor = Depends(require_admin)) -> dict:
     store.delete_organization_sso_config(actor.organization_id)
     return public_sso_summary(actor.organization_id)
+
+
+@router.get(
+    "/current/copilot-controls",
+    response_model=OrganizationCopilotControls,
+    summary="Copilot usage and quota controls for the active organization",
+)
+def get_current_copilot_controls(actor: Actor = Depends(get_actor)) -> OrganizationCopilotControls:
+    return get_controls(actor.organization_id)
+
+
+@router.patch(
+    "/current/copilot-controls",
+    response_model=OrganizationCopilotControls,
+    summary="Update copilot quotas and cost controls (admin only)",
+)
+def patch_current_copilot_controls(
+    payload: OrganizationCopilotQuotaUpdate,
+    actor: Actor = Depends(require_admin),
+) -> OrganizationCopilotControls:
+    return update_quota(actor.organization_id, payload)
 
 
 @router.post("/", summary="Create a new organization (current user becomes owner)")

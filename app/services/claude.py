@@ -7,11 +7,19 @@ import re
 from datetime import datetime, timezone #timestamps LLM interactions (NIST Measure)
 from typing import Any
 
-from anthropic import Anthropic, APIStatusError
+from anthropic import APIStatusError
 from fastapi import HTTPException, status
 
 from app.core.config import settings
 from app.domain.models import AISystem, LLMInteractionLog, RiskTier
+from app.services.copilot_disclaimer import COPILOT_ADVISORY_DISCLAIMER
+from app.services.llm_resilience import (
+    anthropic_client,
+    build_system_recommendation_fallback,
+    parse_json_payload,
+    provider_error_detail,
+    with_transport_retries,
+)
 from app.services.store import store
 
 
@@ -53,6 +61,7 @@ Respond in strict JSON with the following keys:
 - "rationale": string
 - "clarifying_questions": array of strings
 
+Respond in strict JSON with the following keys only. Return only JSON.
 Remember: your output is advisory only. Human reviewers make the final decisions.
 """.strip()
 
@@ -73,22 +82,47 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
         )
 
     prompt = _build_prompt(system)
-
-    client = Anthropic(api_key=settings.claude_api_key)
+    client = anthropic_client()
     now = datetime.now(timezone.utc)
 
+    parsed_obj: dict[str, Any] | None = None
+    raw = ""
     try:
-        message = client.messages.create(
-            model=settings.anthropic_model,
-            max_tokens=800,
-            temperature=0.2,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
+        for attempt in range(2):
+            attempt_prompt = prompt
+            if attempt == 1:
+                attempt_prompt = f"{prompt}\n\nReturn ONLY a valid JSON object."
+
+            message = with_transport_retries(
+                "claude",
+                lambda attempt_prompt=attempt_prompt: client.messages.create(
+                    model=settings.anthropic_model,
+                    max_tokens=1200,
+                    temperature=0.2,
+                    messages=[{"role": "user", "content": attempt_prompt}],
+                ),
+            )
+            text_parts = [c.text for c in message.content if getattr(c, "type", "") == "text"]
+            raw = "".join(text_parts).strip()
+            parsed_obj = parse_json_payload(raw)
+            if parsed_obj is not None:
+                raw = json.dumps(parsed_obj, separators=(",", ":"))
+                break
+    except HTTPException:
+        store.log_llm_interaction(
+            LLMInteractionLog(
+                timestamp=now,
+                user_id=user_id,
+                system_id=system_id,
+                prompt_template_version=PROMPT_TEMPLATE_VERSION,
+                input_summary="Claude call failed",
+                model_name=settings.anthropic_model,
+                response_summary="transport error",
+                success=False,
+            ),
+            organization_id,
         )
+        raise
     except APIStatusError as exc:  # pragma: no cover - network error handling
         error_detail = f"{type(exc).__name__}: {exc}"
         store.log_llm_interaction(
@@ -106,16 +140,27 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Claude API call failed ({error_detail})",
+            detail=provider_error_detail("Claude API call failed", exc),
         ) from exc
 
-    text_parts = [c.text for c in message.content if getattr(c, "type", "") == "text"]
-    raw = "".join(text_parts).strip()
+    if parsed_obj is None:
+        parsed_obj = build_system_recommendation_fallback(system, raw)
+        raw = json.dumps(parsed_obj, separators=(",", ":"))
+        store.log_llm_interaction(
+            LLMInteractionLog(
+                timestamp=now,
+                user_id=user_id,
+                system_id=system_id,
+                prompt_template_version=PROMPT_TEMPLATE_VERSION,
+                input_summary="Claude returned invalid JSON payload; fallback used",
+                model_name=settings.anthropic_model,
+                response_summary=(raw[:500] + "...") if len(raw) > 500 else raw,
+                success=True,
+            ),
+            organization_id,
+        )
 
-    if len(raw) > 1000:
-        summary = raw[:1000] + "..."
-    else:
-        summary = raw
+    summary = raw[:1000] + "..." if len(raw) > 1000 else raw
 
     # logs LLM interaction (NIST Measure)
     store.log_llm_interaction(
@@ -132,11 +177,11 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
         organization_id,
     )
 
-    # Let the frontend handle JSON parsing/validation of output (NIST Manage)
     return {
         "raw_response": raw,
         "model": settings.anthropic_model,
-        "disclaimer": "AI-generated recommendations for governance only. Human review required before applying.",
+        "provider": "claude",
+        "disclaimer": COPILOT_ADVISORY_DISCLAIMER,
         "nist_ai_rmf_functions": ["Govern", "Map", "Measure", "Manage"],
         "system_risk_hint": {
             "current_risk_tier": system.risk_tier or RiskTier.tier2,
@@ -206,16 +251,28 @@ Write a response in strict JSON with these keys:
 
 Keep the language clear and actionable. This output is shown directly to system owners.""".strip()
 
-    client = Anthropic(api_key=settings.claude_api_key)
+    client = anthropic_client()
     now = datetime.now(timezone.utc)
 
     try:
-        message = client.messages.create(
-            model=settings.anthropic_model,
-            max_tokens=900,
-            temperature=0.2,
-            messages=[{"role": "user", "content": prompt_text}],
+        message = with_transport_retries(
+            "claude",
+            lambda: client.messages.create(
+                model=settings.anthropic_model,
+                max_tokens=900,
+                temperature=0.2,
+                messages=[{"role": "user", "content": prompt_text}],
+            ),
         )
+    except HTTPException:
+        store.log_llm_interaction(LLMInteractionLog(
+            timestamp=now, user_id=user_id, system_id=system_id,
+            prompt_template_version="v1-explain-missing",
+            input_summary=f"explain_missing for system {system_id}",
+            model_name=settings.anthropic_model,
+            response_summary="transport error", success=False,
+        ), organization_id)
+        raise
     except APIStatusError as exc:
         store.log_llm_interaction(LLMInteractionLog(
             timestamp=now, user_id=user_id, system_id=system_id,
@@ -225,7 +282,7 @@ Keep the language clear and actionable. This output is shown directly to system 
             response_summary=str(exc)[:500], success=False,
         ), organization_id)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY,
-                            detail=f"Claude API call failed: {exc}") from exc
+                            detail=provider_error_detail("Claude API call failed", exc)) from exc
 
     text_parts = [c.text for c in message.content if getattr(c, "type", "") == "text"]
     raw = "".join(text_parts).strip()
@@ -244,7 +301,7 @@ Keep the language clear and actionable. This output is shown directly to system 
         **payload,
         "system_name": system.name,
         "risk_tier": system.risk_tier,
-        "disclaimer": "AI-generated guidance. Review with your compliance team before applying.",
+        "disclaimer": COPILOT_ADVISORY_DISCLAIMER,
     }
 
 
@@ -286,15 +343,33 @@ Return strict JSON with keys:
 - rules: object (machine-friendly enforcement fields)
 """.strip()
 
-    client = Anthropic(api_key=settings.claude_api_key)
+    client = anthropic_client()
     now = datetime.now(timezone.utc)
     try:
-        message = client.messages.create(
-            model=settings.anthropic_model,
-            max_tokens=1000,
-            temperature=0.2,
-            messages=[{"role": "user", "content": llm_prompt}],
+        message = with_transport_retries(
+            "claude",
+            lambda: client.messages.create(
+                model=settings.anthropic_model,
+                max_tokens=1000,
+                temperature=0.2,
+                messages=[{"role": "user", "content": llm_prompt}],
+            ),
         )
+    except HTTPException:
+        store.log_llm_interaction(
+            LLMInteractionLog(
+                timestamp=now,
+                user_id=user_id,
+                system_id=None,
+                prompt_template_version="v1-policy-generator",
+                input_summary="Policy generation call failed",
+                model_name=settings.anthropic_model,
+                response_summary="transport error",
+                success=False,
+            ),
+            org_id,
+        )
+        raise
     except APIStatusError as exc:
         error_detail = f"{type(exc).__name__}: {exc}"
         store.log_llm_interaction(
@@ -312,7 +387,7 @@ Return strict JSON with keys:
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Claude API call failed ({error_detail})",
+            detail=provider_error_detail("Claude API call failed", exc),
         ) from exc
 
     text_parts = [c.text for c in message.content if getattr(c, "type", "") == "text"]
@@ -332,5 +407,8 @@ Return strict JSON with keys:
         ),
         org_id,
     )
+    payload.setdefault("disclaimer", COPILOT_ADVISORY_DISCLAIMER)
+    payload.setdefault("provider", "claude")
+    payload.setdefault("model", settings.anthropic_model)
     return payload
 
