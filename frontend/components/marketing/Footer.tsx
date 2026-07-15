@@ -18,6 +18,7 @@ const links = {
     { label: "NIST AI RMF", href: "#compliance" },
     { label: "Documentation", href: "/login" },
     { label: "SSO setup", href: "/login" },
+    { label: "Demo — Figma", href: "https://streamable.com/h1niib" },
   ],
 };
 
@@ -31,7 +32,11 @@ export function Footer() {
             <ul>
               {items.map((item) => (
                 <li key={item.label}>
-                  <Link href={item.href}>{item.label}</Link>
+                  {item.href.startsWith("http") ? (
+                    <a href={item.href} target="_blank" rel="noopener noreferrer">{item.label}</a>
+                  ) : (
+                    <Link href={item.href}>{item.label}</Link>
+                  )}
                 </li>
               ))}
             </ul>
