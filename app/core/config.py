@@ -118,9 +118,13 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def check_production_secrets(self) -> "Settings":
         if self.app_env == "production":
+            # Dev bearer tokens must never be enabled in production.
+            if self.admin_token or self.viewer_token:
+                raise ValueError(
+                    "ADMIN_TOKEN and VIEWER_TOKEN must be empty when APP_ENV=production"
+                )
+
             required = {
-                "admin_token": self.admin_token,
-                "viewer_token": self.viewer_token,
                 "encryption_key": self.encryption_key,
                 "oauth_state_secret": self.oauth_state_secret,
                 "firebase_project_id": self.firebase_project_id,
@@ -132,9 +136,6 @@ class Settings(BaseSettings):
 
             if "*" in self.cors_origins:
                 raise ValueError("Wildcard CORS origin is not allowed in production")
-
-            if self.admin_token or self.viewer_token:
-                raise ValueError("ADMIN_TOKEN and VIEWER_TOKEN must not be set in production")
 
         return self
 
