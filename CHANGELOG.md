@@ -1,98 +1,212 @@
 # Changelog
 
-Two security-hardening changes:
+## Pagination for Audit Log, Scans, Systems, and Events APIs
 
-1. Dev bearer tokens and the frontend stub user are now fully disabled in production builds — auth relies solely on Firebase ID tokens.
-2. The frontend now sends a nonce-based CSP plus a standard set of security headers on every response.
+Added pagination to the audit log, scans (GitHub + AWS), systems, and events list APIs.
 
----
+**Response shape:**
 
-## 1. Disable Dev Bearer Tokens & Stub User in Production
-
-Dev auth shortcuts (bearer tokens, auto-logged-in stub user) are now locked out of any production build, on both backend and frontend.
-
-### Backend (FastAPI)
-
-Set in production:
-
-```bash
-APP_ENV=production
-ADMIN_TOKEN=
-VIEWER_TOKEN=
+```json
+{
+  "items": [ /* ... */ ],
+  "total": 123,
+  "limit": 50,
+  "offset": 0,
+  "has_more": true
+}
 ```
 
-With `APP_ENV=production`:
+**Query params:**
 
-- Dev bearer tokens are **not accepted** — `get_actor` only uses Firebase
-- The API **refuses to start** if `ADMIN_TOKEN` or `VIEWER_TOKEN` is set
-- Fixed a bug where production simultaneously *required* and *forbade* those tokens
+| Param    | Default | Max |
+|----------|---------|-----|
+| `limit`  | 50      | 200 |
+| `offset` | 0       | —   |
 
-### Frontend (Next.js)
+Example:
 
-1. **Build for production** (`next build` / Vercel production) so `NODE_ENV=production`
-2. **Do not set** `NEXT_PUBLIC_DEV_ADMIN_TOKEN` or `NEXT_PUBLIC_DEV_VIEWER_TOKEN`
-3. **Do set** real Firebase web config:
+```
+GET /api/v1/audit/?limit=25&offset=50
+```
 
-   ```bash
-   NEXT_PUBLIC_FIREBASE_API_KEY=...
-   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
-   NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
-   # + storage bucket, messaging sender ID, app ID
-   ```
+**Also updated:**
 
-**Effect:**
-
-- `getDevBearerToken()` returns `undefined` in production builds
-- Without Firebase, the stub user is `null` — no auto-login
-- Middleware redirects unauthenticated users to `/login`
-
-### Production Checklist
-
-| Item | Production value |
-|---|---|
-| `APP_ENV` | `production` |
-| `ADMIN_TOKEN` / `VIEWER_TOKEN` | empty / unset |
-| `NEXT_PUBLIC_DEV_*` | unset |
-| `NEXT_PUBLIC_FIREBASE_*` | set |
-| Frontend build command | `next build` (not `next dev`) |
-
-Locally, you can still keep dev tokens set and skip Firebase — production should rely only on Firebase ID tokens.
+- Shared pagination helper: `app/core/pagination.py`
+- Frontend clients now return `Paginated<T>`
+- Audit log page has previous/next controls
+- Other list pages request the appropriate page size and read from `.items`
 
 ---
 
-## 2. CSP & Security Headers (Frontend)
+## SIEM Audit Log Export via Webhooks
 
-Added per-request Content Security Policy and standard security headers, enforced via `middleware.ts` + `lib/security-headers.ts`.
+Built SIEM-shaped audit log export over webhooks.
 
-### Content Security Policy
+**What it does:**
 
-- Nonce-based `script-src` with `strict-dynamic` — Next.js attaches the nonce automatically
-- Allowlists only what's needed: your API (`NEXT_PUBLIC_API_BASE_URL`), Firebase Auth, and Google Fonts
-- `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`
-- `'unsafe-eval'` allowed only in development
-- HSTS and `upgrade-insecure-requests` applied only in production
-- `style-src` keeps `'unsafe-inline'` so React's `style={}` prop keeps working
+- New event: `audit.created` — fired whenever an audit row is written
+- SIEM-shaped payload includes: `source`, `category`, `severity`, `actor_user_id`, `event_type`, `summary`, `occurred_at`, etc.
+- HMAC-signed delivery (`X-TrustFabric-Signature`), same scheme as existing scan webhooks
 
-### Additional Headers
+**Example envelope:**
 
-Set via middleware and `next.config.js`:
+```json
+{
+  "event": "audit.created",
+  "timestamp": "2026-07-10T17:00:00Z",
+  "organization_id": "org-1",
+  "data": {
+    "source": "trustfabric",
+    "audit_id": 42,
+    "event_type": "system_created",
+    "category": "inventory",
+    "severity": "info",
+    "actor_user_id": "user-1",
+    "summary": "Created system X",
+    "occurred_at": "2026-07-10T17:00:00Z"
+  }
+}
+```
 
-| Header | Value |
-|---|---|
-| `X-Content-Type-Options` | `nosniff` |
-| `X-Frame-Options` | `DENY` |
-| `Referrer-Policy` | `strict-origin-when-cross-origin` |
-| `Permissions-Policy` | camera / mic / geolocation / payment disabled |
-| `Cross-Origin-Opener-Policy` | `same-origin` |
-| `Cross-Origin-Resource-Policy` | `same-origin` |
-| `Strict-Transport-Security` | production only |
-| `poweredByHeader` | `false` |
+**API:**
 
-### Layout Changes
+- `GET/POST /api/v1/webhooks/`
+- `GET /api/v1/webhooks/events`
+- `POST /api/v1/webhooks/{id}/test`
+- `PATCH/DELETE /api/v1/webhooks/{id}`
 
-- Forced dynamic rendering so per-request nonces work correctly
-- `nonce` is passed to `ThemeProvider` for next-themes' inline script
+**Setup:** In **Settings → SIEM & webhook export**, paste your unique URL.
 
-### Verifying
+> ⚠️ Currently pointed at a temporary [webhooks.site](https://webhook.site) endpoint for testing — swap this for your real SIEM ingestion URL (and rotate the signing secret) before relying on this in production, since testing values shouldn't be treated as long-lived credentials.
 
-Open DevTools → Network → select the document request → check response headers for `Content-Security-Policy`.
+Use **Send Test** to confirm the payload arrives at the configured URL.
+
+---
+
+## QoL & Fixes
+
+- Added missing scroll behavior on the **Compliance** page
+- Removed mock data from the SOC 2, EU AI Act, and NIST CSF dashboard heatmaps
+
+---
+
+## 1. LLM Interaction Logs — Admin API
+
+`llm_logs` are now exposed via an admin API for forensics.
+
+**Endpoints** (accessible by `owner`, `admin`, `security_admin`):
+
+- `GET /api/v1/llm-logs/`
+- `GET /api/v1/llm-logs/{log_id}`
+
+**List filters:**
+
+- `system_id` — filter by AI system
+- `user_id` — filter by caller
+- `model_name` — filter by model
+- `success` — `true` / `false`
+- `start` / `end` — ISO timestamps
+- `limit` — 1–500 (default 200); newest first
+
+**Each log includes:**
+
+- Timestamp
+- User
+- System
+- Prompt template version
+- Input/response summaries
+- Model name
+- Success flag
+
+Routes are rate limited (default tier) and covered by 5 tests in `tests/test_llm_logs.py`.
+
+---
+
+## 2. Hardened Copilot for Production
+
+- **Timeouts:** 60s default on LLM model calls
+- **Transport retries:** up to 2 retries (3 attempts total) with exponential backoff on timeouts, connection errors, `429`, `502`, `503`, `504`
+- **Circuit breaker:** after 5 consecutive transport failures per provider, that provider is skipped for 5 minutes and `auto` mode falls through to the next provider
+- **JSON fallback:** shared `parse_json_payload` + `build_system_recommendation_fallback` now used by Claude as well as OpenAI/Gemini
+
+**Routing flow (`COPILOT_PROVIDER=auto`):**
+
+1. Skip providers with an open circuit
+2. Call provider with timeout + transport retries
+3. On `502`/`503`, try the next provider
+4. On malformed JSON for system recommendations → structured heuristic fallback (all 3 providers)
+
+**Tests:** 25 new/updated tests in `test/test_llm_resilience.py` and `tests/test_copilot.py`.
+
+---
+
+## 3. Consistent Advisory-Only Disclaimers Across Copilot UI
+
+All copilot UI surfaces now show advisory-only disclaimers consistently.
+
+**Canonical copy:**
+
+> AI-generated recommendations for governance only. Human review required before applying.
+
+Defined once in:
+
+- `frontend/lib/copilot-disclaimer.ts`
+- `app/services/copilot_disclaimer.py`
+
+`CopilotAdvisoryNotice` is the shared UI component. Shown on:
+
+- Systems → Recommendation modal
+- Systems → Compliance panel
+- System → Explain missing
+- Policies → AI Generate tab
+
+---
+
+## 4. Per-Org Copilot Usage Quotas and Cost Controls
+
+Enforcement lives in `app/services/copilot_quota.py`. Before any copilot LLM call:
+
+- **Org enabled** — kill switch per org
+- **Monthly request limit** — default 200 (0 = unlimited, capped by platform max)
+- **Monthly cost cap** — estimated spend from `COPILOT_ESTIMATED_COST_PER_REQUEST_USD` (default: $0.02/request)
+- **Per-user daily limit** — default 50 requests/user/day
+
+Over-limit requests return `429` with `Retry-After`.
+
+**Usage is recorded after successful calls for:**
+
+- System recommendations
+- Policy generation (including persistent chat)
+- Explain-missing controls
+
+**API:**
+
+- `GET /api/v1/organizations/current/copilot-controls` — accessible by all members
+- `PATCH /api/v1/organizations/current/copilot-controls` — org admin only
+
+**New `.env` configuration:**
+
+```
+COPILOT_DEFAULT_MONTHLY_REQUEST_LIMIT=200
+COPILOT_DEFAULT_MONTHLY_COST_CAP_USD=25
+COPILOT_DEFAULT_DAILY_REQUEST_LIMIT_PER_USER=50
+COPILOT_PLATFORM_MAX_MONTHLY_REQUEST_LIMIT=5000
+COPILOT_PLATFORM_MAX_MONTHLY_COST_CAP_USD=500
+COPILOT_ESTIMATED_COST_PER_REQUEST_USD=0.02
+```
+
+> Admins can lower limits below the default but cannot exceed the platform max.
+
+**UI:**
+
+- **Settings → AI Provider → Copilot usage & cost controls**
+  - Shows monthly requests, estimated spend, and limits
+  - Admins can toggle copilot, set request limits, cost caps, and per-user daily limit
+
+**Storage (Firestore collections):**
+
+- `organization_copilot_quotas` — per-org limits
+- `organization_copilot_usage` — monthly counters
+- `organization_copilot_user_daily` — daily per-user counters
+
+**Tests:** `tests/test_copilot_quota.py`
