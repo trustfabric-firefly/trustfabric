@@ -1,5 +1,8 @@
 .env
 .env.local
+.env.*
+!.env.example
+!.env.*.example
 trustfabric-creds.json
 .claude/
 
@@ -25,7 +28,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-docs/
+docs/_build/
 lib64/
 parts/
 sdist/
