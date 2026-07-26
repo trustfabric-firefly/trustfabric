@@ -141,6 +141,19 @@ export default function DashboardPage() {
     // Recently viewed items synthesized from audit events + systems
     const recentlyViewed = useMemo(() => buildRecentlyViewed(systems, auditEvents), [systems, auditEvents]);
 
+    // NIST AI RMF timeline: activeIndex derived from real coverage data
+    const nistActiveIndex = useMemo(() => {
+        if (!nistCoverage) return 0;
+        const order = ["Govern", "Map", "Measure", "Manage"];
+        const byFn = Object.fromEntries(nistCoverage.functions.map((f) => [f.function, f]));
+        let idx = 0;
+        for (const fn of order) {
+            if ((byFn[fn]?.active ?? 0) > 0) idx++;
+            else break;
+        }
+        return idx;
+    }, [nistCoverage]);
+
     const { data: latestScans = [] } = useQuery({
         queryKey: ["scans"],
         queryFn: scansApi.list,
@@ -475,14 +488,13 @@ export default function DashboardPage() {
                             title="NIST AI RMF Assessment"
                             period="Ongoing"
                             steps={["Govern", "Map", "Measure", "Manage"]}
-                            activeIndex={1}
+                            activeIndex={nistActiveIndex}
                         />
-                        <AuditTimeline
-                            title="Internal AI Policy Review"
-                            period="Q1 2026"
-                            steps={["Policy Draft", "Stakeholder Review", "Approval", "Publish"]}
-                            activeIndex={2}
-                        />
+                        <div className="audit-timeline" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "var(--s-2)", padding: "var(--s-6)" }}>
+                            <VerifiedUserOutlinedIcon sx={{ fontSize: 28, color: "var(--c-text-muted)" }} />
+                            <span style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", fontWeight: "var(--fw-medium)" }}>No scheduled audits</span>
+                            <span style={{ fontSize: "var(--fs-11)", color: "var(--c-text-muted)", textAlign: "center" }}>Schedule a compliance audit to track its progress here</span>
+                        </div>
                     </div>
                 </div>
 
