@@ -51,7 +51,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Docs: `http://127.0.0.1:8000/docs` · CORS is driven by `cors_origins` in settings (defaults include `http://localhost:3000` and `http://127.0.0.1:3000`).
+Docs: `http://127.0.0.1:8000/docs` (Swagger) · `http://127.0.0.1:8000/redoc` · see **[docs/api.md](docs/api.md)** for the API documentation deliverable. CORS is driven by `cors_origins` in settings (defaults include `http://localhost:3000` and `http://127.0.0.1:3000`).
 
 ---
 

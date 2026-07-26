@@ -47,7 +47,7 @@
 }
 
 .auth-form-top .mkt-logo {
-  display: inline-block;
+  display: inline-flex;
   margin-bottom: 2.5rem;
 }
 

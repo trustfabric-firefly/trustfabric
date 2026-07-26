@@ -1724,9 +1724,10 @@ select.input {
   font-size: var(--fs-13);
   font-weight: var(--fw-medium);
   color: var(--c-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.4;
 }
 
 .feed__badge {

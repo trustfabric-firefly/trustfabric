@@ -1,9 +1,51 @@
 # Changelog
 
-Two security-hardening changes:
+## 4. Little improvements
+- Changed in .envexample ANTHROPIC_MODEL=claude-3-5-sonnet-20241022 to claude-sonnet-4-6, as the former was retired -> 404
+- Implemented text wrapping in dashboard to remedy long blocks of text disappearing out of view
+- Changed chevron icons to down arrow icons
+- Changed landing page instances of "trustfabric" to TrustFabric with the logo beside it
 
-1. Dev bearer tokens and the frontend stub user are now fully disabled in production builds — auth relies solely on Firebase ID tokens.
-2. The frontend now sends a nonce-based CSP plus a standard set of security headers on every response.
+## 3. Functional Requirements Completeness (Registry, Events, Risk, Policies, Copilot)
+
+Closed remaining gaps against the senior-design functional requirements (§3.1–3.5, §4.1).
+
+### §3.4 Event Logging (Simulated)
+
+- New **Activity Events** page (`/events`) with filters for system, event type, and date range
+- **Test Event Generator** UI to ingest simulated activity events (Postman-compatible API unchanged)
+- Nav entry under Governance
+
+### §3.1 AI System Registry CRUD (UI)
+
+- Wired **Edit** (PATCH), **Archive** (status → Retired), and **Delete** (with confirmation) on the Systems page
+- Status field (**Draft / Active / Retired**) on create and edit forms
+- Model type selectable (**LLM / ML / Agent / Other**)
+
+### §3.2 Risk Tiering (Manual + Justified)
+
+- Risk tier select + **required justification** on create/edit when a tier is set
+- Backend validation: `risk_justification` required whenever `risk_tier` is set (create + update)
+- Risk tier + justification shown prominently on system detail
+- Risk-tier changes continue to emit audit history
+
+### §3.3 Policy Mapping (Visibility + Flags)
+
+- New `GET /api/v1/policies/catalog` exposing YAML policy → risk-tier mappings
+- System detail **Policy Mapping** panel: required policies for the current tier, completeness checks, and **Missing Required Controls** label
+- Stronger missing-controls checks (justification, owner, description, sensitivity for PII controls)
+
+### §3.5 Governance Dashboard
+
+- KPI tile now labels **Activity Events** (simulated activity volume)
+- New **Events per System** panel (top N) using `events_per_system` from the dashboard summary API
+
+### §4.1 Governance Copilot on Create/Edit
+
+- **Generate Recommendations** on create and edit forms via `POST /api/v1/copilot/systems/draft-recommendations`
+- Structured advisory panel with rationale + clarifying questions + disclaimer
+- **Apply selected suggestions** (model type, sensitivity, risk tier + justification) — explicit user confirm only; never auto-finalizes tier/policies
+- Detail-page recommendations can also apply selected fields via PATCH
 
 ---
 

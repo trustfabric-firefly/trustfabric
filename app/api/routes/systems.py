@@ -178,12 +178,15 @@ def get_system(system_id: int, actor: Actor = Depends(get_actor)) -> AISystem:
 
 @router.patch("/{system_id}", response_model=AISystem, summary="Update AI system (admin only)")
 async def update_system(system_id: int, payload: AISystemUpdate, actor: Actor = Depends(require_admin)) -> AISystem:
-    system = store.update_system(
-        system_id,
-        payload,
-        user_id=actor.user_id,
-        organization_id=actor.organization_id,
-    )
+    try:
+        system = store.update_system(
+            system_id,
+            payload,
+            user_id=actor.user_id,
+            organization_id=actor.organization_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     if system is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
     try:

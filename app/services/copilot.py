@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 
 from fastapi import HTTPException, status
 
 from app.core.config import settings
+from app.domain.models import AISystem, AISystemCreate
 from app.services.copilot_quota import (
     CopilotOperation,
     assert_copilot_allowed,
@@ -25,8 +27,8 @@ from app.services.openai_provider import (
 )
 
 
-ProviderFn = Callable[[int, str], dict]
-PolicyProviderFn = Callable[[str, str, list[str] | None], dict]
+ProviderFn = Callable[..., dict]
+PolicyProviderFn = Callable[..., dict]
 
 
 def _provider_order() -> list[str]:
@@ -72,7 +74,13 @@ def _policy_provider_fn(name: str) -> PolicyProviderFn:
     )
 
 
-def generate_recommendations_for_system(system_id: int, user_id: str, organization_id: str) -> dict:
+def _run_system_recommendation_providers(
+    *,
+    user_id: str,
+    organization_id: str,
+    system_id: int | None = None,
+    system: AISystem | None = None,
+) -> dict:
     assert_copilot_allowed(organization_id, user_id)
     errors: list[str] = []
 
@@ -85,6 +93,7 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
                 system_id=system_id,
                 user_id=user_id,
                 organization_id=organization_id,
+                system=system,
             )
             if "provider" not in result:
                 result["provider"] = provider
@@ -112,6 +121,38 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail=f"No copilot provider available ({'; '.join(errors)})",
+    )
+
+
+def generate_recommendations_for_system(system_id: int, user_id: str, organization_id: str) -> dict:
+    return _run_system_recommendation_providers(
+        system_id=system_id,
+        user_id=user_id,
+        organization_id=organization_id,
+    )
+
+
+def generate_recommendations_for_draft(
+    payload: AISystemCreate,
+    user_id: str,
+    organization_id: str,
+) -> dict:
+    """Generate advisory recommendations from unsaved create/edit form metadata."""
+    now = datetime.utcnow()
+    draft = AISystem(
+        id=0,
+        organization_id=organization_id,
+        created_at=now,
+        updated_at=now,
+        required_policies=[],
+        missing_required_controls=False,
+        **payload.model_dump(),
+    )
+    return _run_system_recommendation_providers(
+        system_id=None,
+        user_id=user_id,
+        organization_id=organization_id,
+        system=draft,
     )
 
 

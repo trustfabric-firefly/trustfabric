@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class OrgRole(str, Enum):
@@ -199,6 +199,12 @@ class AISystemBase(BaseModel):
 class AISystemCreate(AISystemBase):
     risk_tier: Optional[RiskTier] = Field(default=None, description="Optional initial risk tier")
     risk_justification: Optional[str] = Field(default=None, description="Justification for risk tier")
+
+    @model_validator(mode="after")
+    def require_justification_when_tier_set(self) -> "AISystemCreate":
+        if self.risk_tier is not None and not (self.risk_justification or "").strip():
+            raise ValueError("risk_justification is required when risk_tier is set")
+        return self
 
 
 class AISystemUpdate(BaseModel):

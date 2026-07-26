@@ -7,9 +7,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.rate_limit import RateLimited, TIER_EXPENSIVE
 from app.core.security import Actor, get_actor, require_operator
-from app.domain.models import AIChatMessage, AIChatMessageCreate, AIChatMessageRole
+from app.domain.models import (
+    AIChatMessage,
+    AIChatMessageCreate,
+    AIChatMessageRole,
+    AISystemCreate,
+    DataSensitivity,
+    ModelType,
+    RiskTier,
+    SystemStatus,
+)
 from app.services.copilot import (
     generate_policy_recommendation,
+    generate_recommendations_for_draft,
     generate_recommendations_for_system,
 )
 from app.services.store import store
@@ -22,8 +32,40 @@ class PolicyGenerateRequest(BaseModel):
     history: list[str] = Field(default_factory=list)
 
 
+class DraftRecommendationRequest(BaseModel):
+    """Unsaved system metadata for copilot suggestions (justification optional)."""
+
+    name: str
+    description: str = ""
+    owner: str = ""
+    business_unit: str = "General"
+    model_type: ModelType = ModelType.llm
+    data_sensitivity: DataSensitivity = DataSensitivity.low
+    external_integrations: list[str] = Field(default_factory=list)
+    status: SystemStatus = SystemStatus.draft
+    risk_tier: RiskTier | None = None
+    risk_justification: str | None = None
+
+
 def _history_lines(messages: list[AIChatMessage]) -> list[str]:
     return [f"{message.role.value}: {message.content}" for message in messages]
+
+
+@router.post(
+    "/systems/draft-recommendations",
+    summary="Generate governance recommendations from unsaved system metadata",
+    dependencies=[Depends(RateLimited(TIER_EXPENSIVE))],
+)
+def generate_draft_system_recommendations(
+    payload: DraftRecommendationRequest,
+    actor: Actor = Depends(require_operator),
+) -> dict:
+    draft_payload = AISystemCreate.model_construct(**payload.model_dump())
+    return generate_recommendations_for_draft(
+        payload=draft_payload,
+        user_id=actor.user_id,
+        organization_id=actor.organization_id,
+    )
 
 
 @router.post(

@@ -95,6 +95,19 @@ def test_system_create_accepts_risk_tier():
     assert system.risk_tier == RiskTier.tier3
 
 
+def test_system_create_requires_justification_with_risk_tier():
+    with pytest.raises(ValidationError):
+        AISystemCreate(
+            name="Fraud Model",
+            description="Detects fraud",
+            owner="Risk",
+            business_unit="Finance",
+            model_type=ModelType.ml,
+            data_sensitivity=DataSensitivity.high,
+            risk_tier=RiskTier.tier3,
+        )
+
+
 def test_system_create_invalid_model_type():
     with pytest.raises(ValidationError):
         AISystemCreate(
