@@ -1,5 +1,11 @@
 # Changelog
 
+## 4. Little improvements
+- Changed in .envexample ANTHROPIC_MODEL=claude-3-5-sonnet-20241022 to claude-sonnet-4-6, as the former was retired -> 404
+- Implemented text wrapping in dashboard to remedy long blocks of text disappearing out of view
+- Changed chevron icons to down arrow icons
+- Changed landing page instances of "trustfabric" to TrustFabric with the logo beside it
+
 ## 3. Functional Requirements Completeness (Registry, Events, Risk, Policies, Copilot)
 
 Closed remaining gaps against the senior-design functional requirements (§3.1–3.5, §4.1).
