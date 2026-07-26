@@ -118,7 +118,7 @@ export default function DashboardPage() {
     const [selectedFramework, setSelectedFramework] = useState<FrameworkKey>("nist_rmf");
     const activeFramework = FRAMEWORK_CONFIGS[selectedFramework];
 
-    // For NIST RMF: use real backend coverage data. For other frameworks: deterministic placeholder.
+    // For NIST RMF: use real backend coverage data. For other frameworks: show empty (not evaluated).
     const heatmapData = useMemo(() => {
         if (selectedFramework === "nist_rmf" && nistCoverage) {
             return activeFramework.categories.map((cat) => {
@@ -132,8 +132,8 @@ export default function DashboardPage() {
                 return cells.slice(0, cat.controls);
             });
         }
-        return generateHeatmap(systems.length, missingControls.length, activeFramework.categories as unknown as { id: string; name: string; controls: number }[]);
-    }, [selectedFramework, nistCoverage, systems.length, missingControls.length]); // eslint-disable-line react-hooks/exhaustive-deps
+        return activeFramework.categories.map((cat) => Array(cat.controls).fill(0) as number[]);
+    }, [selectedFramework, nistCoverage]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const totalControls = activeFramework.categories.reduce((n: number, c: { controls: number }) => n + c.controls, 0);
     const passingControls = heatmapData.flat().filter((v) => v >= 3).length;
@@ -301,7 +301,7 @@ export default function DashboardPage() {
                                         background: "rgba(255,255,255,0.02)",
                                         lineHeight: 1.5,
                                     }}>
-                                        Illustrative preview. Run compliance scans and register AI systems to populate live NIST AI RMF coverage.
+                                        {activeFramework.label} control mapping is coming soon. Switch to NIST AI RMF to see live coverage from your registered systems.
                                     </p>
                                 )}
                                 {/* Category rows */}
@@ -798,21 +798,6 @@ function IntegrationSummaryPill({ count, label }: { count: number; label: string
     );
 }
 
-function generateHeatmap(systemCount: number, missingCount: number, categories: { id: string; name: string; controls: number }[]): number[][] {
-    return categories.map((cat) => {
-        const cells: number[] = [];
-        for (let i = 0; i < cat.controls; i++) {
-            if (systemCount === 0) {
-                cells.push(0);
-            } else if (missingCount > 0 && i % 3 === 0 && cells.filter((c) => c < 0).length < missingCount) {
-                cells.push(-1);
-            } else {
-                cells.push(((i + cat.controls) % 4) + 1);
-            }
-        }
-        return cells;
-    });
-}
 
 type RecentItem = {
     type: string;
