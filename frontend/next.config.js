@@ -5,6 +5,10 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ["@iconify/react"],
   },
+  webpack: (config) => {
+    config.parallelism = 2;
+    return config;
+  },
 };
 
 module.exports = nextConfig;
