@@ -26,6 +26,7 @@ from app.domain.models import (
     AuditEvent,
     AuditEventType,
     DashboardSummary,
+    DataSensitivity,
     GovernancePolicy,
     GovernancePolicyCreate,
     GovernancePolicyUpdate,
@@ -492,6 +493,10 @@ class FirestoreStore:
         update_data = data.model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(system, key, value)
+
+        # Risk tier changes require a non-empty justification (manual + justified).
+        if system.risk_tier is not None and not (system.risk_justification or "").strip():
+            raise ValueError("risk_justification is required when risk_tier is set")
 
         system.updated_at = datetime.utcnow()
         system.required_policies = self._derive_policies(system.risk_tier)
@@ -1567,13 +1572,30 @@ class FirestoreStore:
 
     @staticmethod
     def _missing_controls(required_policies: List[PolicyKey], system_like: AISystemCreate | AISystem) -> bool:
-        # For now we treat "missing controls" as "required policies exist but justification or sensitivity is missing"
+        """Flag incomplete required fields/controls for the system's risk tier."""
         if not required_policies:
             return False
-        if getattr(system_like, "risk_justification", None) is None:
+
+        justification = (getattr(system_like, "risk_justification", None) or "").strip()
+        if not justification:
             return True
-        if getattr(system_like, "data_sensitivity", None) is None:
+
+        sensitivity = getattr(system_like, "data_sensitivity", None)
+        if sensitivity is None:
             return True
+
+        owner = (getattr(system_like, "owner", None) or "").strip()
+        description = (getattr(system_like, "description", None) or "").strip()
+
+        for key in required_policies:
+            if key == PolicyKey.logging_required and not owner:
+                return True
+            if key == PolicyKey.human_review_required and len(justification) < 10:
+                return True
+            if key == PolicyKey.pii_restrictions:
+                # Tier-mapped PII controls require non-Low sensitivity and a documented description.
+                if sensitivity == DataSensitivity.low or not description:
+                    return True
         return False
 
 

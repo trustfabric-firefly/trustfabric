@@ -231,7 +231,7 @@ export default function DashboardPage() {
                     <StatTile label="Risk Exposure Level" value={loadingSummary ? "--" : String(missingControls.length)} sub="Systems with gaps"
                         trend={missingControls.length > 0 ? "down" : undefined} trendVal={missingControls.length > 0 ? `${missingControls.length}` : undefined}
                         icon={<VisibilityOutlinedIcon sx={{ fontSize: 18 }} />} variant="danger" />
-                    <StatTile label="Audit Trail Volume" value={loadingSummary ? "--" : String(summary?.total_events ?? 0)} sub="Logged interactions"
+                    <StatTile label="Activity Events" value={loadingSummary ? "--" : String(summary?.total_events ?? 0)} sub="Simulated activity log volume"
                         icon={<TimelineOutlinedIcon sx={{ fontSize: 18 }} />} variant="info" />
                 </div>
 
@@ -409,8 +409,86 @@ export default function DashboardPage() {
                         </div>
                     </div>
 
-                    {/* RIGHT COLUMN: Recently Viewed + Violations */}
+                    {/* RIGHT COLUMN: Events + Recently Viewed + Violations */}
                     <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
+                        {/* Compact events-per-system */}
+                        <div className="panel">
+                            <div className="panel__header">
+                                <span className="panel__title">Events per System</span>
+                                <Link href="/events" className="btn btn--ghost btn--sm" style={{ gap: 4 }}>
+                                    View log <OpenInNewOutlinedIcon sx={{ fontSize: 14 }} />
+                                </Link>
+                            </div>
+                            <div className="panel__body" style={{ paddingTop: 0 }}>
+                                {(() => {
+                                    const perSystem = summary?.events_per_system ?? {};
+                                    const ranked = Object.entries(perSystem)
+                                        .map(([id, count]) => ({
+                                            id: Number(id),
+                                            count: Number(count) || 0,
+                                            name: systems.find((s) => Number(s.id) === Number(id))?.name ?? `System #${id}`,
+                                        }))
+                                        .sort((a, b) => b.count - a.count)
+                                        .slice(0, 5);
+                                    if (ranked.length === 0) {
+                                        return (
+                                            <p style={{ margin: 0, fontSize: "var(--fs-12)", color: "var(--c-text-muted)", lineHeight: 1.4 }}>
+                                                No activity events yet.
+                                            </p>
+                                        );
+                                    }
+                                    const maxCount = Math.max(...ranked.map((r) => r.count), 1);
+                                    return (
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                            {ranked.map((row) => (
+                                                <div
+                                                    key={row.id}
+                                                    style={{
+                                                        display: "grid",
+                                                        gridTemplateColumns: "1fr auto",
+                                                        gap: "4px 8px",
+                                                        alignItems: "center",
+                                                    }}
+                                                >
+                                                    <span
+                                                        style={{
+                                                            fontSize: "var(--fs-12)",
+                                                            color: "var(--c-text)",
+                                                            fontWeight: "var(--fw-medium)",
+                                                            lineHeight: 1.3,
+                                                            overflowWrap: "anywhere",
+                                                        }}
+                                                    >
+                                                        {row.name}
+                                                    </span>
+                                                    <span className="font-tabular" style={{ fontSize: "var(--fs-12)", color: "var(--c-text-secondary)" }}>
+                                                        {row.count}
+                                                    </span>
+                                                    <div
+                                                        style={{
+                                                            gridColumn: "1 / -1",
+                                                            height: 4,
+                                                            borderRadius: 999,
+                                                            background: "var(--c-surface-hover)",
+                                                            overflow: "hidden",
+                                                        }}
+                                                    >
+                                                        <div
+                                                            style={{
+                                                                width: `${Math.round((row.count / maxCount) * 100)}%`,
+                                                                height: "100%",
+                                                                background: "var(--c-accent)",
+                                                            }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+                        </div>
+
                         {/* Recently Viewed */}
                         <div className="panel">
                             <div className="panel__header">
@@ -821,6 +899,12 @@ const AUDIT_EVENT_META: Record<string, { type: string; badge: string; badgeClass
     policy_mapping_changed:{ type: "Policy",  badge: "Updated",      badgeClass: "badge--info",    icon: DescriptionOutlinedIcon },
 };
 
+function formatAuditSummary(summary: string): string {
+    return summary
+        .replace(/RiskTier\.tier(\d)/gi, "Tier $1")
+        .replace(/\bTier\.tier(\d)\b/gi, "Tier $1");
+}
+
 function buildRecentlyViewed(
     systems: { name: string; status: string; risk_tier: string | null }[],
     auditEvents: { event_type: string; summary: string; timestamp: string }[],
@@ -835,7 +919,13 @@ function buildRecentlyViewed(
     sorted.forEach((ev) => {
         const meta = AUDIT_EVENT_META[ev.event_type];
         if (meta && ev.summary) {
-            items.push({ type: meta.type, title: ev.summary, badge: meta.badge, badgeClass: meta.badgeClass, icon: meta.icon });
+            items.push({
+                type: meta.type,
+                title: formatAuditSummary(ev.summary),
+                badge: meta.badge,
+                badgeClass: meta.badgeClass,
+                icon: meta.icon,
+            });
         }
     });
 

@@ -5,9 +5,66 @@
  * Icons inherit `currentColor` so they follow light/dark theme text colors.
  */
 import { createIcon, type AppIconComponent, type AppIconProps } from "@/components/ui/StreamlineIcon";
+import type { CSSProperties } from "react";
 
 export type { AppIconComponent, AppIconProps };
 export { createIcon };
+
+function resolveSize(sx?: AppIconProps["sx"]): number {
+    const raw = sx?.fontSize ?? 24;
+    if (typeof raw === "number") return raw;
+    const parsed = parseInt(String(raw), 10);
+    return Number.isFinite(parsed) ? parsed : 24;
+}
+
+function sxToStyle(sx?: AppIconProps["sx"]): CSSProperties {
+    if (!sx) return {};
+    const { fontSize: _f, color, ...rest } = sx;
+    const out: Record<string, string | number> = {};
+    if (color != null) out.color = color;
+    for (const [key, value] of Object.entries(rest)) {
+        if (value == null) continue;
+        out[key] = value;
+    }
+    return out as CSSProperties;
+}
+
+/** Simple chevron used for dropdowns / expand-collapse (not the fullscreen expand glyph). */
+function createChevronIcon(direction: "down" | "up", displayName: string): AppIconComponent {
+    const d = direction === "down" ? "M6 9l6 6 6-6" : "M6 15l6-6 6 6";
+    const IconComponent = ({ sx, className, style }: AppIconProps) => {
+        const size = resolveSize(sx);
+        return (
+            <svg
+                width={size}
+                height={size}
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                className={className}
+                aria-hidden
+                style={{
+                    color: sx?.color ?? "currentColor",
+                    flexShrink: 0,
+                    display: "inline-block",
+                    verticalAlign: "middle",
+                    ...sxToStyle(sx),
+                    ...style,
+                }}
+            >
+                <path
+                    d={d}
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                />
+            </svg>
+        );
+    };
+    IconComponent.displayName = displayName;
+    return IconComponent;
+}
 
 // ─── Navigation ─────────────────────────────────────────────────────────────
 export const DashboardOutlinedIcon = createIcon("dashboard-3", { displayName: "DashboardOutlinedIcon" });
@@ -43,15 +100,17 @@ export const EditOutlinedIcon = createIcon("pencil-square", { displayName: "Edit
 export const ModeEditOutlineOutlinedIcon = createIcon("pencil-square", { displayName: "ModeEditOutlineOutlinedIcon" });
 export const CreateOutlinedIcon = createIcon("pen-1", { displayName: "CreateOutlinedIcon" });
 export const ArchiveOutlinedIcon = createIcon("archive-box", { displayName: "ArchiveOutlinedIcon" });
+export const DeleteOutlinedIcon = createIcon("pathfinder-minus-front-2", { displayName: "DeleteOutlinedIcon" });
 export const FilterListOutlinedIcon = createIcon("filter-2", { displayName: "FilterListOutlinedIcon" });
 
 // ─── Chevrons & expand ────────────────────────────────────────────────────────
 export const ChevronRightOutlinedIcon = createIcon("rotate-right-circle", { displayName: "ChevronRightOutlinedIcon" });
 export const ChevronRightIcon = createIcon("rotate-right-circle", { displayName: "ChevronRightIcon" });
-export const ExpandMoreIcon = createIcon("arrow-expand", { displayName: "ExpandMoreIcon" });
-export const ExpandMoreOutlinedIcon = createIcon("arrow-expand", { displayName: "ExpandMoreOutlinedIcon" });
-export const ExpandLessIcon = createIcon("arrow-expand", { displayName: "ExpandLessIcon", rotate: 180 });
-export const KeyboardArrowDownIcon = createIcon("arrow-expand", { displayName: "KeyboardArrowDownIcon" });
+/** Down chevron for selects / disclosure controls (not the fullscreen expand glyph). */
+export const ExpandMoreIcon = createChevronIcon("down", "ExpandMoreIcon");
+export const ExpandMoreOutlinedIcon = createChevronIcon("down", "ExpandMoreOutlinedIcon");
+export const ExpandLessIcon = createChevronIcon("up", "ExpandLessIcon");
+export const KeyboardArrowDownIcon = createChevronIcon("down", "KeyboardArrowDownIcon");
 
 // ─── Status ───────────────────────────────────────────────────────────────────
 export const WarningAmberOutlinedIcon = createIcon("warning-diamond", { displayName: "WarningAmberOutlinedIcon" });

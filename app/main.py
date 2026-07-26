@@ -7,12 +7,55 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.errors import register_error_handlers
 
 logger = logging.getLogger(__name__)
+
+API_DESCRIPTION = """
+TrustFabric REST API — multi-tenant AI governance control plane.
+
+## Authentication
+
+Send a Bearer token on protected routes:
+
+| Mode | Token | When |
+|---|---|---|
+| **Dev** | `ADMIN_TOKEN` or `VIEWER_TOKEN` from `.env` | `APP_ENV` is not `production` |
+| **Production** | Firebase ID token | Always preferred when Firebase is configured |
+
+Optional header: `X-Organization-Id` — select the active organization when the user belongs to more than one.
+
+## Conventions
+
+- Base path for versioned resources: `/api/v1/...`
+- Write endpoints may accept `Idempotency-Key` to safely retry creates
+- Interactive docs: **Swagger UI** at `/docs`, **ReDoc** at `/redoc`, raw schema at `/openapi.json`
+""".strip()
+
+OPENAPI_TAGS = [
+    {"name": "health", "description": "Liveness and readiness probes"},
+    {"name": "sso", "description": "SAML SSO discovery, login, ACS, and code exchange"},
+    {"name": "organizations", "description": "Org profile, members, invites, SSO config, copilot quotas"},
+    {"name": "systems", "description": "AI system registry CRUD, policies, and missing-controls explain"},
+    {"name": "policies", "description": "Governance policy catalog (risk-tier → required controls)"},
+    {"name": "events", "description": "Simulated activity event ingest and query"},
+    {"name": "dashboard", "description": "Governance posture summaries and NIST coverage"},
+    {"name": "audit", "description": "Governance change history"},
+    {"name": "llm-logs", "description": "Copilot / LLM interaction audit logs (admin)"},
+    {"name": "copilot", "description": "LLM recommendations and policy chat"},
+    {"name": "integrations", "description": "GitHub, Slack, AWS, and Figma connections"},
+    {"name": "scans", "description": "GitHub and AWS compliance scans and reports"},
+    {"name": "scan-policies", "description": "Toggleable scan check policies"},
+    {"name": "settings", "description": "Non-secret settings / provider status"},
+    {"name": "compliance", "description": "Framework evaluation against scan results"},
+    {"name": "brand-compliance", "description": "Brand / visual compliance scans"},
+    {"name": "figma", "description": "Figma project/file helpers for brand scans"},
+    {"name": "webhooks", "description": "Outbound SIEM webhook endpoints"},
+]
 
 
 @asynccontextmanager
@@ -39,12 +82,52 @@ async def lifespan(app: FastAPI):
         await job_queue.stop()
 
 
+def custom_openapi(app: FastAPI) -> dict:
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title=settings.app_name,
+        version=settings.app_version,
+        description=API_DESCRIPTION,
+        routes=app.routes,
+        tags=OPENAPI_TAGS,
+    )
+    schema["info"]["contact"] = {
+        "name": "TrustFabric",
+        "url": settings.frontend_url.rstrip("/"),
+    }
+    schema["servers"] = [
+        {"url": settings.api_base_url.rstrip("/"), "description": "Configured API_BASE_URL"},
+        {"url": "http://127.0.0.1:8000", "description": "Local development"},
+    ]
+    # Document Bearer auth so Swagger "Authorize" works for try-it-out.
+    schema.setdefault("components", {}).setdefault("securitySchemes", {})
+    schema["components"]["securitySchemes"]["HTTPBearer"] = {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT or dev token",
+        "description": (
+            "Firebase ID token, or (non-production) ADMIN_TOKEN / VIEWER_TOKEN. "
+            "Optionally send X-Organization-Id for multi-org users."
+        ),
+    }
+    schema["security"] = [{"HTTPBearer": []}]
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
+        description=API_DESCRIPTION,
+        openapi_tags=OPENAPI_TAGS,
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
         lifespan=lifespan,
     )
+    app.openapi = lambda: custom_openapi(app)  # type: ignore[method-assign]
     # Always allow the configured frontend origin (in addition to CORS_ORIGINS).
     allow_origins = list(dict.fromkeys([*settings.cors_origins, settings.frontend_url.rstrip("/")]))
     cors_kwargs: dict = {

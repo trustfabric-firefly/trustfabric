@@ -17,7 +17,9 @@ import type {
     NistCoverage,
     Policy,
     PolicyCreate,
+    PolicyKey,
     PolicyStatus,
+    RiskTier,
     ScanPolicy,
     ScanResult,
     SlackChannel,
@@ -269,8 +271,19 @@ export const systemPoliciesApi = {
 
 
 export const eventsApi = {
-    list: (params?: ListParams & { system_id?: number; event_type?: string }) =>
+    list: (params?: ListParams & { system_id?: number; event_type?: string; start?: string; end?: string }) =>
         request<Paginated<ActivityEvent>>(`/api/v1/events/${buildListQuery(params)}`),
+    create: (data: {
+        system_id: number;
+        timestamp: string;
+        user_id: string;
+        event_type: string;
+        metadata?: Record<string, unknown>;
+    }) =>
+        request<ActivityEvent>("/api/v1/events/", {
+            method: "POST",
+            body: JSON.stringify(data),
+        }),
 };
 
 
@@ -292,6 +305,22 @@ export const copilotApi = {
             `/api/v1/copilot/systems/${systemId}/recommendations`,
             { method: "POST" }
         ),
+    recommendDraft: (data: AISystemCreate) =>
+        request<CopilotRecommendation>(
+            "/api/v1/copilot/systems/draft-recommendations",
+            {
+                method: "POST",
+                body: JSON.stringify(data),
+            }
+        ),
+};
+
+export const policiesApi = {
+    catalog: () =>
+        request<{
+            policies: Array<{ key: PolicyKey; description: string; risk_tiers: RiskTier[] }>;
+            by_risk_tier: Partial<Record<RiskTier, PolicyKey[]>>;
+        }>("/api/v1/policies/catalog"),
 };
 
 export const scanPoliciesApi = {

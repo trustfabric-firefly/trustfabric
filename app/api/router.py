@@ -21,6 +21,7 @@ from app.api.routes.systems import router as systems_router
 from app.api.routes.brand_compliance import router as brand_compliance_router
 from app.api.routes.figma import router as figma_router
 from app.api.routes.webhooks import router as webhooks_router
+from app.api.routes.policy_catalog import router as policy_catalog_router
 
 api_router = APIRouter()
 
@@ -32,6 +33,7 @@ api_router.include_router(
     tags=["organizations"],
 )
 api_router.include_router(systems_router, prefix="/api/v1/systems", tags=["systems"])
+api_router.include_router(policy_catalog_router, prefix="/api/v1/policies", tags=["policies"])
 api_router.include_router(events_router, prefix="/api/v1/events", tags=["events"])
 api_router.include_router(dashboard_router, prefix="/api/v1/dashboard", tags=["dashboard"])
 api_router.include_router(audit_router, prefix="/api/v1/audit", tags=["audit"])

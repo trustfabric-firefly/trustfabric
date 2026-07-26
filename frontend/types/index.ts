@@ -403,8 +403,15 @@ export interface AISystemInventoryItem {
 
   // Risk assessment
   risk_level: RiskLevel;
+  risk_tier: RiskTier | null;
+  risk_justification: string | null;
   data_sensitivity: DataSensitivity;
   data_access_types: DataAccessType[];
+  model_type: ModelType;
+
+  // Policy compliance
+  required_policies: PolicyKey[];
+  missing_required_controls: boolean;
 
   // Platform details
   platform: string;

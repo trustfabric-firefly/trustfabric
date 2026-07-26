@@ -70,10 +70,20 @@ Remember: your output is advisory only. Human reviewers make the final decisions
     return base
 
 
-def generate_recommendations_for_system(system_id: int, user_id: str, organization_id: str) -> dict:
-    system = store.get_system(system_id, organization_id)
+def generate_recommendations_for_system(
+    system_id: int | None = None,
+    user_id: str = "",
+    organization_id: str = "",
+    *,
+    system: AISystem | None = None,
+) -> dict:
     if system is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
+        if system_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="system_id is required")
+        system = store.get_system(system_id, organization_id)
+        if system is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
+    log_system_id = system_id if system_id and system_id > 0 else None
 
     if not settings.claude_api_key:
         raise HTTPException(
@@ -113,7 +123,7 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
             LLMInteractionLog(
                 timestamp=now,
                 user_id=user_id,
-                system_id=system_id,
+                system_id=log_system_id,
                 prompt_template_version=PROMPT_TEMPLATE_VERSION,
                 input_summary="Claude call failed",
                 model_name=settings.anthropic_model,
@@ -129,7 +139,7 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
             LLMInteractionLog(
                 timestamp=now,
                 user_id=user_id,
-                system_id=system_id,
+                system_id=log_system_id,
                 prompt_template_version=PROMPT_TEMPLATE_VERSION,
                 input_summary=f"Claude call failed: {type(exc).__name__}",
                 model_name=settings.anthropic_model,
@@ -150,7 +160,7 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
             LLMInteractionLog(
                 timestamp=now,
                 user_id=user_id,
-                system_id=system_id,
+                system_id=log_system_id,
                 prompt_template_version=PROMPT_TEMPLATE_VERSION,
                 input_summary="Claude returned invalid JSON payload; fallback used",
                 model_name=settings.anthropic_model,
@@ -167,9 +177,9 @@ def generate_recommendations_for_system(system_id: int, user_id: str, organizati
         LLMInteractionLog(
             timestamp=now,
             user_id=user_id,
-            system_id=system_id,
+            system_id=log_system_id,
             prompt_template_version=PROMPT_TEMPLATE_VERSION,
-            input_summary=f"System {system_id} ({system.name})",
+            input_summary=f"System {log_system_id or 'draft'} ({system.name})",
             model_name=settings.anthropic_model,
             response_summary=summary,
             success=True,

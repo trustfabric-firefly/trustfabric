@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     )
 
     claude_api_key: str = ""
-    anthropic_model: str = "claude-3-5-sonnet-20241022"
+    anthropic_model: str = "claude-sonnet-4-6"
     openai_api_key: str = ""
     openai_base_url: str = ""
     openai_model: str = "z-ai/glm4.7"
