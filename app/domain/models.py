@@ -415,6 +415,9 @@ class ScanRecord(BaseModel):
 class ScanTriggerRequest(BaseModel):
     github_org: str
     scope: str = "repositories"
+    # When set (e.g. from AI Systems → Run Compliance Scan), results are linked
+    # only to that registry system instead of every GitHub/Copilot system.
+    system_id: Optional[int] = None
 
 
 # --- Scan Policies (user-scoped, drive which checks run) ---

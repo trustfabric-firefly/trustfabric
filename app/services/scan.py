@@ -135,6 +135,7 @@ async def run_scan(
     github_org: str,
     triggered_by: str,
     scan_id: str | None = None,
+    target_system_id: int | None = None,
 ) -> ScanRecord:
     start = time.monotonic()
 
@@ -379,5 +380,5 @@ async def run_scan(
     )
 
     store.save_scan(user_id, organization_id, record)
-    store.link_scan_to_systems(record, organization_id)
+    store.link_scan_to_systems(record, organization_id, target_system_id=target_system_id)
     return record

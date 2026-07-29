@@ -51,7 +51,7 @@ export default function ScansPage() {
     const [trendSourceScanId, setTrendSourceScanId] = useState<string | null>(null);
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    const { data: githubStatus } = useQuery({
+    const { data: githubStatus, isFetched: githubStatusFetched } = useQuery({
         queryKey: ["github-status"],
         queryFn: integrationsApi.getGitHubStatus,
         retry: false,
@@ -69,7 +69,7 @@ export default function ScansPage() {
         retry: false,
     });
 
-    const { data: scanHistory = [] } = useQuery({
+    const { data: scanHistory = [], isFetched: scanHistoryFetched } = useQuery({
         queryKey: ["scans"],
         queryFn: () => scansApi.list({ limit: 50 }),
         select: (page) => page.items,
@@ -101,86 +101,62 @@ export default function ScansPage() {
     }, [refetchAwsScans]);
 
     const githubLogin = githubStatus?.user?.login ?? "";
+    const githubOrgs = githubStatus?.user?.orgs ?? [];
 
     // Configuration state
     const [configOrg, setConfigOrg] = useState("");
     const [configScope, setConfigScope] = useState<ScanScope>("repositories");
     const [configPolicies, setConfigPolicies] = useState<string[]>(["chk_branch_protection", "chk_pr_reviews", "chk_vulnerability_alerts", "chk_actions_restricted"]);
+    const [scanTargetSystemId, setScanTargetSystemId] = useState<number | null>(null);
+    const [scanTargetSystemName, setScanTargetSystemName] = useState<string | null>(null);
 
     const hasScans = scanHistory.length > 0;
     const latestScan = scanHistory[0] ?? null;
     const requestedScanId = searchParams.get("scanId");
     const requestedStart = searchParams.get("start");
+    const requestedSystemId = searchParams.get("systemId");
+    const requestedSystemName = searchParams.get("systemName");
     const handledDeepLink = useRef<string | null>(null);
+    const autoStartInFlight = useRef(false);
+
+    const resolveGithubOrg = useCallback(() => {
+        try {
+            const saved = localStorage.getItem("tf_default_github_org");
+            if (saved?.trim()) return saved.trim();
+        } catch {
+            /* ignore */
+        }
+        if (githubOrgs.length > 0) return githubOrgs[0];
+        return githubLogin || "";
+    }, [githubLogin, githubOrgs]);
 
     const goToHub = useCallback(() => {
         router.push("/scans");
     }, [router]);
 
-    // Deep-link: /scans?app=github&start=config or /scans?scanId=...
-    // Consume query params once, then strip them so effects cannot loop / freeze the UI.
-    useEffect(() => {
-        if (!requestedStart && !requestedScanId) return;
+    const handleStartScan = useCallback(async (opts?: {
+        org?: string;
+        systemId?: number | null;
+        systemName?: string | null;
+    }) => {
+        const org = (opts?.org ?? configOrg ?? resolveGithubOrg()).trim();
+        const systemId = opts?.systemId !== undefined ? opts.systemId : scanTargetSystemId;
+        const systemName = opts?.systemName !== undefined ? opts.systemName : scanTargetSystemName;
 
-        const linkKey = `${activeAppParam ?? ""}|${requestedStart ?? ""}|${requestedScanId ?? ""}|hist:${scanHistory.length}`;
-        if (handledDeepLink.current === linkKey) return;
-
-        // Wait for app=github to be present before consuming start=config.
-        const app = activeApp ?? (requestedStart || requestedScanId ? "github" : null);
-        if (!app) return;
-
-        if (requestedStart === "config" && app === "github") {
-            handledDeepLink.current = linkKey;
-            setView("config");
-            setConfigOrg((prev) => {
-                if (prev) return prev;
-                try {
-                    const saved = localStorage.getItem("tf_default_github_org");
-                    return saved || githubLogin || "";
-                } catch {
-                    return githubLogin || "";
-                }
-            });
-            router.replace(`/scans?app=github`);
-            return;
-        }
-
-        if (requestedScanId) {
-            if (scanHistory.length === 0) return; // wait for history
-            handledDeepLink.current = linkKey;
-            const match = scanHistory.find((scan) => scan.scan_id === requestedScanId);
-            if (match) {
-                setSelectedScan(match);
-                setCurrentScan(match);
-                setView("results");
-            }
-            router.replace(`/scans?app=${app}`);
-        }
-    }, [activeApp, activeAppParam, requestedStart, requestedScanId, githubLogin, scanHistory, router]);
-
-    // Pre-fill org: saved default → GitHub login → empty
-    const handleStartConfig = useCallback(() => {
-        if (!configOrg) {
-            const saved = localStorage.getItem("tf_default_github_org");
-            setConfigOrg(saved || githubLogin);
-        }
-        setView("config");
-    }, [configOrg, githubLogin]);
-
-    const handleCancelConfig = useCallback(() => {
-        setView("main");
-    }, []);
-
-    const handleStartScan = useCallback(async () => {
-        const org = configOrg || githubLogin;
         if (!org) {
             setScanError("Enter a GitHub organization or username, or connect GitHub in Settings.");
+            setView("config");
             return;
         }
         if (githubStatus && !githubStatus.connected) {
             setScanError("GitHub is not connected. Connect your account in Settings, then try again.");
+            setView("config");
             return;
         }
+
+        setConfigOrg(org);
+        if (systemId != null) setScanTargetSystemId(systemId);
+        if (systemName) setScanTargetSystemName(systemName);
         setScanError(null);
         setView("scanning");
 
@@ -193,6 +169,7 @@ export default function ScansPage() {
             current_step: SCAN_STEPS[0],
             pending_steps: SCAN_STEPS.slice(1),
         });
+        if (intervalRef.current) clearInterval(intervalRef.current);
         intervalRef.current = setInterval(() => {
             stepIndex = Math.min(stepIndex + 1, SCAN_STEPS.length - 1);
             setScanProgress({
@@ -205,19 +182,178 @@ export default function ScansPage() {
         }, 1200);
 
         try {
-            const result = await scansApi.trigger({ github_org: org, scope: configScope });
+            const result = await scansApi.trigger({
+                github_org: org,
+                scope: configScope,
+                ...(systemId != null ? { system_id: systemId } : {}),
+            });
             if (intervalRef.current) clearInterval(intervalRef.current);
             setScanProgress({ step: "Done", percentage: 100, completed_steps: SCAN_STEPS, current_step: "Done", pending_steps: [] });
             setCurrentScan(result);
             void queryClient.invalidateQueries({ queryKey: ["scans"] });
+            void queryClient.invalidateQueries({ queryKey: ["systems"] });
             setView("results");
         } catch (err) {
             if (intervalRef.current) clearInterval(intervalRef.current);
             setScanError(err instanceof Error ? err.message : "Scan failed");
             setView("config");
         }
-    }, [configOrg, configScope, githubLogin, githubStatus, queryClient]);
+    }, [
+        configOrg,
+        configScope,
+        githubStatus,
+        queryClient,
+        resolveGithubOrg,
+        scanTargetSystemId,
+        scanTargetSystemName,
+    ]);
 
+    // Deep-link: /scans?app=github&start=run&systemId=… (legacy) or start=config / scanId=…
+    // Prefer AI Systems page for system-targeted scans; this path recovers via sessionStorage
+    // so router.replace remounts cannot wipe the auto-start intent.
+    useEffect(() => {
+        const PENDING_KEY = "tf_pending_system_scan";
+
+        // Recover after a remount that cleared ?start=run from the URL.
+        if (!requestedStart && !requestedScanId && activeApp === "github" && !autoStartInFlight.current) {
+            try {
+                const raw = sessionStorage.getItem(PENDING_KEY);
+                if (raw) {
+                    sessionStorage.removeItem(PENDING_KEY);
+                    const pending = JSON.parse(raw) as { systemId?: number | null; systemName?: string | null };
+                    if (!githubStatusFetched) {
+                        sessionStorage.setItem(PENDING_KEY, raw);
+                        return;
+                    }
+                    if (!githubStatus?.connected) {
+                        setScanError("GitHub is not connected. Connect your account in Settings, then try again.");
+                        setView("config");
+                        return;
+                    }
+                    const org = resolveGithubOrg();
+                    if (!org) {
+                        setScanError("Choose a GitHub organization to scan Copilot compliance settings for this AI system.");
+                        setView("config");
+                        return;
+                    }
+                    autoStartInFlight.current = true;
+                    setScanTargetSystemId(pending.systemId ?? null);
+                    setScanTargetSystemName(pending.systemName ?? null);
+                    setConfigOrg(org);
+                    void handleStartScan({
+                        org,
+                        systemId: pending.systemId ?? null,
+                        systemName: pending.systemName ?? null,
+                    }).finally(() => {
+                        autoStartInFlight.current = false;
+                    });
+                }
+            } catch {
+                /* ignore */
+            }
+        }
+
+        if (!requestedStart && !requestedScanId) return;
+
+        const linkKey = `${activeAppParam ?? ""}|${requestedStart ?? ""}|${requestedScanId ?? ""}|${requestedSystemId ?? ""}|hist:${scanHistory.length}|gh:${githubStatusFetched ? (githubStatus?.connected ? "1" : "0") : "loading"}`;
+        if (handledDeepLink.current === linkKey) return;
+
+        const app = activeApp ?? (requestedStart || requestedScanId ? "github" : null);
+        if (!app) return;
+
+        if (requestedStart === "run" && app === "github") {
+            if (!githubStatusFetched) return;
+
+            handledDeepLink.current = linkKey;
+            const systemId = requestedSystemId ? Number(requestedSystemId) : null;
+            const systemName = requestedSystemName?.trim() || null;
+            if (systemId != null && !Number.isNaN(systemId)) {
+                setScanTargetSystemId(systemId);
+            }
+            if (systemName) setScanTargetSystemName(systemName);
+
+            try {
+                sessionStorage.setItem(
+                    PENDING_KEY,
+                    JSON.stringify({ systemId, systemName }),
+                );
+            } catch {
+                /* ignore */
+            }
+
+            router.replace(`/scans?app=github`);
+            // Auto-start continues via the sessionStorage recovery branch after replace.
+            return;
+        }
+
+        if (requestedStart === "config" && app === "github") {
+            handledDeepLink.current = linkKey;
+            setView("config");
+            setConfigOrg((prev) => {
+                if (prev) return prev;
+                return resolveGithubOrg();
+            });
+            router.replace(`/scans?app=github`);
+            return;
+        }
+
+        if (requestedScanId) {
+            // Wait until the history query settles — empty list is a valid result.
+            if (!scanHistoryFetched) return;
+
+            handledDeepLink.current = linkKey;
+            const match = scanHistory.find((scan) => scan.scan_id === requestedScanId);
+            if (match) {
+                setSelectedScan(match);
+                setCurrentScan(match);
+                setView("results");
+                router.replace(`/scans?app=${app}`);
+                return;
+            }
+
+            // Not in the recent list — fetch by id so deep-links still work.
+            router.replace(`/scans?app=${app}`);
+            void scansApi.get(requestedScanId)
+                .then((scan) => {
+                    setSelectedScan(scan);
+                    setCurrentScan(scan);
+                    setView("results");
+                })
+                .catch((err) => {
+                    setScanError(err instanceof Error ? err.message : "Scan not found");
+                    setView("main");
+                });
+        }
+    }, [
+        activeApp,
+        activeAppParam,
+        requestedStart,
+        requestedScanId,
+        requestedSystemId,
+        requestedSystemName,
+        githubLogin,
+        githubStatus,
+        githubStatusFetched,
+        scanHistory,
+        scanHistoryFetched,
+        router,
+        resolveGithubOrg,
+        handleStartScan,
+    ]);
+
+    // Pre-fill org: saved default → GitHub org → login → empty
+    const handleStartConfig = useCallback(() => {
+        if (!configOrg) {
+            setConfigOrg(resolveGithubOrg());
+        }
+        setView("config");
+    }, [configOrg, resolveGithubOrg]);
+
+    const handleCancelConfig = useCallback(() => {
+        setView("main");
+        setScanTargetSystemId(null);
+        setScanTargetSystemName(null);
+    }, []);
     const handleViewResults = useCallback((scan: ScanResult) => {
         setSelectedScan(scan);
         setCurrentScan(scan);
@@ -380,11 +516,17 @@ export default function ScansPage() {
                         onStart={() => void handleStartScan()}
                         githubLogin={githubLogin}
                         scanError={scanError}
+                        systemName={scanTargetSystemName}
                     />
                 )}
 
                 {isGithub && view === "scanning" && scanProgress && (
-                    <ScanningView progress={scanProgress} org={configOrg} policiesCount={configPolicies.length} />
+                    <ScanningView
+                        progress={scanProgress}
+                        org={configOrg}
+                        policiesCount={configPolicies.length}
+                        systemName={scanTargetSystemName}
+                    />
                 )}
 
                 {isGithub && view === "results" && currentScan && (
@@ -542,6 +684,7 @@ function ConfigView({
     onStart,
     githubLogin,
     scanError,
+    systemName,
 }: {
     configOrg: string;
     setConfigOrg: (v: string) => void;
@@ -553,6 +696,7 @@ function ConfigView({
     onStart: () => void;
     githubLogin: string;
     scanError: string | null;
+    systemName?: string | null;
 }) {
     const effectiveOrg = configOrg || githubLogin;
     const canStart = configPolicies.length > 0;
@@ -560,9 +704,13 @@ function ConfigView({
     return (
         <div className="scan-config-page">
             <header className="scan-config-page__header">
-                <h2 className="scan-config-page__title">Configure compliance scan</h2>
+                <h2 className="scan-config-page__title">
+                    {systemName ? `Scan ${systemName}` : "Configure compliance scan"}
+                </h2>
                 <p className="scan-config-page__subtitle">
-                    Scan your GitHub organization against built-in governance checks for branch protection, reviews, and security settings.
+                    {systemName
+                        ? "TrustFabric reads Copilot and repository governance settings from your connected GitHub account, then applies the results to this registered AI system."
+                        : "Scan your GitHub organization against built-in governance checks for branch protection, reviews, and security settings."}
                 </p>
             </header>
 
@@ -585,6 +733,12 @@ function ConfigView({
                         />
                         {githubLogin && !configOrg && (
                             <p className="form-hint">Defaults to connected account: @{githubLogin}</p>
+                        )}
+                        {systemName && (
+                            <p className="form-hint">
+                                Used only as the data source for Copilot/org settings — results are saved on{" "}
+                                <strong>{systemName}</strong>.
+                            </p>
                         )}
                     </div>
 
@@ -683,7 +837,17 @@ function ConfigView({
 }
 
 
-function ScanningView({ progress, org, policiesCount }: { progress: ScanProgress; org: string; policiesCount: number }) {
+function ScanningView({
+    progress,
+    org,
+    policiesCount,
+    systemName,
+}: {
+    progress: ScanProgress;
+    org: string;
+    policiesCount: number;
+    systemName?: string | null;
+}) {
     return (
         <div className="panel" style={{ maxWidth: 560, margin: "0 auto" }}>
             <div className="panel__body">
@@ -691,7 +855,14 @@ function ScanningView({ progress, org, policiesCount }: { progress: ScanProgress
                     <div className="scan-progress__spinner">
                         <div className="spinner spinner--lg" />
                     </div>
-                    <h2 className="scan-progress__title">Running Compliance Scan</h2>
+                    <h2 className="scan-progress__title">
+                        {systemName ? `Scanning ${systemName}` : "Running Compliance Scan"}
+                    </h2>
+                    {systemName && (
+                        <p style={{ textAlign: "center", fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", marginTop: "var(--s-2)" }}>
+                            Checking Copilot and governance settings via connected GitHub ({org || "…"})
+                        </p>
+                    )}
 
                     <div className="scan-progress__bar-wrap">
                         <div className="progress progress--thick">
@@ -726,7 +897,8 @@ function ScanningView({ progress, org, policiesCount }: { progress: ScanProgress
                     </div>
 
                     <div className="scan-progress__meta">
-                        <div><strong>Organization:</strong> {org}</div>
+                        {systemName && <div><strong>AI system:</strong> {systemName}</div>}
+                        <div><strong>GitHub data source:</strong> {org}</div>
                         <div><strong>Checks enabled:</strong> {policiesCount}</div>
                         <div><strong>Started:</strong> {new Date().toLocaleTimeString()}</div>
                     </div>

@@ -448,15 +448,26 @@ class FirestoreStore:
             systems.append(AISystem.model_validate(payload))
         return sorted(systems, key=lambda system: system.id)
 
-    def link_scan_to_systems(self, scan_record, organization_id: str) -> None:
-        """Update all AI systems that have a GitHub-related integration with the latest scan results.
-        Called automatically after every scan completes."""
+    def link_scan_to_systems(
+        self,
+        scan_record,
+        organization_id: str,
+        target_system_id: int | None = None,
+    ) -> None:
+        """Update AI system(s) with the latest scan results after a scan completes.
+
+        When ``target_system_id`` is set (scan started from a registry system),
+        only that system is updated. Otherwise every GitHub/Copilot-related
+        system in the org is updated.
+        """
         github_keywords = {"github", "copilot", "github copilot"}
         systems = self.list_systems(organization_id)
         for system in systems:
+            if target_system_id is not None and system.id != target_system_id:
+                continue
             integrations_lower = {i.lower() for i in system.external_integrations}
-            # Also match systems with model_type LLM or any github keyword in integrations
-            if integrations_lower & github_keywords or "github" in system.name.lower():
+            name_match = "github" in system.name.lower() or "copilot" in system.name.lower()
+            if target_system_id is not None or integrations_lower & github_keywords or name_match:
                 self._client().collection(self._systems_collection).document(str(system.id)).update({
                     "last_scan_id": scan_record.scan_id,
                     "last_scan_date": scan_record.timestamp.isoformat(),
@@ -464,6 +475,8 @@ class FirestoreStore:
                     "active_violations": len(scan_record.results.violations),
                     "updated_at": datetime.utcnow().isoformat(),
                 })
+                if target_system_id is not None:
+                    break
 
     def get_system(self, system_id: int, organization_id: str) -> Optional[AISystem]:
         doc = self._client().collection(self._systems_collection).document(str(system_id)).get()

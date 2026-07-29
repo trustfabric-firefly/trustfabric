@@ -144,6 +144,7 @@ class JobQueue:
             github_org=job.payload.get("github_org", ""),
             triggered_by=job.payload.get("triggered_by", job.user_id),
             scan_id=job.resource_id,
+            target_system_id=job.payload.get("system_id"),
         )
 
     async def _run_aws_scan(self, job: JobRecord) -> AwsScanRecord:

@@ -333,7 +333,7 @@ export const scanPoliciesApi = {
 };
 
 export const scansApi = {
-    trigger: async (body: { github_org: string; scope: string }) => {
+    trigger: async (body: { github_org: string; scope: string; system_id?: number }) => {
         const pending = await request<ScanResult>("/api/v1/scans/", {
             method: "POST",
             body: JSON.stringify(body),
