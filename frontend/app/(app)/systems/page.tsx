@@ -20,7 +20,7 @@ import { TopBar } from "@/components/layout/TopBar";
 import { Modal } from "@/components/ui/Modal";
 import { CopilotAdvisoryNotice } from "@/components/ui/CopilotAdvisoryNotice";
 import { AIIcon } from "@/components/ui/AIIcon";
-import { auditApi, copilotApi, integrationsApi, policiesApi, systemsApi, type ExplainMissingResponse } from "@/lib/api";
+import { auditApi, copilotApi, integrationsApi, policiesApi, scansApi, systemsApi, type ExplainMissingResponse } from "@/lib/api";
 import type {
     AISystemCreate,
     AISystemInventoryItem,
@@ -33,6 +33,7 @@ import type {
     PolicyKey,
     RiskLevel,
     RiskTier,
+    ScanResult,
     SystemStatus,
     SystemAuditEntry,
     AISystem as BackendAISystem,
@@ -134,6 +135,17 @@ export default function SystemsPage() {
     const [recommendationModalOpen, setRecommendationModalOpen] = useState(false);
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<AISystemInventoryItem | null>(null);
+    const [complianceScanOpen, setComplianceScanOpen] = useState(false);
+    const [complianceScanPending, setComplianceScanPending] = useState(false);
+    const [complianceScanError, setComplianceScanError] = useState("");
+    const [complianceScanResult, setComplianceScanResult] = useState<ScanResult | null>(null);
+    const [complianceScanSystem, setComplianceScanSystem] = useState<AISystemInventoryItem | null>(null);
+    const [scanHistoryOpen, setScanHistoryOpen] = useState(false);
+    const [scanHistorySystem, setScanHistorySystem] = useState<AISystemInventoryItem | null>(null);
+    const [scanHistoryLoading, setScanHistoryLoading] = useState(false);
+    const [scanHistoryError, setScanHistoryError] = useState("");
+    const [scanHistoryItems, setScanHistoryItems] = useState<ScanResult[]>([]);
+    const [scanHistoryLatest, setScanHistoryLatest] = useState<ScanResult | null>(null);
 
     const { data: backendSystems = [] } = useQuery({
         queryKey: ["systems"],
@@ -167,12 +179,16 @@ export default function SystemsPage() {
         setSystems(backendSystems.map(mapBackendSystemToInventory));
     }, [backendSystems]);
 
+    // Keep the open detail view in sync when the systems query refreshes.
+    // Depend on id only — mapping always returns a new object, so including
+    // selectedSystem itself would infinite-loop setState.
+    const selectedSystemId = selectedSystem?.id;
     useEffect(() => {
-        if (selectedSystem && backendSystems.length > 0) {
-            const fresh = backendSystems.find((s) => String(s.id) === selectedSystem.id);
-            if (fresh) setSelectedSystem(mapBackendSystemToInventory(fresh));
-        }
-    }, [backendSystems, selectedSystem]);
+        if (!selectedSystemId || backendSystems.length === 0) return;
+        const fresh = backendSystems.find((s) => String(s.id) === selectedSystemId);
+        if (!fresh) return;
+        setSelectedSystem(mapBackendSystemToInventory(fresh));
+    }, [backendSystems, selectedSystemId]);
 
     const handleRegister = useCallback(() => {
         setView("register");
@@ -252,7 +268,19 @@ export default function SystemsPage() {
         retry: false,
     });
 
-    const handleOpenComplianceScans = useCallback(() => {
+    const resolveGithubOrg = useCallback(() => {
+        try {
+            const saved = localStorage.getItem("tf_default_github_org");
+            if (saved?.trim()) return saved.trim();
+        } catch {
+            /* ignore */
+        }
+        const orgs = githubStatus?.user?.orgs ?? [];
+        if (orgs.length > 0) return orgs[0];
+        return githubStatus?.user?.login ?? "";
+    }, [githubStatus]);
+
+    const handleOpenComplianceScans = useCallback(async (system: AISystemInventoryItem) => {
         if (githubStatus && !githubStatus.connected) {
             const goSettings = window.confirm(
                 "GitHub is not connected yet.\n\nConnect GitHub in Settings before running a compliance scan.\n\nOpen Settings now?",
@@ -260,16 +288,99 @@ export default function SystemsPage() {
             if (goSettings) router.push("/settings#integration-github");
             return;
         }
-        router.push("/scans?app=github&start=config");
-    }, [githubStatus, router]);
 
-    const handleViewScanHistory = useCallback((system: AISystemInventoryItem) => {
-        if (system.last_scan_id) {
-            router.push(`/scans?app=github&scanId=${encodeURIComponent(system.last_scan_id)}`);
+        const org = resolveGithubOrg();
+        if (!org) {
+            window.alert(
+                "No GitHub organization/username found.\n\nConnect GitHub in Settings, or set a default GitHub org under Scan defaults, then try again.",
+            );
             return;
         }
-        router.push("/scans");
-    }, [router]);
+
+        setComplianceScanSystem(system);
+        setComplianceScanResult(null);
+        setComplianceScanError("");
+        setComplianceScanPending(true);
+        setComplianceScanOpen(true);
+
+        try {
+            const result = await scansApi.trigger({
+                github_org: org,
+                scope: "repositories",
+                system_id: Number(system.id),
+            });
+            setComplianceScanResult(result);
+            void queryClient.invalidateQueries({ queryKey: ["systems"] });
+            void queryClient.invalidateQueries({ queryKey: ["scans"] });
+        } catch (error: unknown) {
+            setComplianceScanError(error instanceof Error ? error.message : "Compliance scan failed");
+        } finally {
+            setComplianceScanPending(false);
+        }
+    }, [githubStatus, queryClient, resolveGithubOrg, router]);
+
+    const handleCloseComplianceScan = useCallback(() => {
+        setComplianceScanOpen(false);
+        setComplianceScanPending(false);
+        setComplianceScanError("");
+        setComplianceScanResult(null);
+        setComplianceScanSystem(null);
+    }, []);
+
+    const handleViewComplianceScanResult = useCallback(() => {
+        const scanId = complianceScanResult?.scan_id;
+        handleCloseComplianceScan();
+        if (scanId) {
+            router.push(`/scans?app=github&scanId=${encodeURIComponent(scanId)}`);
+        }
+    }, [complianceScanResult, handleCloseComplianceScan, router]);
+
+    const handleViewScanHistory = useCallback(async (system: AISystemInventoryItem) => {
+        setScanHistorySystem(system);
+        setScanHistoryOpen(true);
+        setScanHistoryLoading(true);
+        setScanHistoryError("");
+        setScanHistoryItems([]);
+        setScanHistoryLatest(null);
+
+        try {
+            const page = await scansApi.list({ limit: 50 });
+            const items = page.items ?? [];
+            setScanHistoryItems(items);
+
+            if (system.last_scan_id) {
+                const fromList = items.find((scan) => scan.scan_id === system.last_scan_id);
+                if (fromList) {
+                    setScanHistoryLatest(fromList);
+                } else {
+                    try {
+                        const latest = await scansApi.get(system.last_scan_id);
+                        setScanHistoryLatest(latest);
+                    } catch {
+                        /* latest scan may have been deleted — still show list */
+                    }
+                }
+            }
+        } catch (error: unknown) {
+            setScanHistoryError(error instanceof Error ? error.message : "Failed to load scan history");
+        } finally {
+            setScanHistoryLoading(false);
+        }
+    }, []);
+
+    const handleCloseScanHistory = useCallback(() => {
+        setScanHistoryOpen(false);
+        setScanHistorySystem(null);
+        setScanHistoryLoading(false);
+        setScanHistoryError("");
+        setScanHistoryItems([]);
+        setScanHistoryLatest(null);
+    }, []);
+
+    const handleOpenScanFromHistory = useCallback((scanId: string) => {
+        handleCloseScanHistory();
+        router.push(`/scans?app=github&scanId=${encodeURIComponent(scanId)}`);
+    }, [handleCloseScanHistory, router]);
 
     const handleCloseRecommendationModal = useCallback(() => {
         setRecommendationModalOpen(false);
@@ -339,8 +450,8 @@ export default function SystemsPage() {
                         system={selectedSystem}
                         auditLog={buildAuditLogForSystem(selectedSystem, backendAudit)}
                         onGenerateRecommendation={() => handleRunScan(selectedSystem)}
-                        onRunComplianceScan={handleOpenComplianceScans}
-                        onViewScanHistory={() => handleViewScanHistory(selectedSystem)}
+                        onRunComplianceScan={() => void handleOpenComplianceScans(selectedSystem)}
+                        onViewScanHistory={() => void handleViewScanHistory(selectedSystem)}
                         onBack={handleBack}
                         onEdit={() => handleEdit(selectedSystem)}
                         onArchive={() => handleArchive(selectedSystem)}
@@ -373,16 +484,13 @@ export default function SystemsPage() {
                 }
             >
                 {runScanMutation.isPending && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
-                            <div style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
-                                Generating recommendation...
-                            </div>
-                            <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
-                                This evaluates the selected system and suggests risk tier, data sensitivity, policies, and follow-up questions.
-                            </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)" }}>
+                        <div style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
+                            Generating recommendation...
                         </div>
-                        <CopilotAdvisoryNotice />
+                        <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                            This evaluates the selected system and suggests risk tier, data sensitivity, policies, and follow-up questions.
+                        </div>
                     </div>
                 )}
                 {!!scanError && (
@@ -395,6 +503,207 @@ export default function SystemsPage() {
                         recommendation={scanResult}
                         onApply={selectedSystem ? handleApplyRecommendationToSystem : undefined}
                     />
+                )}
+            </Modal>
+
+            {/* Compliance Scan Modal */}
+            <Modal
+                open={complianceScanOpen}
+                onClose={complianceScanPending ? () => undefined : handleCloseComplianceScan}
+                title={complianceScanSystem ? `Compliance scan: ${complianceScanSystem.name}` : "Compliance scan"}
+                subtitle="Evaluates Copilot and governance settings for this registered AI system"
+                footer={
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--s-2)", width: "100%" }}>
+                        {complianceScanResult ? (
+                            <>
+                                <button type="button" className="btn btn--secondary btn--sm" onClick={handleCloseComplianceScan}>
+                                    Close
+                                </button>
+                                <button type="button" className="btn btn--primary btn--sm" onClick={handleViewComplianceScanResult}>
+                                    View full results
+                                </button>
+                            </>
+                        ) : (
+                            <button
+                                type="button"
+                                className="btn btn--secondary btn--sm"
+                                onClick={handleCloseComplianceScan}
+                                disabled={complianceScanPending}
+                            >
+                                {complianceScanPending ? "Scanning…" : "Close"}
+                            </button>
+                        )}
+                    </div>
+                }
+            >
+                {complianceScanPending && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)", alignItems: "flex-start" }}>
+                        <div className="spinner" />
+                        <div style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
+                            Scanning compliance for <strong>{complianceScanSystem?.name}</strong>…
+                        </div>
+                        <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                            Reading Copilot / org settings from your connected GitHub account and applying results to this AI system.
+                        </div>
+                    </div>
+                )}
+                {!!complianceScanError && (
+                    <div className="alert alert--danger" style={{ fontSize: "var(--fs-12)" }}>
+                        {complianceScanError}
+                    </div>
+                )}
+                {complianceScanResult && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
+                        <div style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>
+                            Scan complete for <strong>{complianceScanSystem?.name}</strong>.
+                        </div>
+                        <div style={{ display: "flex", gap: "var(--s-4)", flexWrap: "wrap", fontSize: "var(--fs-13)" }}>
+                            <span>
+                                Score:{" "}
+                                <strong>{complianceScanResult.results.compliance_score}%</strong>
+                            </span>
+                            <span>
+                                Violations:{" "}
+                                <strong>{complianceScanResult.results.violations.length}</strong>
+                            </span>
+                            <span>
+                                Checks:{" "}
+                                <strong>
+                                    {complianceScanResult.results.violations.length
+                                        + complianceScanResult.results.compliant.length}
+                                </strong>
+                            </span>
+                        </div>
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", margin: 0 }}>
+                            This system’s Compliance Status has been updated. Open full results for evidence and recommendations.
+                        </p>
+                    </div>
+                )}
+            </Modal>
+
+            {/* Scan History Modal */}
+            <Modal
+                open={scanHistoryOpen}
+                onClose={handleCloseScanHistory}
+                title={scanHistorySystem ? `Scan history: ${scanHistorySystem.name}` : "Scan history"}
+                subtitle="Compliance scans linked to this AI system and recent GitHub governance scans"
+                footer={
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--s-2)", width: "100%" }}>
+                        {scanHistorySystem && (
+                            <button
+                                type="button"
+                                className="btn btn--primary btn--sm"
+                                onClick={() => {
+                                    const system = scanHistorySystem;
+                                    handleCloseScanHistory();
+                                    void handleOpenComplianceScans(system);
+                                }}
+                            >
+                                Run Compliance Scan
+                            </button>
+                        )}
+                        <button type="button" className="btn btn--secondary btn--sm" onClick={handleCloseScanHistory}>
+                            Close
+                        </button>
+                    </div>
+                }
+            >
+                {scanHistoryLoading && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "var(--s-3)" }}>
+                        <div className="spinner" />
+                        <span style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)" }}>Loading scan history…</span>
+                    </div>
+                )}
+                {!!scanHistoryError && (
+                    <div className="alert alert--danger" style={{ fontSize: "var(--fs-12)" }}>
+                        {scanHistoryError}
+                    </div>
+                )}
+                {!scanHistoryLoading && !scanHistoryError && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
+                        {scanHistoryLatest ? (
+                            <div
+                                style={{
+                                    padding: "var(--s-3)",
+                                    borderRadius: "var(--r-md)",
+                                    border: "1px solid var(--c-border)",
+                                    background: "var(--c-surface-2, rgba(0,0,0,0.02))",
+                                }}
+                            >
+                                <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-2)" }}>
+                                    Latest scan for this system
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--s-3)", flexWrap: "wrap", alignItems: "center" }}>
+                                    <div style={{ fontSize: "var(--fs-13)" }}>
+                                        <strong>{scanHistoryLatest.results.compliance_score}%</strong>
+                                        {" · "}
+                                        {scanHistoryLatest.results.violations.length} violation
+                                        {scanHistoryLatest.results.violations.length === 1 ? "" : "s"}
+                                        {" · "}
+                                        {formatDateTime(scanHistoryLatest.timestamp)}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="btn btn--secondary btn--sm"
+                                        onClick={() => handleOpenScanFromHistory(scanHistoryLatest.scan_id)}
+                                    >
+                                        View results
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", margin: 0 }}>
+                                No compliance scan has been recorded for this AI system yet. Run a compliance scan to create one.
+                            </p>
+                        )}
+
+                        {scanHistoryItems.length > 0 && (
+                            <div>
+                                <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-2)" }}>
+                                    Recent workspace scans
+                                </div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)", maxHeight: 280, overflowY: "auto" }}>
+                                    {scanHistoryItems.map((scan) => {
+                                        const isLatest = scan.scan_id === scanHistorySystem?.last_scan_id
+                                            || scan.scan_id === scanHistoryLatest?.scan_id;
+                                        return (
+                                            <button
+                                                key={scan.scan_id}
+                                                type="button"
+                                                onClick={() => handleOpenScanFromHistory(scan.scan_id)}
+                                                style={{
+                                                    display: "flex",
+                                                    justifyContent: "space-between",
+                                                    gap: "var(--s-3)",
+                                                    alignItems: "center",
+                                                    textAlign: "left",
+                                                    padding: "var(--s-3)",
+                                                    borderRadius: "var(--r-sm)",
+                                                    border: isLatest ? "1px solid var(--c-accent)" : "1px solid var(--c-border)",
+                                                    background: "transparent",
+                                                    cursor: "pointer",
+                                                    color: "inherit",
+                                                    fontSize: "var(--fs-12)",
+                                                }}
+                                            >
+                                                <span>
+                                                    {formatDateTime(scan.timestamp)}
+                                                    {isLatest ? " · linked to this system" : ""}
+                                                    {" · "}
+                                                    {scan.organization}
+                                                </span>
+                                                <span style={{ fontWeight: "var(--fw-semibold)", whiteSpace: "nowrap" }}>
+                                                    {scan.status === "completed" || scan.status === "failed"
+                                                        ? `${scan.results.compliance_score}%`
+                                                        : scan.status}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 )}
             </Modal>
 
@@ -726,7 +1035,7 @@ function ListView({
                                         onCloseMenu={() => setOpenMenuId(null)}
                                         onViewDetails={() => onViewDetails(system)}
                                         onRunScan={() => onRunScan(system)}
-                                        onViewScanHistory={() => onViewScanHistory(system)}
+                                        onViewScanHistory={() => void onViewScanHistory(system)}
                                     />
                                 ))}
                             </tbody>
@@ -1993,29 +2302,25 @@ function RecommendationResult({ recommendation, onApply }: { recommendation: Cop
 
     if (!parsed) {
         return (
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)" }}>
-                <pre
-                    style={{
-                        whiteSpace: "pre-wrap",
-                        fontSize: "var(--fs-12)",
-                        background: "var(--c-surface-raised)",
-                        padding: "var(--s-3)",
-                        borderRadius: "var(--r-md)",
-                        border: "1px solid var(--c-border)",
-                        maxHeight: 420,
-                        overflow: "auto",
-                    }}
-                >
-                    {recommendation.raw_response}
-                </pre>
-                <CopilotAdvisoryNotice text={recommendation.disclaimer} />
-            </div>
+            <pre
+                style={{
+                    whiteSpace: "pre-wrap",
+                    fontSize: "var(--fs-12)",
+                    background: "var(--c-surface-raised)",
+                    padding: "var(--s-3)",
+                    borderRadius: "var(--r-md)",
+                    border: "1px solid var(--c-border)",
+                    maxHeight: 420,
+                    overflow: "auto",
+                }}
+            >
+                {recommendation.raw_response}
+            </pre>
         );
     }
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
-            <CopilotAdvisoryNotice text={recommendation.disclaimer} />
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "var(--s-3)" }}>
                 <RecommendationMetric label="Model Type" value={parsed.suggested_model_type} />
                 <RecommendationMetric label="Data Sensitivity" value={parsed.suggested_data_sensitivity} />

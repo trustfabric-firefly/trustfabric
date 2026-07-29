@@ -72,6 +72,14 @@ async def trigger_scan(
     _validate_github_ready(actor.organization_id)
 
     scan_id = str(uuid4())
+    if body.system_id is not None:
+        system = store.get_system(body.system_id, actor.organization_id)
+        if system is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"AI system {body.system_id} not found",
+            )
+
     pending = build_pending_github_scan(
         scan_id=scan_id,
         github_org=body.github_org,
@@ -87,6 +95,7 @@ async def trigger_scan(
             "github_org": body.github_org,
             "scope": body.scope,
             "triggered_by": actor.user_id,
+            "system_id": body.system_id,
         },
         resource_id=scan_id,
     )
