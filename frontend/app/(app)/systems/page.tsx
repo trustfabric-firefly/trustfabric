@@ -20,7 +20,7 @@ import { TopBar } from "@/components/layout/TopBar";
 import { Modal } from "@/components/ui/Modal";
 import { CopilotAdvisoryNotice } from "@/components/ui/CopilotAdvisoryNotice";
 import { AIIcon } from "@/components/ui/AIIcon";
-import { auditApi, copilotApi, policiesApi, systemsApi, type ExplainMissingResponse } from "@/lib/api";
+import { auditApi, copilotApi, integrationsApi, policiesApi, systemsApi, type ExplainMissingResponse } from "@/lib/api";
 import type {
     AISystemCreate,
     AISystemInventoryItem,
@@ -246,9 +246,22 @@ export default function SystemsPage() {
         setScanResult(null);
     }, [selectedSystem, updateSystemMutation]);
 
+    const { data: githubStatus } = useQuery({
+        queryKey: ["github-status"],
+        queryFn: integrationsApi.getGitHubStatus,
+        retry: false,
+    });
+
     const handleOpenComplianceScans = useCallback(() => {
+        if (githubStatus && !githubStatus.connected) {
+            const goSettings = window.confirm(
+                "GitHub is not connected yet.\n\nConnect GitHub in Settings before running a compliance scan.\n\nOpen Settings now?",
+            );
+            if (goSettings) router.push("/settings#integration-github");
+            return;
+        }
         router.push("/scans?app=github&start=config");
-    }, [router]);
+    }, [githubStatus, router]);
 
     const handleViewScanHistory = useCallback((system: AISystemInventoryItem) => {
         if (system.last_scan_id) {

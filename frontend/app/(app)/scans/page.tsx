@@ -111,37 +111,52 @@ export default function ScansPage() {
     const latestScan = scanHistory[0] ?? null;
     const requestedScanId = searchParams.get("scanId");
     const requestedStart = searchParams.get("start");
+    const handledDeepLink = useRef<string | null>(null);
 
     const goToHub = useCallback(() => {
         router.push("/scans");
     }, [router]);
 
+    // Deep-link: /scans?app=github&start=config or /scans?scanId=...
+    // Consume query params once, then strip them so effects cannot loop / freeze the UI.
     useEffect(() => {
-        if ((requestedScanId || requestedStart) && !activeApp) {
-            const params = new URLSearchParams(searchParams.toString());
-            params.set("app", "github");
-            router.replace(`/scans?${params.toString()}`);
-        }
-    }, [requestedScanId, requestedStart, activeApp, searchParams, router]);
+        if (!requestedStart && !requestedScanId) return;
 
-    useEffect(() => {
-        if (requestedStart === "config" && (activeApp === "github" || !activeApp)) {
+        const linkKey = `${activeAppParam ?? ""}|${requestedStart ?? ""}|${requestedScanId ?? ""}|hist:${scanHistory.length}`;
+        if (handledDeepLink.current === linkKey) return;
+
+        // Wait for app=github to be present before consuming start=config.
+        const app = activeApp ?? (requestedStart || requestedScanId ? "github" : null);
+        if (!app) return;
+
+        if (requestedStart === "config" && app === "github") {
+            handledDeepLink.current = linkKey;
             setView("config");
-            if (!configOrg) {
-                const saved = localStorage.getItem("tf_default_github_org");
-                setConfigOrg(saved || githubLogin);
-            }
+            setConfigOrg((prev) => {
+                if (prev) return prev;
+                try {
+                    const saved = localStorage.getItem("tf_default_github_org");
+                    return saved || githubLogin || "";
+                } catch {
+                    return githubLogin || "";
+                }
+            });
+            router.replace(`/scans?app=github`);
+            return;
         }
-    }, [requestedStart, activeApp, configOrg, githubLogin]);
 
-    useEffect(() => {
-        if (!requestedScanId || scanHistory.length === 0) return;
-        const match = scanHistory.find((scan) => scan.scan_id === requestedScanId);
-        if (!match) return;
-        setSelectedScan(match);
-        setCurrentScan(match);
-        setView("results");
-    }, [requestedScanId, scanHistory]);
+        if (requestedScanId) {
+            if (scanHistory.length === 0) return; // wait for history
+            handledDeepLink.current = linkKey;
+            const match = scanHistory.find((scan) => scan.scan_id === requestedScanId);
+            if (match) {
+                setSelectedScan(match);
+                setCurrentScan(match);
+                setView("results");
+            }
+            router.replace(`/scans?app=${app}`);
+        }
+    }, [activeApp, activeAppParam, requestedStart, requestedScanId, githubLogin, scanHistory, router]);
 
     // Pre-fill org: saved default → GitHub login → empty
     const handleStartConfig = useCallback(() => {
@@ -158,7 +173,14 @@ export default function ScansPage() {
 
     const handleStartScan = useCallback(async () => {
         const org = configOrg || githubLogin;
-        if (!org) return;
+        if (!org) {
+            setScanError("Enter a GitHub organization or username, or connect GitHub in Settings.");
+            return;
+        }
+        if (githubStatus && !githubStatus.connected) {
+            setScanError("GitHub is not connected. Connect your account in Settings, then try again.");
+            return;
+        }
         setScanError(null);
         setView("scanning");
 
@@ -194,7 +216,7 @@ export default function ScansPage() {
             setScanError(err instanceof Error ? err.message : "Scan failed");
             setView("config");
         }
-    }, [configOrg, configScope, githubLogin, queryClient]);
+    }, [configOrg, configScope, githubLogin, githubStatus, queryClient]);
 
     const handleViewResults = useCallback((scan: ScanResult) => {
         setSelectedScan(scan);
