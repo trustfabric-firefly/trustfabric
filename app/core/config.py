@@ -7,6 +7,12 @@ from typing import Annotated
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from app.core.secret_manager import load_secrets_into_env
+
+# Populate os.environ from GCP Secret Manager (when SECRETS_BACKEND=gcp-secret-manager)
+# before pydantic-settings reads the environment below.
+load_secrets_into_env()
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -20,8 +26,6 @@ class Settings(BaseSettings):
     default_organization_id: str = "default"
     oauth_state_secret: str = ""
     encryption_key: str = ""
-
-    database_url: str = ""  # DB connection
 
     # Firebase
     firebase_project_id: str = ""
@@ -128,7 +132,6 @@ class Settings(BaseSettings):
                 "encryption_key": self.encryption_key,
                 "oauth_state_secret": self.oauth_state_secret,
                 "firebase_project_id": self.firebase_project_id,
-                "database_url": self.database_url,
             }
             missing = [k for k, v in required.items() if not v]
             if missing:
