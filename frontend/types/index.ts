@@ -317,7 +317,7 @@ export interface AwsScanResult {
 
 export type ScanStatus = "pending" | "running" | "completed" | "failed";
 export type ScanScope = "organization" | "repositories" | "teams";
-export type ViolationStatus = "violation" | "compliant";
+export type ViolationStatus = "violation" | "compliant" | "not_evaluated";
 
 export interface ScanViolation {
   policy_id: string;
@@ -357,6 +357,7 @@ export interface ScanResult {
     total_policies: number;
     violations: ScanViolation[];
     compliant: ScanViolation[];
+    not_evaluated?: ScanViolation[];
     scanned_repositories?: string[];
   };
   duration_seconds: number;

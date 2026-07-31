@@ -184,7 +184,9 @@ def test_evaluate_all_active_policies_skips_failing_policy():
             ):
                 return await evaluate_all_active_policies("org-1", {}, "key", "model")
 
-    assert asyncio.run(_run()) == []
+    results = asyncio.run(_run())
+    assert len(results) == 2
+    assert all(item.status == ViolationStatus.not_evaluated for item in results)
 
 
 def test_evaluate_all_active_policies_honors_selected_policy_ids():
@@ -207,3 +209,15 @@ def test_evaluate_all_active_policies_honors_selected_policy_ids():
     evaluate = asyncio.run(_run())
     assert evaluate.await_count == 1
     assert evaluate.await_args.args[0].id == "selected-policy"
+
+
+def test_evaluate_all_active_policies_keeps_policy_when_evaluator_is_unavailable():
+    async def _run():
+        with patch("app.services.store.store") as mock_store:
+            mock_store.list_all_active_governance_policies.return_value = [_policy()]
+            return await evaluate_all_active_policies("org-1", {}, "", "model")
+
+    results = asyncio.run(_run())
+    assert len(results) == 1
+    assert results[0].status == ViolationStatus.not_evaluated
+    assert results[0].policy_id == "pol-1"

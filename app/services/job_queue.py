@@ -246,6 +246,7 @@ def build_pending_github_scan(
             total_policies=0,
             violations=[],
             compliant=[],
+            not_evaluated=[],
             scanned_repositories=[],
         ),
         duration_seconds=0.0,

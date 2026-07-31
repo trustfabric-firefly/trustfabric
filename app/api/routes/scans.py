@@ -251,6 +251,15 @@ def _build_report_html(r: ScanRecord) -> str:
             <td>{c.evidence}</td>
         </tr>"""
 
+    not_evaluated_html = ""
+    for item in r.results.not_evaluated:
+        not_evaluated_html += f"""
+        <tr>
+            <td><strong>{item.policy_name}</strong></td>
+            <td><span style="color:#64748b;font-weight:600;text-transform:uppercase;font-size:11px">{item.severity.value}</span></td>
+            <td>{item.evidence}</td>
+        </tr>"""
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -311,6 +320,7 @@ def _build_report_html(r: ScanRecord) -> str:
   <div class="stats">
     <div class="stat"><div class="stat-num" style="color:#ef4444">{len(r.results.violations)}</div><div class="stat-lbl">Violations</div></div>
     <div class="stat"><div class="stat-num" style="color:#22c55e">{len(r.results.compliant)}</div><div class="stat-lbl">Compliant</div></div>
+    <div class="stat"><div class="stat-num" style="color:#64748b">{len(r.results.not_evaluated)}</div><div class="stat-lbl">Not evaluated</div></div>
     <div class="stat"><div class="stat-num">{r.results.total_policies}</div><div class="stat-lbl">Total checks</div></div>
   </div>
 </div>
@@ -318,6 +328,8 @@ def _build_report_html(r: ScanRecord) -> str:
 {'<h2>⚠ Policy Violations (' + str(len(r.results.violations)) + ')</h2><table><thead><tr><th>Policy</th><th>Severity</th><th>Evidence</th><th>Recommendation</th></tr></thead><tbody>' + violations_html + '</tbody></table>' if r.results.violations else '<h2>✓ No Violations Found</h2>'}
 
 {'<h2>✓ Compliant Policies (' + str(len(r.results.compliant)) + ')</h2><table><thead><tr><th>Policy</th><th>Severity</th><th>Evidence</th></tr></thead><tbody>' + compliant_html + '</tbody></table>' if r.results.compliant else ''}
+
+{'<h2>◌ Included but Not Evaluated (' + str(len(r.results.not_evaluated)) + ')</h2><p style="color:#64748b;margin-bottom:12px">These selected custom policies were included in the scan but GitHub could not provide enough evidence for an automated result. They do not affect the compliance score.</p><table><thead><tr><th>Policy</th><th>Severity</th><th>Why no result</th></tr></thead><tbody>' + not_evaluated_html + '</tbody></table>' if r.results.not_evaluated else ''}
 
 <h2>NIST AI RMF Alignment</h2>
 <div class="nist">

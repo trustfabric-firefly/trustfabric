@@ -104,6 +104,9 @@ async def evaluate_policy(
     - the policy is not applicable to GitHub configuration
     - Claude fails or returns unparseable output
     """
+    if not api_key:
+        return None
+
     import anthropic
 
     rules_text = (
@@ -177,8 +180,9 @@ async def evaluate_all_active_policies(
 ) -> list[ScanViolation]:
     """Fetch all active governance policies and evaluate each one against the GitHub snapshot.
 
-    Results are appended to the scan after the built-in hardcoded checks.
-    Individual policy failures never abort the scan.
+    Results are appended to the scan after the built-in hardcoded checks. Policies
+    without a conclusive result are returned as ``not_evaluated`` so they remain
+    visible in the audit report. Individual policy failures never abort the scan.
     """
     from app.services.store import store
 
@@ -194,7 +198,25 @@ async def evaluate_all_active_policies(
             item = await evaluate_policy(policy, github_snapshot, api_key, model)
             if item is not None:
                 results.append(item)
+            else:
+                results.append(_not_evaluated(policy))
         except Exception:
-            pass  # Belt-and-suspenders: never let one policy crash the scan
+            results.append(_not_evaluated(policy))
 
     return results
+
+
+def _not_evaluated(policy: GovernancePolicy) -> ScanViolation:
+    """Keep a selected policy visible when GitHub cannot supply sufficient data."""
+    return ScanViolation(
+        policy_id=policy.id,
+        policy_name=policy.name,
+        status=ViolationStatus.not_evaluated,
+        severity=policy.severity,
+        evidence=(
+            "This active custom policy was included in the GitHub scan, but the connected "
+            "GitHub data and evaluator could not determine a compliance result."
+        ),
+        recommendation="Connect the relevant data source or refine the policy with GitHub-verifiable rules.",
+        risk_score=0,
+    )

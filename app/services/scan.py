@@ -323,36 +323,39 @@ async def run_scan(
     # --- LLM evaluation of custom governance policies ---
     # Runs after hardcoded checks. Evaluates every active GovernancePolicy stored
     # in Firestore (AI-generated, manual, or template) against the real GitHub data.
-    # Skipped when Claude API key is not configured.
-    custom_results: list[ScanViolation] = []
-    if settings.claude_api_key:
-        github_snapshot = build_github_snapshot(
-            github_org=github_org,
-            org_info=org_info,
-            copilot=copilot,
-            repo_stats={
-                "total_repos_scanned": total,
-                "repos_with_branch_protection": branch_protected,
-                "repos_requiring_pr_reviews": pr_required,
-                "repos_with_vulnerability_alerts": vuln_enabled,
-                "repos_with_restricted_actions": actions_restricted,
-            },
-        )
-        custom_results = await evaluate_all_active_policies(
-            organization_id=organization_id,
-            github_snapshot=github_snapshot,
-            api_key=settings.claude_api_key,
-            model=settings.anthropic_model,
-            policy_ids=selected_policy_ids,
-        )
-        for item in custom_results:
-            if item.status == ViolationStatus.compliant:
-                compliant.append(item)
-            else:
-                violations.append(item)
+    # If a conclusive result is unavailable (including when no evaluator is
+    # configured), retain the selected policy in the report as not evaluated.
+    github_snapshot = build_github_snapshot(
+        github_org=github_org,
+        org_info=org_info,
+        copilot=copilot,
+        repo_stats={
+            "total_repos_scanned": total,
+            "repos_with_branch_protection": branch_protected,
+            "repos_requiring_pr_reviews": pr_required,
+            "repos_with_vulnerability_alerts": vuln_enabled,
+            "repos_with_restricted_actions": actions_restricted,
+        },
+    )
+    custom_results = await evaluate_all_active_policies(
+        organization_id=organization_id,
+        github_snapshot=github_snapshot,
+        api_key=settings.claude_api_key,
+        model=settings.anthropic_model,
+        policy_ids=selected_policy_ids,
+    )
+    not_evaluated: list[ScanViolation] = []
+    for item in custom_results:
+        if item.status == ViolationStatus.compliant:
+            compliant.append(item)
+        elif item.status == ViolationStatus.violation:
+            violations.append(item)
+        else:
+            not_evaluated.append(item)
 
-    total_checks = len(compliant) + len(violations)
-    score = round((len(compliant) / total_checks) * 100) if total_checks > 0 else 100
+    evaluated_checks = len(compliant) + len(violations)
+    total_checks = evaluated_checks + len(not_evaluated)
+    score = round((len(compliant) / evaluated_checks) * 100) if evaluated_checks > 0 else 100
 
     # --- Build github_config summary ---
     github_config = GitHubScannedConfig(
@@ -379,6 +382,7 @@ async def run_scan(
             total_policies=total_checks,
             violations=violations,
             compliant=compliant,
+            not_evaluated=not_evaluated,
             scanned_repositories=scanned_repositories,
         ),
         duration_seconds=round(time.monotonic() - start, 2),

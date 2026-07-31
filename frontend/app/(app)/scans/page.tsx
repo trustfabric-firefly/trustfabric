@@ -1096,6 +1096,7 @@ function ResultsView({
     const highRisk = scan.results.violations.filter(v => v.severity === "high");
     const mediumRisk = scan.results.violations.filter(v => v.severity === "medium");
     const lowRisk = scan.results.violations.filter(v => v.severity === "low");
+    const notEvaluated = scan.results.not_evaluated ?? [];
     const scannedRepositories = scan.results.scanned_repositories ?? [];
     const [selectedViolation, setSelectedViolation] = useState<ScanViolation | null>(null);
     const [acknowledgedPolicies, setAcknowledgedPolicies] = useState<string[]>([]);
@@ -1151,11 +1152,13 @@ function ResultsView({
                         </div>
                         <div className="scan-result-header__content">
                             <h2 className="scan-result-header__title">
-                                {hasViolations ? "Compliance Issues Found" : "All Policies Compliant!"}
+                                {hasViolations ? "Compliance Issues Found" : notEvaluated.length > 0 ? "Policies Need Review" : "All Policies Compliant!"}
                             </h2>
                             <p className="scan-result-header__subtitle">
                                 {hasViolations
                                     ? `${scan.results.violations.length} violation${scan.results.violations.length > 1 ? "s" : ""} found (${highRisk.length} High, ${mediumRisk.length} Medium)`
+                                    : notEvaluated.length > 0
+                                        ? `No violations found. ${notEvaluated.length} selected custom ${notEvaluated.length === 1 ? "policy needs" : "policies need"} additional evidence for an automated result.`
                                     : `No violations found. ${scan.results.total_policies} policies checked, all compliant.`
                                 }
                             </p>
@@ -1229,6 +1232,27 @@ function ResultsView({
                                             </span>
                                         )}
                                     </span>
+                                    <span className="scan-compliant-item__evidence">{policy.evidence}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {notEvaluated.length > 0 && (
+                <div className="panel">
+                    <div className="panel__header">
+                        <span className="panel__title">Included but Not Evaluated ({notEvaluated.length})</span>
+                    </div>
+                    <div className="panel__body">
+                        <p style={{ margin: "0 0 var(--s-3)", fontSize: "var(--fs-12)", color: "var(--c-text-secondary)" }}>
+                            These active custom policies were included in this scan but GitHub did not provide enough evidence for an automated result. They do not affect the compliance score.
+                        </p>
+                        {notEvaluated.map((policy) => (
+                            <div key={policy.policy_id} className="scan-compliant-item">
+                                <div className="scan-compliant-item__content">
+                                    <span className="scan-compliant-item__name">{policy.policy_name}</span>
                                     <span className="scan-compliant-item__evidence">{policy.evidence}</span>
                                 </div>
                             </div>

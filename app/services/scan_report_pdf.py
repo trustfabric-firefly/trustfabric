@@ -82,6 +82,7 @@ def build_scan_report_pdf(record: ScanRecord) -> bytes:
     _draw_score_summary(pdf, score, score_rgb, record)
     _draw_violations_section(pdf, record)
     _draw_compliant_section(pdf, record)
+    _draw_not_evaluated_section(pdf, record)
     _draw_nist_section(pdf)
 
     pdf.set_y(-18)
@@ -225,6 +226,22 @@ def _draw_compliant_section(pdf: FPDF, record: ScanRecord) -> None:
         rows=[
             [_pdf_text(c.policy_name), c.severity.value.upper(), _pdf_text(c.evidence)]
             for c in record.results.compliant
+        ],
+        severity_col=1,
+    )
+
+
+def _draw_not_evaluated_section(pdf: FPDF, record: ScanRecord) -> None:
+    if not record.results.not_evaluated:
+        return
+    _section_heading(pdf, f"Included but Not Evaluated ({len(record.results.not_evaluated)})")
+    _data_table(
+        pdf,
+        headers=["Policy", "Severity", "Why no result"],
+        col_widths=(50, 18, 110),
+        rows=[
+            [_pdf_text(item.policy_name), item.severity.value.upper(), _pdf_text(item.evidence)]
+            for item in record.results.not_evaluated
         ],
         severity_col=1,
     )

@@ -369,6 +369,7 @@ class ScanStatus(str, Enum):
 class ViolationStatus(str, Enum):
     violation = "violation"
     compliant = "compliant"
+    not_evaluated = "not_evaluated"
 
 
 class ScanViolation(BaseModel):
@@ -401,6 +402,9 @@ class ScanResults(BaseModel):
     total_policies: int
     violations: List[ScanViolation]
     compliant: List[ScanViolation]
+    # Policies that were selected but could not be evaluated from the connected
+    # GitHub data are retained for auditability and excluded from the score.
+    not_evaluated: List[ScanViolation] = Field(default_factory=list)
     scanned_repositories: List[str] = Field(default_factory=list)
 
 
