@@ -2053,6 +2053,11 @@ function mapBackendSystemToInventory(
         scan_status: hasRealScan
             ? (violations > 0 ? "violations" : "compliant")
             : (system.missing_required_controls ? "violations" : "not_scanned"),
+        risk_tier: system.risk_tier,
+        risk_justification: system.risk_justification,
+        model_type: system.model_type,
+        required_policies: system.required_policies ?? [],
+        missing_required_controls: system.missing_required_controls ?? [],
         status: system.status === "Active" ? "active" : system.status === "Retired" ? "archived" : "draft",
         registered_by: "api",
         registered_at: system.created_at,
