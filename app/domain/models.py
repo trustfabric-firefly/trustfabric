@@ -420,6 +420,10 @@ class ScanRecord(BaseModel):
 class ScanTriggerRequest(BaseModel):
     github_org: str
     scope: str = "repositories"
+    # When provided, run only these built-in check IDs and/or active custom
+    # governance-policy IDs.  Omitting this keeps the organization's enabled
+    # checks and all active custom policies as the default.
+    policy_ids: Optional[List[str]] = Field(default=None, max_length=200)
     # When set (e.g. from AI Systems → Run Compliance Scan), results are linked
     # only to that registry system instead of every GitHub/Copilot system.
     system_id: Optional[int] = None

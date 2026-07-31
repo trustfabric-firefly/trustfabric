@@ -144,3 +144,6 @@ def test_run_scan_completes_with_personal_check(monkeypatch):
     # branch protection passed (1/1 >= threshold)
     assert record.results.compliance_score == 100
     assert any(v.policy_id == "chk_branch_protection" for v in record.results.compliant)
+    # The saved scan reflects the checks that actually ran, rather than every
+    # hard-coded GitHub check.
+    assert record.config.policies_checked == ["chk_branch_protection"]

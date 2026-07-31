@@ -136,6 +136,7 @@ async def run_scan(
     triggered_by: str,
     scan_id: str | None = None,
     target_system_id: int | None = None,
+    policy_ids: list[str] | None = None,
 ) -> ScanRecord:
     start = time.monotonic()
 
@@ -228,6 +229,9 @@ async def run_scan(
     # --- Determine which checks to run based on active scan policies ---
     active_policies = store.get_scan_policies(organization_id)
     enabled_check_ids = {p.check_id for p in active_policies if p.enabled}
+    selected_policy_ids = set(policy_ids) if policy_ids is not None else None
+    if selected_policy_ids is not None:
+        enabled_check_ids &= selected_policy_ids
     active_checks = [c for c in CHECKS if c["id"] in enabled_check_ids]
 
     threshold = max(1, (total + 1) // 2)  # more than half
@@ -320,6 +324,7 @@ async def run_scan(
     # Runs after hardcoded checks. Evaluates every active GovernancePolicy stored
     # in Firestore (AI-generated, manual, or template) against the real GitHub data.
     # Skipped when Claude API key is not configured.
+    custom_results: list[ScanViolation] = []
     if settings.claude_api_key:
         github_snapshot = build_github_snapshot(
             github_org=github_org,
@@ -338,6 +343,7 @@ async def run_scan(
             github_snapshot=github_snapshot,
             api_key=settings.claude_api_key,
             model=settings.anthropic_model,
+            policy_ids=selected_policy_ids,
         )
         for item in custom_results:
             if item.status == ViolationStatus.compliant:
@@ -364,7 +370,8 @@ async def run_scan(
         config=ScanConfig(
             scope="repositories",
             github_org=github_org,
-            policies_checked=[c["id"] for c in CHECKS],
+            policies_checked=[c["id"] for c in active_checks]
+            + [item.policy_id for item in custom_results],
         ),
         github_config=github_config,
         results=ScanResults(

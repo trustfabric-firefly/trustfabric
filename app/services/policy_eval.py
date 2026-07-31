@@ -173,6 +173,7 @@ async def evaluate_all_active_policies(
     github_snapshot: dict,
     api_key: str,
     model: str,
+    policy_ids: Optional[set[str]] = None,
 ) -> list[ScanViolation]:
     """Fetch all active governance policies and evaluate each one against the GitHub snapshot.
 
@@ -182,6 +183,8 @@ async def evaluate_all_active_policies(
     from app.services.store import store
 
     policies = store.list_all_active_governance_policies(organization_id)
+    if policy_ids is not None:
+        policies = [policy for policy in policies if policy.id in policy_ids]
     if not policies:
         return []
 

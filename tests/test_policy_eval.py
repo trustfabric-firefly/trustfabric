@@ -185,3 +185,25 @@ def test_evaluate_all_active_policies_skips_failing_policy():
                 return await evaluate_all_active_policies("org-1", {}, "key", "model")
 
     assert asyncio.run(_run()) == []
+
+
+def test_evaluate_all_active_policies_honors_selected_policy_ids():
+    async def _run():
+        selected = _policy()
+        selected.id = "selected-policy"
+        excluded = _policy()
+        excluded.id = "excluded-policy"
+        with patch("app.services.store.store") as mock_store:
+            mock_store.list_all_active_governance_policies.return_value = [selected, excluded]
+            with patch(
+                "app.services.policy_eval.evaluate_policy",
+                new=AsyncMock(return_value=None),
+            ) as evaluate:
+                await evaluate_all_active_policies(
+                    "org-1", {}, "key", "model", policy_ids={"selected-policy"}
+                )
+                return evaluate
+
+    evaluate = asyncio.run(_run())
+    assert evaluate.await_count == 1
+    assert evaluate.await_args.args[0].id == "selected-policy"

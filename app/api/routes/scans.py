@@ -94,6 +94,7 @@ async def trigger_scan(
         payload={
             "github_org": body.github_org,
             "scope": body.scope,
+            "policy_ids": body.policy_ids,
             "triggered_by": actor.user_id,
             "system_id": body.system_id,
         },

@@ -5,7 +5,7 @@ import { useState, useCallback, useMemo, useRef, useEffect, type ReactNode } fro
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { scansApi, awsScansApi, integrationsApi } from "@/lib/api";
+import { scansApi, awsScansApi, integrationsApi, scanPoliciesApi } from "@/lib/api";
 import { Modal } from "@/components/ui/Modal";
 import { PageEmptyIllustration } from "@/components/ui/PageEmptyIllustration";
 import { TopBar } from "@/components/layout/TopBar";
@@ -37,6 +37,13 @@ const SCAN_STEPS = [
 
 type PageView = "main" | "config" | "scanning" | "results" | "trends";
 
+type AvailablePolicy = {
+    id: string;
+    name: string;
+    severity: PolicySeverity;
+    source: "built-in" | "custom";
+};
+
 export default function ScansPage() {
     const queryClient = useQueryClient();
     const router = useRouter();
@@ -66,6 +73,18 @@ export default function ScansPage() {
     const { data: figmaStatus } = useQuery({
         queryKey: ["figma-status"],
         queryFn: integrationsApi.getFigmaStatus,
+        retry: false,
+    });
+
+    const { data: scanPolicies = [], isFetched: scanPoliciesFetched } = useQuery({
+        queryKey: ["scan-policies"],
+        queryFn: scanPoliciesApi.list,
+        retry: false,
+    });
+
+    const { data: customPolicies = [], isFetched: customPoliciesFetched } = useQuery({
+        queryKey: ["github-custom-policies"],
+        queryFn: scanPoliciesApi.listGithubCustom,
         retry: false,
     });
 
@@ -106,7 +125,9 @@ export default function ScansPage() {
     // Configuration state
     const [configOrg, setConfigOrg] = useState("");
     const [configScope, setConfigScope] = useState<ScanScope>("repositories");
-    const [configPolicies, setConfigPolicies] = useState<string[]>(["chk_branch_protection", "chk_pr_reviews", "chk_vulnerability_alerts", "chk_actions_restricted"]);
+    // `null` means use every active policy returned by the integration. Once a
+    // user changes a checkbox, the explicit selection is retained for the run.
+    const [configPolicies, setConfigPolicies] = useState<string[] | null>(null);
     const [scanTargetSystemId, setScanTargetSystemId] = useState<number | null>(null);
     const [scanTargetSystemName, setScanTargetSystemName] = useState<string | null>(null);
 
@@ -118,6 +139,25 @@ export default function ScansPage() {
     const requestedSystemName = searchParams.get("systemName");
     const handledDeepLink = useRef<string | null>(null);
     const autoStartInFlight = useRef(false);
+
+    const availablePolicies = useMemo<AvailablePolicy[]>(() => [
+        ...scanPolicies
+            .filter((policy) => policy.enabled)
+            .map((policy) => ({
+                id: policy.check_id,
+                name: policy.name,
+                severity: policy.severity,
+                source: "built-in" as const,
+            })),
+        ...customPolicies.map((policy) => ({
+            id: policy.id,
+            name: policy.name,
+            severity: policy.severity,
+            source: "custom" as const,
+        })),
+    ], [customPolicies, scanPolicies]);
+
+    const selectedPolicyIds = configPolicies ?? availablePolicies.map((policy) => policy.id);
 
     const resolveGithubOrg = useCallback(() => {
         try {
@@ -185,6 +225,7 @@ export default function ScansPage() {
             const result = await scansApi.trigger({
                 github_org: org,
                 scope: configScope,
+                policy_ids: selectedPolicyIds,
                 ...(systemId != null ? { system_id: systemId } : {}),
             });
             if (intervalRef.current) clearInterval(intervalRef.current);
@@ -201,6 +242,7 @@ export default function ScansPage() {
     }, [
         configOrg,
         configScope,
+        selectedPolicyIds,
         githubStatus,
         queryClient,
         resolveGithubOrg,
@@ -529,8 +571,10 @@ export default function ScansPage() {
                         setConfigOrg={setConfigOrg}
                         configScope={configScope}
                         setConfigScope={setConfigScope}
-                        configPolicies={configPolicies}
+                        configPolicies={selectedPolicyIds}
                         setConfigPolicies={setConfigPolicies}
+                        availablePolicies={availablePolicies}
+                        policiesLoading={!scanPoliciesFetched || !customPoliciesFetched}
                         onCancel={handleCancelConfig}
                         onStart={() => void handleStartScan()}
                         githubLogin={githubLogin}
@@ -543,7 +587,7 @@ export default function ScansPage() {
                     <ScanningView
                         progress={scanProgress}
                         org={configOrg}
-                        policiesCount={configPolicies.length}
+                        policiesCount={selectedPolicyIds.length}
                         systemName={scanTargetSystemName}
                     />
                 )}
@@ -780,13 +824,6 @@ function MainView({
 }
 
 
-const BUILT_IN_CHECKS = [
-    { id: "chk_branch_protection", name: "Branch Protection on Default Branch", severity: "high" as const },
-    { id: "chk_pr_reviews", name: "Pull Request Reviews Required", severity: "medium" as const },
-    { id: "chk_vulnerability_alerts", name: "Vulnerability Alerts Enabled", severity: "high" as const },
-    { id: "chk_actions_restricted", name: "GitHub Actions Restricted to Trusted Sources", severity: "medium" as const },
-];
-
 function ConfigView({
     configOrg,
     setConfigOrg,
@@ -794,6 +831,8 @@ function ConfigView({
     setConfigScope,
     configPolicies,
     setConfigPolicies,
+    availablePolicies,
+    policiesLoading,
     onCancel,
     onStart,
     githubLogin,
@@ -806,6 +845,8 @@ function ConfigView({
     setConfigScope: (v: ScanScope) => void;
     configPolicies: string[];
     setConfigPolicies: (v: string[]) => void;
+    availablePolicies: AvailablePolicy[];
+    policiesLoading: boolean;
     onCancel: () => void;
     onStart: () => void;
     githubLogin: string;
@@ -813,7 +854,7 @@ function ConfigView({
     systemName?: string | null;
 }) {
     const effectiveOrg = configOrg || githubLogin;
-    const canStart = configPolicies.length > 0;
+    const canStart = !policiesLoading && configPolicies.length > 0;
 
     return (
         <div className="scan-config-page">
@@ -862,10 +903,10 @@ function ConfigView({
                             <label className="scan-config__policy-option">
                                 <input
                                     type="checkbox"
-                                    checked={configPolicies.length === BUILT_IN_CHECKS.length}
-                                    onChange={(e) => setConfigPolicies(e.target.checked ? BUILT_IN_CHECKS.map((c) => c.id) : [])}
+                                    checked={availablePolicies.length > 0 && configPolicies.length === availablePolicies.length}
+                                    onChange={(e) => setConfigPolicies(e.target.checked ? availablePolicies.map((policy) => policy.id) : [])}
                                 />
-                                <span>All checks ({BUILT_IN_CHECKS.length})</span>
+                                <span>All active policies ({availablePolicies.length})</span>
                             </label>
                         </div>
                         <div className="form-group">
@@ -909,12 +950,27 @@ function ConfigView({
                             Checks that will run
                         </h3>
                         <ul className="scan-config-page__checks">
-                            {BUILT_IN_CHECKS.map((c) => (
-                                <li key={c.id} className="scan-config-page__check">
+                            {policiesLoading ? (
+                                <li className="scan-config-page__check">Loading active policies…</li>
+                            ) : availablePolicies.map((policy) => (
+                                <li key={policy.id} className="scan-config-page__check">
+                                    <input
+                                        type="checkbox"
+                                        checked={configPolicies.includes(policy.id)}
+                                        onChange={(event) => setConfigPolicies(
+                                            event.target.checked
+                                                ? [...configPolicies, policy.id]
+                                                : configPolicies.filter((id) => id !== policy.id)
+                                        )}
+                                        aria-label={`Run ${policy.name}`}
+                                    />
                                     <span className="scan-config-page__check-dot" />
-                                    <span className="scan-config-page__check-name">{c.name}</span>
-                                    <span className={`badge badge--${c.severity === "high" ? "danger" : "warning"}`} style={{ fontSize: "var(--fs-11)", flexShrink: 0 }}>
-                                        {c.severity}
+                                    <span className="scan-config-page__check-name">{policy.name}</span>
+                                    {policy.source === "custom" && (
+                                        <span className="badge badge--info" style={{ fontSize: "var(--fs-11)", flexShrink: 0 }}>Custom</span>
+                                    )}
+                                    <span className={`badge badge--${policy.severity === "high" ? "danger" : "warning"}`} style={{ fontSize: "var(--fs-11)", flexShrink: 0 }}>
+                                        {policy.severity}
                                     </span>
                                 </li>
                             ))}
@@ -939,7 +995,7 @@ function ConfigView({
 
             <footer className="scan-config-page__footer">
                 <span className="scan-config-page__footer-hint">
-                    {canStart ? `Ready to scan @${effectiveOrg || "…"}` : "Select at least one check to continue"}
+                    {policiesLoading ? "Loading active policies…" : canStart ? `Ready to scan @${effectiveOrg || "…"}` : "Select at least one policy to continue"}
                 </span>
                 <button type="button" className="btn btn--secondary" onClick={onCancel}>Cancel</button>
                 <button type="button" className="btn btn--primary" onClick={onStart} disabled={!canStart}>

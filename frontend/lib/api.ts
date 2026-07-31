@@ -332,6 +332,7 @@ export const policiesApi = {
 
 export const scanPoliciesApi = {
     list: () => request<ScanPolicy[]>("/api/v1/scan-policies/"),
+    listGithubCustom: () => request<Policy[]>("/api/v1/scan-policies/github-custom"),
     toggle: (checkId: string, enabled: boolean) =>
         request<ScanPolicy>(`/api/v1/scan-policies/${checkId}`, {
             method: "PATCH",
@@ -340,7 +341,7 @@ export const scanPoliciesApi = {
 };
 
 export const scansApi = {
-    trigger: async (body: { github_org: string; scope: string; system_id?: number }) => {
+    trigger: async (body: { github_org: string; scope: string; policy_ids?: string[]; system_id?: number }) => {
         const pending = await request<ScanResult>("/api/v1/scans/", {
             method: "POST",
             body: JSON.stringify(body),
