@@ -80,7 +80,13 @@ export interface AISystemCreate {
   risk_justification?: string | null;
 }
 
-export type AISystemUpdate = Partial<AISystemCreate>;
+export type AISystemUpdate = Partial<AISystemCreate> & {
+  last_scan_id?: string | null;
+  last_scan_date?: string | null;
+  compliance_score?: number | null;
+  active_violations?: number | null;
+  scan_status?: ScanStatusType;
+};
 
 export interface ActivityEvent {
   id: number;

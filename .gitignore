@@ -227,3 +227,9 @@ __marimo__/
 CLAUDE.md
 
 .DS_Store
+
+# Firebase emulator artifacts
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
+.firebaserc

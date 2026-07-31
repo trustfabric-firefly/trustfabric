@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { connection } from "next/server";
 import { headers } from "next/headers";
 import "./globals.css";
+import "./marketing.css";
 import { QueryProvider } from "@/providers/QueryProvider";
 import { AuthProvider } from "@/providers/AuthProvider";
 import { OrganizationProvider } from "@/providers/OrganizationProvider";

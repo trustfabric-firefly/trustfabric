@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -29,6 +29,13 @@ from app.services.notifications import notify_system_change
 from app.services.store import store
 
 
+from app.domain.system_presets import (
+    PRESET_SYSTEMS,
+    get_presets_by_category,
+    list_preset_categories,
+)
+
+
 class BulkImportRequest(BaseModel):
     systems: List[AISystemCreate]
 
@@ -36,6 +43,17 @@ class BulkImportRequest(BaseModel):
 class BulkImportResult(BaseModel):
     created: int
     errors: List[str]
+
+
+class SeedPresetsRequest(BaseModel):
+    category_id: Optional[str] = "all"
+
+
+class SeedPresetsResult(BaseModel):
+    created: int
+    systems_created: List[str]
+    errors: List[str]
+
 
 router = APIRouter()
 
@@ -231,3 +249,66 @@ def explain_missing(system_id: int, actor: Actor = Depends(require_operator)) ->
         CopilotOperation.explain_missing,
     )
     return result
+
+
+@router.get("/presets/list", summary="List available AI system preset categories and templates")
+def get_system_presets(actor: Actor = Depends(get_actor)) -> dict:
+    categories = list_preset_categories()
+    total_presets = len(PRESET_SYSTEMS)
+    return {
+        "categories": categories,
+        "total_presets": total_presets,
+        "presets": [p.model_dump(mode="json") for p in PRESET_SYSTEMS],
+    }
+
+
+@router.post(
+    "/presets/seed",
+    response_model=SeedPresetsResult,
+    status_code=status.HTTP_200_OK,
+    summary="Seed pre-configured industry AI systems into inventory (admin only)",
+)
+async def seed_system_presets(
+    payload: Optional[SeedPresetsRequest] = None,
+    actor: Actor = Depends(require_admin),
+) -> SeedPresetsResult:
+    cat_id = payload.category_id if payload else "all"
+    presets = get_presets_by_category(cat_id)
+    if not presets:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No system presets found for category '{cat_id}'",
+        )
+
+    existing_systems = store.list_systems(actor.organization_id)
+    existing_names = {s.name.lower().strip() for s in existing_systems}
+
+    created_count = 0
+    systems_created: List[str] = []
+    errors: List[str] = []
+
+    for preset in presets:
+        if preset.name.lower().strip() in existing_names:
+            continue
+        try:
+            create_payload = preset.to_create_payload()
+            system = store.create_system(
+                create_payload,
+                user_id=actor.user_id,
+                organization_id=actor.organization_id,
+            )
+            created_count += 1
+            systems_created.append(system.name)
+            existing_names.add(system.name.lower().strip())
+            try:
+                await notify_system_change(actor.organization_id, system, "created")
+            except Exception:
+                pass
+        except Exception as e:
+            errors.append(f"Failed to seed '{preset.name}': {str(e)}")
+
+    return SeedPresetsResult(
+        created=created_count,
+        systems_created=systems_created,
+        errors=errors,
+    )

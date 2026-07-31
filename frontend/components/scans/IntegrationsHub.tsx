@@ -12,7 +12,7 @@ import {
 
 type ConnectionMap = Record<ScanAppId, boolean>;
 
-const CATEGORIES = ["All integrations", "Developer tools", "Cloud", "Design"] as const;
+const CATEGORIES = ["All integrations", "Developer tools", "AI & Data", "Publishing", "Cloud", "Design"] as const;
 
 type IntegrationsHubProps = {
     connected: ConnectionMap;
@@ -48,7 +48,7 @@ export function IntegrationsHub({ connected }: IntegrationsHubProps) {
             <header className="integrations-hub__intro">
                 <h2 className="integrations-hub__title">Integrations and connected apps</h2>
                 <p className="integrations-hub__subtitle">
-                    Supercharge your workflow — run compliance scans across GitHub, AWS, and Figma from one place.
+                    Supercharge your workflow — run compliance scans across GitHub, OpenAI, Substack, Slack, AWS, and Figma from one place.
                 </p>
             </header>
 

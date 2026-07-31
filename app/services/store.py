@@ -7,10 +7,13 @@ from typing import Any, List, Optional
 
 import firebase_admin
 from firebase_admin import credentials, firestore
+from google.auth.credentials import AnonymousCredentials
+from google.cloud import firestore as google_firestore
 
 from app.core.config import settings
 from app.core.secrets import (
     INTEGRATION_TOKEN_FIELDS,
+    MCP_TOKEN_FIELDS,
     decrypt_secret,
     encrypt_secret,
     is_encrypted,
@@ -64,6 +67,7 @@ class FirestoreStore:
         self._copilot_quotas_collection = "organization_copilot_quotas"
         self._copilot_usage_collection = "organization_copilot_usage"
         self._copilot_user_daily_collection = "organization_copilot_user_daily"
+        self._mcp_servers_collection = "organization_mcp_servers"
         # Lazy init so importing the app without Firebase creds (e.g. unit tests) does not fail.
         self._db: Any = None
 
@@ -75,8 +79,19 @@ class FirestoreStore:
     def _init_firestore_client(self):
         """
         Initialize Firestore and fail fast when credentials are missing/invalid.
+
+        When FIRESTORE_EMULATOR_HOST is set the local emulator is used instead: it
+        accepts anonymous access, so no service account credentials are required.
         """
         creds_path = settings.firebase_credentials_file or os.getenv("SERVICE_FIREBASE")
+        if os.getenv("FIRESTORE_EMULATOR_HOST") or (creds_path and not os.path.exists(creds_path) and os.getenv("APP_ENV", "dev") == "dev"):
+            if not os.getenv("FIRESTORE_EMULATOR_HOST"):
+                os.environ["FIRESTORE_EMULATOR_HOST"] = "localhost:8080"
+            return google_firestore.Client(
+                project=settings.firebase_project_id or "trustfabric-local",
+                credentials=AnonymousCredentials(),
+            )
+
         if not creds_path:
             raise RuntimeError("Firebase credentials path is not configured. Set SERVICE_FIREBASE in .env.")
         if not os.path.exists(creds_path):
@@ -409,6 +424,54 @@ class FirestoreStore:
                 doc.reference.update(patches)
                 updated += 1
         return updated
+
+    # --- MCP servers ---
+    @staticmethod
+    def _encrypt_mcp_fields(doc: dict[str, Any]) -> dict[str, Any]:
+        out = dict(doc)
+        for field in MCP_TOKEN_FIELDS:
+            if out.get(field):
+                value = str(out[field])
+                if not is_encrypted(value):
+                    out[field] = encrypt_secret(value)
+        return out
+
+    @staticmethod
+    def _decrypt_mcp_fields(doc: dict[str, Any]) -> dict[str, Any]:
+        out = dict(doc)
+        for field in MCP_TOKEN_FIELDS:
+            if out.get(field):
+                out[field] = decrypt_secret(str(out[field]))
+        return out
+
+    def save_mcp_server(self, organization_id: str, server_id: str, payload: dict[str, Any]) -> None:
+        doc_id = f"{organization_id}_{server_id}"
+        body = self._encrypt_mcp_fields({
+            **payload,
+            "organization_id": organization_id,
+            "id": server_id,
+        })
+        self._client().collection(self._mcp_servers_collection).document(doc_id).set(body, merge=True)
+
+    def get_mcp_server(self, organization_id: str, server_id: str) -> Optional[dict[str, Any]]:
+        doc_id = f"{organization_id}_{server_id}"
+        doc = self._client().collection(self._mcp_servers_collection).document(doc_id).get()
+        if not doc.exists:
+            return None
+        return self._decrypt_mcp_fields(doc.to_dict() or {})
+
+    def list_mcp_servers(self, organization_id: str) -> List[dict[str, Any]]:
+        servers: List[dict[str, Any]] = []
+        for doc in self._client().collection(self._mcp_servers_collection).stream():
+            payload = doc.to_dict() or {}
+            if payload.get("organization_id") != organization_id:
+                continue
+            servers.append(self._decrypt_mcp_fields(payload))
+        return sorted(servers, key=lambda s: str(s.get("created_at", "")))
+
+    def delete_mcp_server(self, organization_id: str, server_id: str) -> None:
+        doc_id = f"{organization_id}_{server_id}"
+        self._client().collection(self._mcp_servers_collection).document(doc_id).delete()
 
     # --- Systems ---
     def create_system(self, data: AISystemCreate, user_id: str, organization_id: str) -> AISystem:
@@ -1379,6 +1442,83 @@ class FirestoreStore:
             "figma_handle": firestore.DELETE_FIELD,
             "figma_img_url": firestore.DELETE_FIELD,
             "figma_connected_at": firestore.DELETE_FIELD,
+        }
+        doc_ref = self._client().collection(self._integrations_collection).document(organization_id)
+        if doc_ref.get().exists:
+            doc_ref.update(fields_to_remove)
+
+    # --- Substack ---
+    def save_substack_connection(
+        self,
+        organization_id: str,
+        api_key: str,
+        publication: dict[str, Any],
+    ) -> None:
+        doc = {
+            "organization_id": organization_id,
+            "substack_api_key": api_key,
+            "substack_publication_url": publication.get("publication_url", ""),
+            "substack_connected_at": datetime.utcnow().isoformat(),
+        }
+        encrypted = self._encrypt_integration_fields(doc)
+        self._client().collection(self._integrations_collection).document(organization_id).set(
+            encrypted, merge=True
+        )
+
+    def get_substack_connection(self, organization_id: str) -> Optional[dict]:
+        doc = self._client().collection(self._integrations_collection).document(organization_id).get()
+        if not doc.exists:
+            return None
+        data = self._decrypt_integration_fields(doc.to_dict() or {})
+        if not data.get("substack_api_key"):
+            return None
+        return data
+
+    def delete_substack_connection(self, organization_id: str) -> None:
+        fields_to_remove = {
+            "substack_api_key": firestore.DELETE_FIELD,
+            "substack_publication_url": firestore.DELETE_FIELD,
+            "substack_connected_at": firestore.DELETE_FIELD,
+        }
+        doc_ref = self._client().collection(self._integrations_collection).document(organization_id)
+        if doc_ref.get().exists:
+            doc_ref.update(fields_to_remove)
+
+    # --- Model gateway (OpenAI-compatible) ---
+    def save_model_gateway_connection(
+        self,
+        organization_id: str,
+        endpoint: str,
+        api_key: str,
+        models: list[str],
+    ) -> None:
+        doc = {
+            "organization_id": organization_id,
+            "model_gateway_api_key": api_key,
+            "model_gateway_endpoint": endpoint,
+            "model_gateway_model_count": len(models),
+            "model_gateway_connected_at": datetime.utcnow().isoformat(),
+        }
+        encrypted = self._encrypt_integration_fields(doc)
+        self._client().collection(self._integrations_collection).document(organization_id).set(
+            encrypted, merge=True
+        )
+
+    def get_model_gateway_connection(self, organization_id: str) -> Optional[dict]:
+        doc = self._client().collection(self._integrations_collection).document(organization_id).get()
+        if not doc.exists:
+            return None
+        data = self._decrypt_integration_fields(doc.to_dict() or {})
+        if not data.get("model_gateway_api_key"):
+            return None
+        return data
+
+    def delete_model_gateway_connection(self, organization_id: str) -> None:
+        fields_to_remove = {
+            "model_gateway_api_key": firestore.DELETE_FIELD,
+            "model_gateway_endpoint": firestore.DELETE_FIELD,
+            "model_gateway_model_count": firestore.DELETE_FIELD,
+            "model_gateway_connected_at": firestore.DELETE_FIELD,
         }
         doc_ref = self._client().collection(self._integrations_collection).document(organization_id)
         if doc_ref.get().exists:

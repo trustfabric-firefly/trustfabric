@@ -35,8 +35,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("FIREBASE_CREDENTIALS_FILE", "SERVICE_FIREBASE"),
     )
 
-    claude_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-6"
+    claude_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("CLAUDE_API_KEY", "ANTHROPIC_API_KEY"),
+    )
+    anthropic_model: str = "claude-3-5-sonnet-20241022"
     openai_api_key: str = ""
     openai_base_url: str = ""
     openai_model: str = "z-ai/glm4.7"
@@ -69,6 +72,10 @@ class Settings(BaseSettings):
         default_factory=lambda: [
             "http://localhost:3000",
             "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+            "http://localhost:3005",
+            "http://127.0.0.1:3005",
             "http://localhost:5173",
         ]
     )

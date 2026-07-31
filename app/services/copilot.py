@@ -27,8 +27,10 @@ from app.services.openai_provider import (
 )
 
 
-ProviderFn = Callable[..., dict]
-PolicyProviderFn = Callable[..., dict]
+from typing import List, Optional
+
+ProviderFn = Callable[[int, str], dict]
+PolicyProviderFn = Callable[[str, str, Optional[List[str]]], dict]
 
 
 def _provider_order() -> list[str]:

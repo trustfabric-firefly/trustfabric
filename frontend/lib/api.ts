@@ -251,6 +251,13 @@ export const systemsApi = {
             method: "POST",
             body: JSON.stringify({ systems }),
         }),
+    listPresets: () =>
+        request<{ categories: Array<{ id: string; name: string }>; total_presets: number; presets: any[] }>("/api/v1/systems/presets/list"),
+    seedPresets: (category_id: string = "all") =>
+        request<{ created: number; systems_created: string[]; errors: string[] }>("/api/v1/systems/presets/seed", {
+            method: "POST",
+            body: JSON.stringify({ category_id }),
+        }),
 };
 
 /** Governance policies stored under Firestore `systems/{id}/policies/{policyId}`. */
@@ -406,6 +413,44 @@ export const integrationsApi = {
         request<FigmaIntegrationStatus>("/api/v1/integrations/figma/status"),
     disconnectFigma: () =>
         request<{ message: string }>("/api/v1/integrations/figma", { method: "DELETE" }),
+    connectSubstack: (api_key: string, publication_url: string) =>
+        request<SubstackIntegrationStatus>("/api/v1/integrations/substack/connect", {
+            method: "POST",
+            body: JSON.stringify({ api_key, publication_url }),
+        }),
+    getSubstackStatus: () =>
+        request<SubstackIntegrationStatus>("/api/v1/integrations/substack/status"),
+    disconnectSubstack: () =>
+        request<{ message: string }>("/api/v1/integrations/substack", { method: "DELETE" }),
+    connectModelGateway: (endpoint: string, api_key: string) =>
+        request<ModelGatewayIntegrationStatus>("/api/v1/integrations/model-gateway/connect", {
+            method: "POST",
+            body: JSON.stringify({ endpoint, api_key }),
+        }),
+    getModelGatewayStatus: () =>
+        request<ModelGatewayIntegrationStatus>("/api/v1/integrations/model-gateway/status"),
+    disconnectModelGateway: () =>
+        request<{ message: string }>("/api/v1/integrations/model-gateway", { method: "DELETE" }),
+};
+
+/** MCP server registry — register, audit, and authorize arbitrary MCP servers. */
+export const mcpApi = {
+    list: () => request<MCPServer[]>("/api/v1/mcp/servers"),
+    get: (serverId: string) => request<MCPServer>(`/api/v1/mcp/servers/${serverId}`),
+    register: (body: { name: string; url: string; access_token?: string }) =>
+        request<MCPServer>("/api/v1/mcp/servers", {
+            method: "POST",
+            body: JSON.stringify(body),
+        }),
+    audit: (serverId: string) =>
+        request<MCPServer>(`/api/v1/mcp/servers/${serverId}/audit`, { method: "POST" }),
+    remove: (serverId: string) =>
+        request<void>(`/api/v1/mcp/servers/${serverId}`, { method: "DELETE" }),
+    startOAuth: (serverId: string) =>
+        request<{ authorization_url: string; server_id: string }>(
+            `/api/v1/mcp/servers/${serverId}/oauth/authorize`,
+            { method: "POST" }
+        ),
 };
 
 export type BackendStatus = {
@@ -731,6 +776,70 @@ export const brandComplianceApi = {
         return res.json();
     },
     getGuidelines: () => request<BrandGuidelines>("/api/v1/brand-compliance/guidelines"),
+};
+
+// --- Substack / model gateway / MCP ---
+
+export type SubstackIntegrationStatus = {
+    connected: boolean;
+    publication_url?: string;
+    connected_at?: string | null;
+};
+
+export type ModelGatewayIntegrationStatus = {
+    connected: boolean;
+    endpoint?: string;
+    model_count?: number;
+    connected_at?: string | null;
+};
+
+export type MCPAuthStatus =
+    | "none"
+    | "bearer"
+    | "oauth_required"
+    | "oauth_connected"
+    | "error";
+
+export type MCPToolInfo = {
+    name: string;
+    description: string;
+    input_schema: Record<string, unknown>;
+    annotations: Record<string, unknown>;
+    is_write: boolean;
+    is_destructive: boolean;
+    is_financial: boolean;
+};
+
+export type MCPToolSummary = {
+    total: number;
+    read_only: number;
+    write: number;
+    destructive: number;
+    financial: number;
+};
+
+export type MCPServer = {
+    id: string;
+    organization_id: string;
+    name: string;
+    url: string;
+    auth_status: MCPAuthStatus;
+    connected: boolean;
+    server_name: string;
+    server_version: string;
+    protocol_version: string;
+    tools: MCPToolInfo[];
+    tool_summary: MCPToolSummary;
+    last_error: string;
+    last_audited_at?: string | null;
+    created_at: string;
+    updated_at: string;
+    oauth_authorization_endpoint: string;
+    oauth_token_endpoint: string;
+    oauth_registration_endpoint: string;
+    oauth_resource: string;
+    oauth_scopes: string[];
+    oauth_client_id: string;
 };
 
 // --- Figma Integration ---

@@ -218,6 +218,11 @@ class AISystemUpdate(BaseModel):
     status: Optional[SystemStatus] = None
     risk_tier: Optional[RiskTier] = None
     risk_justification: Optional[str] = None
+    last_scan_id: Optional[str] = None
+    last_scan_date: Optional[datetime] = None
+    compliance_score: Optional[int] = None
+    active_violations: Optional[int] = None
+    scan_status: Optional[str] = None
 
 
 class AISystem(AISystemBase):
@@ -506,6 +511,116 @@ class FigmaIntegrationStatus(BaseModel):
 
 class FigmaConnectRequest(BaseModel):
     access_token: str = Field(..., min_length=10)
+
+
+# --- MCP (Model Context Protocol) server registry ---
+
+
+class MCPAuthStatus(str, Enum):
+    none = "none"                 # server needs no credentials
+    bearer = "bearer"             # a static token was supplied
+    oauth_required = "oauth_required"    # OAuth needed, not yet authorized
+    oauth_connected = "oauth_connected"  # OAuth completed, tokens held
+    error = "error"
+
+
+class MCPToolInfo(BaseModel):
+    name: str
+    description: str = ""
+    input_schema: Dict[str, Any] = Field(default_factory=dict)
+    annotations: Dict[str, Any] = Field(default_factory=dict)
+    is_write: bool = False
+    is_destructive: bool = False
+    is_financial: bool = False
+
+
+class MCPToolSummary(BaseModel):
+    total: int = 0
+    read_only: int = 0
+    write: int = 0
+    destructive: int = 0
+    financial: int = 0
+
+
+class MCPServer(BaseModel):
+    id: str
+    organization_id: str
+    name: str
+    url: str
+    auth_status: MCPAuthStatus = MCPAuthStatus.none
+    connected: bool = False
+    server_name: str = ""
+    server_version: str = ""
+    protocol_version: str = ""
+    tools: List[MCPToolInfo] = Field(default_factory=list)
+    tool_summary: MCPToolSummary = Field(default_factory=MCPToolSummary)
+    last_error: str = ""
+    last_audited_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+    # OAuth discovery results, cached so the authorize step need not re-discover.
+    oauth_authorization_endpoint: str = ""
+    oauth_token_endpoint: str = ""
+    oauth_registration_endpoint: str = ""
+    oauth_resource: str = ""
+    oauth_scopes: List[str] = Field(default_factory=list)
+    oauth_client_id: str = ""
+
+
+class MCPServerCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    url: str = Field(..., min_length=8, max_length=2048)
+    access_token: Optional[str] = Field(default=None, max_length=4096)
+
+    @field_validator("url")
+    @classmethod
+    def require_http_url(cls, value: str) -> str:
+        candidate = value.strip()
+        if not candidate.startswith(("http://", "https://")):
+            raise ValueError("MCP server URL must start with http:// or https://")
+        return candidate
+
+
+class MCPAuthorizeResponse(BaseModel):
+    authorization_url: str
+    server_id: str
+
+
+# --- Substack integration ---
+
+
+class SubstackIntegrationStatus(BaseModel):
+    connected: bool
+    publication_url: str = ""
+    connected_at: Optional[datetime] = None
+
+
+class SubstackConnectRequest(BaseModel):
+    api_key: str = Field(..., min_length=8, max_length=512)
+    publication_url: str = Field(default="", max_length=512)
+
+
+# --- Model gateway (OpenAI-compatible) integration ---
+
+
+class ModelGatewayIntegrationStatus(BaseModel):
+    connected: bool
+    endpoint: str = ""
+    model_count: int = 0
+    connected_at: Optional[datetime] = None
+
+
+class ModelGatewayConnectRequest(BaseModel):
+    endpoint: str = Field(..., min_length=8, max_length=1024)
+    api_key: str = Field(..., min_length=8, max_length=512)
+
+    @field_validator("endpoint")
+    @classmethod
+    def require_http_endpoint(cls, value: str) -> str:
+        candidate = value.strip().rstrip("/")
+        if not candidate.startswith(("http://", "https://")):
+            raise ValueError("Gateway endpoint must start with http:// or https://")
+        return candidate
 
 
 class AwsCheckResult(BaseModel):

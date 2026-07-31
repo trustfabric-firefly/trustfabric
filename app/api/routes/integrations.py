@@ -19,8 +19,12 @@ from app.domain.models import (
     FigmaUserInfo,
     GitHubIntegrationStatus,
     GitHubUserInfo,
+    ModelGatewayConnectRequest,
+    ModelGatewayIntegrationStatus,
     SlackConnectionInfo,
     SlackIntegrationStatus,
+    SubstackConnectRequest,
+    SubstackIntegrationStatus,
 )
 from app.integrations.github import (
     build_oauth_url,
@@ -31,7 +35,9 @@ from app.integrations.github import (
     get_user_orgs,
 )
 from app.integrations import aws as aws_integration
+from app.integrations import model_gateway as model_gateway_integration
 from app.integrations import slack as slack_integration
+from app.integrations import substack as substack_integration
 from app.services.figma import get_figma_user
 from app.services.store import store
 
@@ -349,3 +355,104 @@ async def figma_disconnect(actor: Actor = Depends(require_admin)) -> dict:
     """Remove the stored Figma connection for this workspace."""
     store.delete_figma_connection(actor.organization_id)
     return {"message": "Figma disconnected"}
+
+
+# ── Substack ──────────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/substack/connect",
+    response_model=SubstackIntegrationStatus,
+    dependencies=[Depends(RateLimited(TIER_EXPENSIVE))],
+)
+async def substack_connect(
+    body: SubstackConnectRequest,
+    actor: Actor = Depends(require_admin),
+) -> SubstackIntegrationStatus:
+    """Verify the publication and store its key.
+
+    Substack exposes no authenticated API, so the *publication* is verified and
+    the key is stored for the publishing-audit workflow. The key itself cannot
+    be validated by any endpoint Substack offers.
+    """
+    if not body.publication_url.strip():
+        raise HTTPException(status_code=400, detail="A Substack publication URL is required")
+    try:
+        publication = await substack_integration.verify_publication(body.publication_url)
+    except substack_integration.SubstackError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    store.save_substack_connection(actor.organization_id, body.api_key.strip(), publication)
+    return SubstackIntegrationStatus(
+        connected=True,
+        publication_url=publication["publication_url"],
+        connected_at=datetime.utcnow(),
+    )
+
+
+@router.get("/substack/status", response_model=SubstackIntegrationStatus)
+async def substack_status(actor: Actor = Depends(get_actor)) -> SubstackIntegrationStatus:
+    conn = store.get_substack_connection(actor.organization_id)
+    if not conn:
+        return SubstackIntegrationStatus(connected=False)
+    connected_at = conn.get("substack_connected_at")
+    return SubstackIntegrationStatus(
+        connected=True,
+        publication_url=str(conn.get("substack_publication_url", "")),
+        connected_at=datetime.fromisoformat(connected_at) if connected_at else None,
+    )
+
+
+@router.delete("/substack")
+async def substack_disconnect(actor: Actor = Depends(require_admin)) -> dict:
+    store.delete_substack_connection(actor.organization_id)
+    return {"message": "Substack disconnected"}
+
+
+# ── Model gateway (OpenAI-compatible) ─────────────────────────────────────────
+
+
+@router.post(
+    "/model-gateway/connect",
+    response_model=ModelGatewayIntegrationStatus,
+    dependencies=[Depends(RateLimited(TIER_EXPENSIVE))],
+)
+async def model_gateway_connect(
+    body: ModelGatewayConnectRequest,
+    actor: Actor = Depends(require_admin),
+) -> ModelGatewayIntegrationStatus:
+    """Authenticate against an OpenAI-compatible gateway and store the credentials."""
+    try:
+        models = await model_gateway_integration.verify_gateway(body.endpoint, body.api_key)
+    except model_gateway_integration.ModelGatewayError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    store.save_model_gateway_connection(
+        actor.organization_id, body.endpoint, body.api_key.strip(), models
+    )
+    return ModelGatewayIntegrationStatus(
+        connected=True,
+        endpoint=body.endpoint,
+        model_count=len(models),
+        connected_at=datetime.utcnow(),
+    )
+
+
+@router.get("/model-gateway/status", response_model=ModelGatewayIntegrationStatus)
+async def model_gateway_status(actor: Actor = Depends(get_actor)) -> ModelGatewayIntegrationStatus:
+    conn = store.get_model_gateway_connection(actor.organization_id)
+    if not conn:
+        return ModelGatewayIntegrationStatus(connected=False)
+    connected_at = conn.get("model_gateway_connected_at")
+    return ModelGatewayIntegrationStatus(
+        connected=True,
+        endpoint=str(conn.get("model_gateway_endpoint", "")),
+        model_count=int(conn.get("model_gateway_model_count", 0) or 0),
+        connected_at=datetime.fromisoformat(connected_at) if connected_at else None,
+    )
+
+
+@router.delete("/model-gateway")
+async def model_gateway_disconnect(actor: Actor = Depends(require_admin)) -> dict:
+    store.delete_model_gateway_connection(actor.organization_id)
+    return {"message": "Model gateway disconnected"}

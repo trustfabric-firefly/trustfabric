@@ -449,6 +449,9 @@ export default function CompliancePage() {
         subtitle={`EU AI Act · NIST AI RMF · NIST CSF · SOC 2 · scan ${activeScanId.slice(0, 12)}…`}
         actions={
           <div style={{ display: "flex", gap: "var(--s-2)", alignItems: "center" }}>
+            <Link href="/compliance/demo" className="btn btn--primary" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              🚀 Launch Firewall Simulator
+            </Link>
             {scans && scans.length > 1 && (
               <select
                 value={selectedScanId ?? latestScan?.scan_id ?? ""}

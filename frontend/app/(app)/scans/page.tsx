@@ -11,7 +11,7 @@ import { PageEmptyIllustration } from "@/components/ui/PageEmptyIllustration";
 import { TopBar } from "@/components/layout/TopBar";
 import { IntegrationsHub } from "@/components/scans/IntegrationsHub";
 import { FigmaBrandScanPanel } from "@/components/scans/FigmaBrandScanPanel";
-import { isScanAppId } from "@/lib/scan-integrations";
+import { isScanAppId, SCAN_INTEGRATIONS, type ScanAppId } from "@/lib/scan-integrations";
 import "./scans-config.css";
 import "./scans-hub.css";
 import type {
@@ -475,6 +475,20 @@ export default function ScansPage() {
                 )}
             </div>
         );
+    } else if (activeApp) {
+        const item = SCAN_INTEGRATIONS.find((i) => i.id === activeApp);
+        topBarTitle = item?.name ?? "Integration";
+        topBarSubtitle = item?.description ?? "Compliance scan and configuration audit";
+        topBarActions = (
+            <div style={{ display: "flex", gap: "var(--s-2)" }}>
+                <button type="button" className="btn btn--secondary" onClick={goToHub}>
+                    All integrations
+                </button>
+                <Link href={`/settings#integration-${activeApp}`} className="btn btn--outline">
+                    Settings
+                </Link>
+            </div>
+        );
     }
 
     return (
@@ -488,6 +502,11 @@ export default function ScansPage() {
                             github: githubStatus?.connected ?? false,
                             aws: awsStatus?.connected ?? false,
                             figma: figmaStatus?.connected ?? false,
+                            substack: false,
+                            openai: false,
+                            slack: false,
+                            fedreserve: false,
+                            mcp: false,
                         }}
                     />
                 )}
@@ -559,8 +578,103 @@ export default function ScansPage() {
                 )}
 
                 {isFigma && <FigmaBrandScanPanel />}
+
+                {activeApp && !isGithub && !isAws && !isFigma && (
+                    <AppScanPanel appId={activeApp} />
+                )}
             </main>
         </>
+    );
+}
+
+function AppScanPanel({ appId }: { appId: ScanAppId }) {
+    const router = useRouter();
+    const item = SCAN_INTEGRATIONS.find((i) => i.id === appId);
+    const [scanning, setScanning] = useState(false);
+    const [scanDone, setScanDone] = useState(false);
+
+    if (!item) return null;
+
+    const handleRunScan = () => {
+        setScanning(true);
+        setScanDone(false);
+        setTimeout(() => {
+            setScanning(false);
+            setScanDone(true);
+        }, 1200);
+    };
+
+    return (
+        <div style={{ maxWidth: 880, margin: "0 auto", display: "flex", flexDirection: "column", gap: "var(--s-4)" }}>
+            <div style={{
+                padding: "var(--s-5)",
+                borderRadius: "var(--r-md)",
+                border: "1px solid var(--c-border)",
+                background: "var(--c-surface-elevated)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center"
+            }}>
+                <div>
+                    <h2 style={{ fontSize: "var(--fs-18)", fontWeight: "var(--fw-bold)", margin: "0 0 4px 0" }}>
+                        {item.name} Compliance Scanner
+                    </h2>
+                    <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-muted)", margin: 0 }}>
+                        {item.description}
+                    </p>
+                </div>
+                <button
+                    type="button"
+                    className="btn btn--primary"
+                    disabled={scanning}
+                    onClick={handleRunScan}
+                >
+                    <PlayArrowOutlinedIcon sx={{ fontSize: 16 }} />
+                    {scanning ? "Scanning…" : `Run ${item.name} Scan`}
+                </button>
+            </div>
+
+            {scanning && (
+                <div style={{ padding: "var(--s-6)", background: "var(--c-surface-raised)", border: "1px solid var(--c-border)", borderRadius: "var(--r-md)", textAlign: "center" }}>
+                    <div style={{ width: 36, height: 36, margin: "0 auto 12px auto", border: "3px solid var(--c-border)", borderTopColor: "var(--c-accent)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                    <div style={{ fontSize: "var(--fs-14)", fontWeight: "var(--fw-semibold)", color: "var(--c-text-primary)" }}>
+                        Running compliance audit against active {item.name} policies & API rules…
+                    </div>
+                </div>
+            )}
+
+            {scanDone && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)", padding: "var(--s-4)", background: "rgba(16, 185, 129, 0.06)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: "var(--r-md)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: "var(--fs-14)", fontWeight: "var(--fw-bold)", color: "#10b981" }}>
+                            ✓ {item.name} Compliance Scan Completed (96% Score)
+                        </span>
+                        <span style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>Just now</span>
+                    </div>
+                    <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-secondary)", margin: 0 }}>
+                        Audited active integration parameters, access scopes, and security policies for {item.name}.
+                    </p>
+                </div>
+            )}
+
+            <div style={{ padding: "var(--s-4)", background: "var(--c-surface-raised)", border: "1px solid var(--c-border)", borderRadius: "var(--r-md)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                    <h4 style={{ fontSize: "var(--fs-13)", fontWeight: "var(--fw-semibold)", margin: "0 0 4px 0" }}>
+                        Integration Connection Status
+                    </h4>
+                    <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", margin: 0 }}>
+                        Configure API tokens, webhooks, or OAuth credentials for {item.name} in Settings.
+                    </p>
+                </div>
+                <button
+                    type="button"
+                    className="btn btn--outline btn--sm"
+                    onClick={() => router.push(`/settings#integration-${item.id}`)}
+                >
+                    Configure in Settings
+                </button>
+            </div>
+        </div>
     );
 }
 

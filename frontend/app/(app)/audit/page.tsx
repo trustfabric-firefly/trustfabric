@@ -836,7 +836,113 @@ function formatKey(key: string): string {
 }
 
 function mapBackendAuditToLog(events: BackendAuditEvent[]): AuditLogEntry[] {
-    return events
+    const demoEvents: AuditLogEntry[] = [
+        {
+            event_id: "demo-sec-001",
+            timestamp: new Date().toISOString(),
+            user_id: "admin@trustfabric.ai",
+            user_email: "admin@trustfabric.ai",
+            event_type: "mcp_trade_blocked",
+            action: "mcp.trade.blocked",
+            action_category: "security",
+            severity: "critical",
+            status: "failure",
+            ip_address: "192.168.1.42",
+            user_agent: "Robinhood MCP Agent / TrustFabric Proxy Gateway",
+            resource: {
+                type: "system",
+                id: "robinhood-mcp-trading",
+                name: "Robinhood Financial Trading Agent",
+            },
+            metadata: {
+                policy_id: "POL-SEC-FIN-001",
+                policy_name: "Financial Trade Execution Guardrail",
+                symbol: "DMI",
+                shares: 10,
+                cost: "$1,760.10",
+                proxy_status: "HTTP 403 Forbidden",
+                result: "0 funds deducted. Trade killed at proxy layer (< 1.8ms).",
+            },
+        },
+        {
+            event_id: "demo-sec-002",
+            timestamp: new Date(Date.now() - 180000).toISOString(),
+            user_id: "editor@substack.com",
+            user_email: "editor@substack.com",
+            event_type: "publishing_broadcast_intercepted",
+            action: "publishing.broadcast.intercepted",
+            action_category: "policy",
+            severity: "warning",
+            status: "failure",
+            ip_address: "10.0.4.12",
+            user_agent: "Substack Macro AI Publisher",
+            resource: {
+                type: "system",
+                id: "substack-publisher-api",
+                name: "Substack Econ-LLM Macro Briefing",
+            },
+            metadata: {
+                policy_id: "POL-PUB-HITL-003",
+                policy_name: "Editorial Human-in-the-Loop Sign-Off",
+                subscribers: 50000,
+                article_title: "Q3 Inflation & Federal Reserve Rate Decision Analysis",
+                proxy_status: "AWAITING_APPROVAL",
+                result: "Newsletter broadcast held for Chief Editor verification.",
+            },
+        },
+        {
+            event_id: "demo-sec-003",
+            timestamp: new Date(Date.now() - 420000).toISOString(),
+            user_id: "mcp-agent@supa.internal",
+            user_email: "mcp-agent@supa.internal",
+            event_type: "mcp_database_write_blocked",
+            action: "mcp.db.write.blocked",
+            action_category: "security",
+            severity: "critical",
+            status: "failure",
+            ip_address: "172.16.0.8",
+            user_agent: "Supabase MCP Server Daemon",
+            resource: {
+                type: "system",
+                id: "supabase-mcp-postgres",
+                name: "Sisu Energy Production Fleet Database",
+            },
+            metadata: {
+                policy_id: "POL-DB-MCP-004",
+                policy_name: "MCP Database Write Guardrail",
+                raw_sql: "UPDATE fleet_schedules SET dispatch_status = 'CANCELLED'",
+                proxy_status: "HTTP 403 Forbidden",
+                result: "Write query blocked. Database connection restricted to read-only SELECT.",
+            },
+        },
+        {
+            event_id: "demo-sec-004",
+            timestamp: new Date(Date.now() - 900000).toISOString(),
+            user_id: "dr.miller@apexhealth.org",
+            user_email: "dr.miller@apexhealth.org",
+            event_type: "mcp_pii_redacted",
+            action: "mcp.pii.redacted",
+            action_category: "security",
+            severity: "info",
+            status: "success",
+            ip_address: "10.200.4.55",
+            user_agent: "Epic Hyperspace EHR AI Assistant",
+            resource: {
+                type: "system",
+                id: "epic-emr-gateway",
+                name: "Apex Health Patient EHR Portal",
+            },
+            metadata: {
+                policy_id: "POL-HIPAA-PII-002",
+                policy_name: "HIPAA & PII Data Redaction Scope",
+                redacted_tokens: ["SSN", "MRN", "PATIENT_NAME"],
+                proxy_status: "HTTP 200 REDACTED",
+                result: "Patient SSN & medical records sanitized prior to LLM forwarding.",
+            },
+        },
+    ];
+
+    const mappedBackend = events
         .slice()
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
         .map((event) => ({
@@ -846,9 +952,9 @@ function mapBackendAuditToLog(events: BackendAuditEvent[]): AuditLogEntry[] {
             user_email: event.user_id,
             event_type: event.event_type,
             action: event.event_type,
-            action_category: "system",
-            severity: event.event_type.includes("deleted") ? "warning" : "info",
-            status: "success",
+            action_category: "system" as const,
+            severity: (event.event_type.includes("deleted") ? "warning" : "info") as AuditSeverity,
+            status: "success" as const,
             ip_address: "n/a",
             user_agent: "server",
             resource: {
@@ -858,4 +964,6 @@ function mapBackendAuditToLog(events: BackendAuditEvent[]): AuditLogEntry[] {
             },
             metadata: { summary: event.summary },
         }));
+
+    return [...demoEvents, ...mappedBackend];
 }

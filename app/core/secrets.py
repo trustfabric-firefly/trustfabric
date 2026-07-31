@@ -13,6 +13,15 @@ INTEGRATION_TOKEN_FIELDS = (
     "github_access_token",
     "slack_bot_token",
     "figma_access_token",
+    "substack_api_key",
+    "model_gateway_api_key",
+)
+
+# MCP credentials live in their own per-server documents, not the shared
+# integrations document, so they are encrypted separately.
+MCP_TOKEN_FIELDS = (
+    "access_token",
+    "refresh_token",
 )
 
 

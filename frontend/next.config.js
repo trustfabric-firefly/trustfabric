@@ -25,6 +25,9 @@ const staticSecurityHeaders = [
 const nextConfig = {
   reactCompiler: true,
   devIndicators: false,
+  turbopack: {
+    root: __dirname,
+  },
   experimental: {
     optimizePackageImports: ["@iconify/react"],
   },

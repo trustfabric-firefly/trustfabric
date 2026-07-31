@@ -51,7 +51,30 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Docs: `http://127.0.0.1:8000/docs` (Swagger) · `http://127.0.0.1:8000/redoc` · see **[docs/api.md](docs/api.md)** for the API documentation deliverable. CORS is driven by `cors_origins` in settings (defaults include `http://localhost:3000` and `http://127.0.0.1:3000`).
+Docs: `http://127.0.0.1:8000/docs` (Swagger) · `http://127.0.0.1:8000/redoc` · see **[docs/api.md](docs/api.md)** for API documentation. CORS defaults include `http://localhost:3000`, `http://127.0.0.1:3000`, and `http://localhost:3005`. This requires `service-firebase.json` (a real service account key). To run **without credentials**, use the Firestore emulator instead — see below.
+
+#### Local dev without Firebase credentials (Firestore emulator)
+
+Requires the Firebase CLI and a Java runtime (`brew install openjdk`; if `java` is not on your
+PATH, prefix commands with `export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"`).
+
+In one terminal:
+
+```bash
+firebase emulators:start --only firestore
+```
+
+In another, point the backend at it — `FIRESTORE_EMULATOR_HOST` makes the store skip the
+service-account requirement entirely:
+
+```bash
+source .venv/bin/activate
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Emulator UI: `http://127.0.0.1:4000/firestore`. Data is in-memory and resets when the emulator
+stops. Unset `FIRESTORE_EMULATOR_HOST` to go back to real Firestore.
+>>>>>>> f64269b (feat: complete standalone vendor demo, minimal TrustFabric design system, smart AI copilot, and audit stream integration)
 
 ---
 

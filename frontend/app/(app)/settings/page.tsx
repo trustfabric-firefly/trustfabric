@@ -1,17 +1,20 @@
 "use client";
-import { SettingsOutlinedIcon, LogoutOutlinedIcon, LinkOutlinedIcon, ContentCopyOutlinedIcon, CheckOutlinedIcon, GitHubIcon, CheckCircleOutlinedIcon, LinkOffOutlinedIcon, BrushOutlinedIcon, AutoAwesomeOutlinedIcon, BusinessOutlinedIcon, GroupOutlinedIcon, PersonRemoveOutlinedIcon, VpnKeyOutlinedIcon, NotificationsOutlinedIcon, SearchOutlinedIcon, InfoOutlinedIcon, WarningAmberOutlinedIcon, SendOutlinedIcon, TagOutlinedIcon, CloudOutlinedIcon, SecurityOutlinedIcon } from "@/lib/icons";
+import { SettingsOutlinedIcon, LogoutOutlinedIcon, LinkOutlinedIcon, ContentCopyOutlinedIcon, CheckOutlinedIcon, GitHubIcon, CheckCircleOutlinedIcon, LinkOffOutlinedIcon, BrushOutlinedIcon, AutoAwesomeOutlinedIcon, BusinessOutlinedIcon, GroupOutlinedIcon, PersonRemoveOutlinedIcon, VpnKeyOutlinedIcon, NotificationsOutlinedIcon, SearchOutlinedIcon, InfoOutlinedIcon, WarningAmberOutlinedIcon, SendOutlinedIcon, TagOutlinedIcon, CloudOutlinedIcon, SecurityOutlinedIcon, ExtensionOutlinedIcon } from "@/lib/icons";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { TopBar } from "@/components/layout/TopBar";
+import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/providers/AuthProvider";
 import {
     RESOLVED_API_BASE_URL,
     integrationsApi,
+    mcpApi,
     organizationsApi,
     settingsApi,
     webhooksApi,
+    type MCPServer,
     type OrgRole,
 } from "@/lib/api";
 import { useOrganization } from "@/providers/OrganizationProvider";
@@ -289,6 +292,16 @@ export default function SettingsPage() {
     const { data: figmaStatus, isLoading: figmaLoading, refetch: refetchFigma } = useQuery({
         queryKey: ["figma-status"],
         queryFn: integrationsApi.getFigmaStatus,
+        retry: false,
+    });
+    const { data: substackStatus, isLoading: substackLoading, refetch: refetchSubstack } = useQuery({
+        queryKey: ["substack-status"],
+        queryFn: integrationsApi.getSubstackStatus,
+        retry: false,
+    });
+    const { data: gatewayStatus, isLoading: gatewayLoading, refetch: refetchGateway } = useQuery({
+        queryKey: ["model-gateway-status"],
+        queryFn: integrationsApi.getModelGatewayStatus,
         retry: false,
     });
     const { data: backendStatus, isLoading: statusLoading } = useQuery({
@@ -764,6 +777,145 @@ export default function SettingsPage() {
             await integrationsApi.disconnectFigma();
             await refetchFigma();
         } catch { /* ignore */ }
+    };
+
+    // Substack actions
+    const [substackUrl, setSubstackUrl] = useState("");
+    const [substackKey, setSubstackKey] = useState("");
+    const [substackConnecting, setSubstackConnecting] = useState(false);
+    const [substackError, setSubstackError] = useState<string | null>(null);
+
+    const connectSubstack = async () => {
+        if (!substackUrl.trim() || !substackKey.trim()) return;
+        setSubstackConnecting(true);
+        setSubstackError(null);
+        try {
+            await integrationsApi.connectSubstack(substackKey.trim(), substackUrl.trim());
+            await refetchSubstack();
+            setSubstackUrl("");
+            setSubstackKey("");
+        } catch (err: unknown) {
+            setSubstackError(err instanceof Error ? err.message : "Failed to connect Substack");
+        }
+        setSubstackConnecting(false);
+    };
+    const disconnectSubstack = async () => {
+        try {
+            await integrationsApi.disconnectSubstack();
+            await refetchSubstack();
+        } catch { /* ignore */ }
+    };
+
+    // Model gateway actions
+    const [gatewayEndpoint, setGatewayEndpoint] = useState("https://api.openai.com/v1");
+    const [gatewayKey, setGatewayKey] = useState("");
+    const [gatewayConnecting, setGatewayConnecting] = useState(false);
+    const [gatewayError, setGatewayError] = useState<string | null>(null);
+
+    const connectGateway = async () => {
+        if (!gatewayEndpoint.trim() || !gatewayKey.trim()) return;
+        setGatewayConnecting(true);
+        setGatewayError(null);
+        try {
+            await integrationsApi.connectModelGateway(gatewayEndpoint.trim(), gatewayKey.trim());
+            await refetchGateway();
+            setGatewayKey("");
+        } catch (err: unknown) {
+            setGatewayError(err instanceof Error ? err.message : "Failed to connect gateway");
+        }
+        setGatewayConnecting(false);
+    };
+    const disconnectGateway = async () => {
+        try {
+            await integrationsApi.disconnectModelGateway();
+            await refetchGateway();
+        } catch { /* ignore */ }
+    };
+
+    // ─── MCP Server Registry (live, backed by /api/v1/mcp) ───────────────────────
+    const {
+        data: mcpServers,
+        isLoading: mcpLoading,
+        refetch: refetchMcp,
+    } = useQuery({
+        queryKey: ["mcp-servers"],
+        queryFn: mcpApi.list,
+        retry: false,
+    });
+
+    const [newMcpName, setNewMcpName] = useState("");
+    const [newMcpUrl, setNewMcpUrl] = useState("");
+    const [newMcpToken, setNewMcpToken] = useState("");
+    const [connectingMcp, setConnectingMcp] = useState(false);
+    const [mcpError, setMcpError] = useState<string | null>(null);
+    const [mcpBusyId, setMcpBusyId] = useState<string | null>(null);
+    const [mcpAuditModalItem, setMcpAuditModalItem] = useState<MCPServer | null>(null);
+
+    const handleConnectMcp = async () => {
+        const url = newMcpUrl.trim();
+        if (!url) return;
+        setConnectingMcp(true);
+        setMcpError(null);
+        try {
+            let name = newMcpName.trim();
+            if (!name) {
+                try {
+                    name = `MCP Server (${new URL(url).hostname})`;
+                } catch {
+                    name = "Custom MCP Server";
+                }
+            }
+            await mcpApi.register({
+                name,
+                url,
+                access_token: newMcpToken.trim() || undefined,
+            });
+            await refetchMcp();
+            setNewMcpName("");
+            setNewMcpUrl("");
+            setNewMcpToken("");
+        } catch (err: unknown) {
+            setMcpError(err instanceof Error ? err.message : "Failed to register MCP server");
+        }
+        setConnectingMcp(false);
+    };
+
+    const handleAuditMcp = async (id: string) => {
+        setMcpBusyId(id);
+        setMcpError(null);
+        try {
+            const updated = await mcpApi.audit(id);
+            await refetchMcp();
+            setMcpAuditModalItem(updated);
+        } catch (err: unknown) {
+            setMcpError(err instanceof Error ? err.message : "Audit failed");
+        }
+        setMcpBusyId(null);
+    };
+
+    const handleAuthorizeMcp = async (id: string) => {
+        setMcpBusyId(id);
+        setMcpError(null);
+        try {
+            const { authorization_url } = await mcpApi.startOAuth(id);
+            // Hand off to the provider's consent screen; the backend callback
+            // finishes the exchange and redirects back to /settings.
+            window.location.assign(authorization_url);
+        } catch (err: unknown) {
+            setMcpError(err instanceof Error ? err.message : "Could not start authorization");
+            setMcpBusyId(null);
+        }
+    };
+
+    const handleDisconnectMcp = async (id: string) => {
+        setMcpBusyId(id);
+        try {
+            await mcpApi.remove(id);
+            await refetchMcp();
+        } catch (err: unknown) {
+            setMcpError(err instanceof Error ? err.message : "Failed to remove MCP server");
+        }
+        setMcpBusyId(null);
     };
 
     const copyApiUrl = useCallback(() => {
@@ -1710,6 +1862,346 @@ export default function SettingsPage() {
                     )}
                 </SectionCard>
 
+                {/* ── 3e. Substack Integration ─────────────────────────────── */}
+                <SectionCard id={INTEGRATION_SECTION_IDS.substack}>
+                    <SectionHeader
+                        icon={<SendOutlinedIcon sx={{ fontSize: 24 }} />}
+                        title="Substack API Integration"
+                        subtitle="Connect a Substack publication for content publishing audit"
+                        badge={
+                            <span className={`badge ${substackStatus?.connected ? "badge--live" : "badge--neutral"}`}>
+                                {substackLoading ? "Loading…" : substackStatus?.connected ? "Connected" : "Not connected"}
+                            </span>
+                        }
+                    />
+
+                    {!substackLoading && substackStatus?.connected && (
+                        <>
+                            <SettingRow label="Publication" value={substackStatus.publication_url ?? "—"} />
+                            <SettingRow
+                                label="Connected"
+                                value={substackStatus.connected_at ? new Date(substackStatus.connected_at).toLocaleString() : "—"}
+                            />
+                            <button
+                                type="button"
+                                className="btn btn--secondary btn--sm"
+                                style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: "var(--s-3)" }}
+                                disabled={!canAdmin}
+                                onClick={() => void disconnectSubstack()}
+                            >
+                                <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
+                                Disconnect Substack
+                            </button>
+                        </>
+                    )}
+
+                    {!substackLoading && !substackStatus?.connected && (
+                        <>
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
+                                Enter your publication URL and key. TrustFabric verifies the publication is reachable
+                                and stores the key encrypted. Substack publishes no authenticated API, so the key
+                                itself cannot be validated at save time.
+                            </p>
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">Publication URL</label>
+                                <input
+                                    className="input"
+                                    value={substackUrl}
+                                    onChange={(e) => { setSubstackUrl(e.target.value); setSubstackError(null); }}
+                                    placeholder="https://yourpublication.substack.com"
+                                    style={{ fontFamily: "ui-monospace, monospace", fontSize: "var(--fs-12)" }}
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">Publication API key / secret</label>
+                                <input
+                                    className="input"
+                                    type="password"
+                                    value={substackKey}
+                                    onChange={(e) => { setSubstackKey(e.target.value); setSubstackError(null); }}
+                                    placeholder="sub_sec_live_..."
+                                    autoComplete="off"
+                                    style={{ fontFamily: "ui-monospace, monospace", fontSize: "var(--fs-12)" }}
+                                />
+                            </div>
+                            {substackError && (
+                                <div style={{
+                                    display: "flex", alignItems: "center", gap: "var(--s-2)",
+                                    padding: "var(--s-3)", borderRadius: "var(--r-sm)",
+                                    background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)",
+                                    fontSize: "var(--fs-12)", color: "var(--c-critical, #ef4444)", marginBottom: "var(--s-3)",
+                                }}>
+                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
+                                    {substackError}
+                                </div>
+                            )}
+                            <button
+                                type="button"
+                                className="btn btn--primary"
+                                style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                                disabled={!canAdmin || !substackUrl.trim() || substackKey.trim().length < 8 || substackConnecting}
+                                onClick={() => void connectSubstack()}
+                            >
+                                <SendOutlinedIcon sx={{ fontSize: 18 }} />
+                                {substackConnecting ? "Verifying…" : "Connect Substack"}
+                            </button>
+                        </>
+                    )}
+                </SectionCard>
+
+                {/* ── 3f. OpenAI / LLM Model Gateway Integration ──────────── */}
+                <SectionCard id={INTEGRATION_SECTION_IDS.openai}>
+                    <SectionHeader
+                        icon={<SecurityOutlinedIcon sx={{ fontSize: 24 }} />}
+                        title="OpenAI & LLM Model Gateway"
+                        subtitle="Pair an OpenAI-compatible endpoint for model inventory and invocation auditing"
+                        badge={
+                            <span className={`badge ${gatewayStatus?.connected ? "badge--live" : "badge--neutral"}`}>
+                                {gatewayLoading ? "Loading…" : gatewayStatus?.connected ? "Connected" : "Not connected"}
+                            </span>
+                        }
+                    />
+
+                    {!gatewayLoading && gatewayStatus?.connected && (
+                        <>
+                            <SettingRow label="Endpoint" value={gatewayStatus.endpoint ?? "—"} />
+                            <SettingRow label="Models exposed" value={String(gatewayStatus.model_count ?? 0)} />
+                            <SettingRow
+                                label="Connected"
+                                value={gatewayStatus.connected_at ? new Date(gatewayStatus.connected_at).toLocaleString() : "—"}
+                            />
+                            <button
+                                type="button"
+                                className="btn btn--secondary btn--sm"
+                                style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: "var(--s-3)" }}
+                                disabled={!canAdmin}
+                                onClick={() => void disconnectGateway()}
+                            >
+                                <LinkOffOutlinedIcon sx={{ fontSize: 16 }} />
+                                Disconnect gateway
+                            </button>
+                        </>
+                    )}
+
+                    {!gatewayLoading && !gatewayStatus?.connected && (
+                        <>
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)", lineHeight: 1.5 }}>
+                                Works with any OpenAI-compatible endpoint (OpenAI, Azure, vLLM, LiteLLM, OpenRouter).
+                                TrustFabric calls <code style={{ fontFamily: "monospace" }}>GET /models</code> with your key to
+                                verify access and record the model inventory.
+                            </p>
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">Gateway endpoint</label>
+                                <input
+                                    className="input"
+                                    value={gatewayEndpoint}
+                                    onChange={(e) => { setGatewayEndpoint(e.target.value); setGatewayError(null); }}
+                                    placeholder="https://api.openai.com/v1"
+                                    style={{ fontFamily: "ui-monospace, monospace", fontSize: "var(--fs-12)" }}
+                                />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                                <label className="form-label">API key</label>
+                                <input
+                                    className="input"
+                                    type="password"
+                                    value={gatewayKey}
+                                    onChange={(e) => { setGatewayKey(e.target.value); setGatewayError(null); }}
+                                    placeholder="sk-..."
+                                    autoComplete="off"
+                                    style={{ fontFamily: "ui-monospace, monospace", fontSize: "var(--fs-12)" }}
+                                />
+                            </div>
+                            {gatewayError && (
+                                <div style={{
+                                    display: "flex", alignItems: "center", gap: "var(--s-2)",
+                                    padding: "var(--s-3)", borderRadius: "var(--r-sm)",
+                                    background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)",
+                                    fontSize: "var(--fs-12)", color: "var(--c-critical, #ef4444)", marginBottom: "var(--s-3)",
+                                }}>
+                                    <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
+                                    {gatewayError}
+                                </div>
+                            )}
+                            <button
+                                type="button"
+                                className="btn btn--primary"
+                                style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                                disabled={!canAdmin || !gatewayEndpoint.trim() || gatewayKey.trim().length < 8 || gatewayConnecting}
+                                onClick={() => void connectGateway()}
+                            >
+                                <SecurityOutlinedIcon sx={{ fontSize: 18 }} />
+                                {gatewayConnecting ? "Verifying…" : "Connect Model Gateway"}
+                            </button>
+                        </>
+                    )}
+                </SectionCard>
+                {/* ── 3g. MCP Integration (Multi-MCP Registry) ─────────────── */}
+                <SectionCard id={INTEGRATION_SECTION_IDS.mcp}>
+                    <SectionHeader
+                        icon={<ExtensionOutlinedIcon sx={{ fontSize: 24 }} />}
+                        title="Model Context Protocol (MCP) Multi-Server Governance"
+                        subtitle="Register MCP servers and audit the tools they expose to your AI agents"
+                        badge={
+                            <span className={`badge ${(mcpServers?.length ?? 0) > 0 ? "badge--live" : "badge--neutral"}`}>
+                                {mcpLoading
+                                    ? "Loading…"
+                                    : `${mcpServers?.length ?? 0} server${(mcpServers?.length ?? 0) === 1 ? "" : "s"} registered`}
+                            </span>
+                        }
+                    />
+                    <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-4)", lineHeight: 1.5 }}>
+                        MCP lets AI agents invoke external tools. TrustFabric connects to each server, reads its
+                        advertised tool definitions, and flags which ones can write, destroy, or move money.
+                        Auditing is read-only — TrustFabric never invokes a server&apos;s tools.
+                    </p>
+
+                    {mcpError && (
+                        <div style={{
+                            display: "flex", alignItems: "center", gap: "var(--s-2)",
+                            padding: "var(--s-3)", borderRadius: "var(--r-sm)",
+                            background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)",
+                            fontSize: "var(--fs-12)", color: "var(--c-critical, #ef4444)", marginBottom: "var(--s-3)",
+                        }}>
+                            <WarningAmberOutlinedIcon sx={{ fontSize: 16, flexShrink: 0 }} />
+                            {mcpError}
+                        </div>
+                    )}
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-3)", marginBottom: "var(--s-5)" }}>
+                        {mcpLoading && (
+                            <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>Loading MCP servers…</div>
+                        )}
+
+                        {!mcpLoading && (mcpServers?.length ?? 0) === 0 && (
+                            <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                                No MCP servers registered yet. Add one below to begin governing it.
+                            </div>
+                        )}
+
+                        {(mcpServers ?? []).map((server) => {
+                            const needsAuth = server.auth_status === "oauth_required";
+                            const statusLabel = server.connected
+                                ? `${server.tool_summary.total} tools · ${server.tool_summary.write} write · ${server.tool_summary.financial} financial`
+                                : needsAuth
+                                    ? "Authorization required"
+                                    : server.last_error || "Not connected";
+                            return (
+                                <div key={server.id} style={{
+                                    padding: "var(--s-3)", borderRadius: "var(--r-sm)",
+                                    border: "1px solid var(--c-border)", background: "var(--c-surface-2)",
+                                    display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--s-3)",
+                                }}>
+                                    <div style={{ minWidth: 0 }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                            <span style={{ fontWeight: "var(--fw-bold)", fontSize: "var(--fs-13)" }}>
+                                                {server.name}
+                                            </span>
+                                            <span className={`badge ${server.connected ? "badge--live" : needsAuth ? "badge--warning" : "badge--neutral"}`}>
+                                                {server.connected ? "Connected" : needsAuth ? "Needs authorization" : "Disconnected"}
+                                            </span>
+                                            {server.tool_summary.destructive > 0 && (
+                                                <span className="badge badge--critical">
+                                                    {server.tool_summary.destructive} destructive
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div style={{
+                                            fontSize: "var(--fs-12)", color: "var(--c-text-muted)",
+                                            marginTop: 4, wordBreak: "break-all",
+                                        }}>
+                                            {server.url}
+                                        </div>
+                                        <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: 2 }}>
+                                            {statusLabel}
+                                            {server.server_name ? ` · ${server.server_name} ${server.server_version}` : ""}
+                                        </div>
+                                    </div>
+                                    <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                        {needsAuth && (
+                                            <button
+                                                type="button"
+                                                className="btn btn--primary btn--sm"
+                                                disabled={!canAdmin || mcpBusyId === server.id}
+                                                onClick={() => void handleAuthorizeMcp(server.id)}
+                                            >
+                                                {mcpBusyId === server.id ? "Starting…" : "Authorize"}
+                                            </button>
+                                        )}
+                                        <button
+                                            type="button"
+                                            className="btn btn--secondary btn--sm"
+                                            disabled={!canAdmin || mcpBusyId === server.id}
+                                            onClick={() => void handleAuditMcp(server.id)}
+                                        >
+                                            {mcpBusyId === server.id ? "Auditing…" : "Audit"}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn btn--outline btn--sm"
+                                            disabled={!canAdmin || mcpBusyId === server.id}
+                                            onClick={() => void handleDisconnectMcp(server.id)}
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <div style={{ borderTop: "1px solid var(--c-border)", paddingTop: "var(--s-4)" }}>
+                        <div style={{ fontSize: "var(--fs-12)", fontWeight: "var(--fw-bold)", marginBottom: "var(--s-3)" }}>
+                            Register an MCP server
+                        </div>
+                        <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                            <label className="form-label">Server name (optional)</label>
+                            <input
+                                className="input"
+                                value={newMcpName}
+                                onChange={(e) => setNewMcpName(e.target.value)}
+                                placeholder="e.g. Robinhood Trading MCP"
+                            />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                            <label className="form-label">MCP endpoint URL</label>
+                            <input
+                                className="input"
+                                value={newMcpUrl}
+                                onChange={(e) => { setNewMcpUrl(e.target.value); setMcpError(null); }}
+                                placeholder="https://agent.robinhood.com/mcp/trading"
+                                style={{ fontFamily: "ui-monospace, monospace", fontSize: "var(--fs-12)" }}
+                            />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: "var(--s-3)" }}>
+                            <label className="form-label">Bearer token (optional)</label>
+                            <input
+                                className="input"
+                                type="password"
+                                value={newMcpToken}
+                                onChange={(e) => setNewMcpToken(e.target.value)}
+                                placeholder="Leave blank for open or OAuth-protected servers"
+                                autoComplete="off"
+                                style={{ fontFamily: "ui-monospace, monospace", fontSize: "var(--fs-12)" }}
+                            />
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginTop: "var(--s-1)" }}>
+                                Servers that require OAuth are detected automatically — you&apos;ll get an
+                                <strong> Authorize</strong> button instead. Tokens are encrypted at rest.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            className="btn btn--primary btn--sm"
+                            disabled={!canAdmin || !newMcpUrl.trim() || connectingMcp}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                            onClick={() => void handleConnectMcp()}
+                        >
+                            <ExtensionOutlinedIcon sx={{ fontSize: 16 }} />
+                            {connectingMcp ? "Connecting & auditing…" : "Register MCP Server"}
+                        </button>
+                    </div>
+                </SectionCard>
+
                 {/* ── 4. Scan Defaults ──────────────────────────────────────── */}
                 <SectionCard>
                     <SectionHeader
@@ -2177,6 +2669,97 @@ export default function SettingsPage() {
                 </SectionCard>
 
             </div>
+
+            {mcpAuditModalItem && (
+                <Modal
+                    open={!!mcpAuditModalItem}
+                    onClose={() => setMcpAuditModalItem(null)}
+                    title={`MCP Tool Audit: ${mcpAuditModalItem.name}`}
+                >
+                    <div style={{ padding: "var(--s-2) 0" }}>
+                        <p style={{ fontSize: "var(--fs-13)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)" }}>
+                            Tools advertised by <code style={{ fontFamily: "monospace", color: "var(--c-accent)" }}>{mcpAuditModalItem.url}</code>
+                            {mcpAuditModalItem.last_audited_at
+                                ? ` · audited ${new Date(mcpAuditModalItem.last_audited_at).toLocaleString()}`
+                                : ""}
+                        </p>
+
+                        <div style={{ display: "flex", gap: "var(--s-3)", flexWrap: "wrap", marginBottom: "var(--s-4)", fontSize: "var(--fs-12)" }}>
+                            <span><strong>{mcpAuditModalItem.tool_summary.total}</strong> total</span>
+                            <span><strong>{mcpAuditModalItem.tool_summary.read_only}</strong> read-only</span>
+                            <span><strong>{mcpAuditModalItem.tool_summary.write}</strong> write</span>
+                            <span><strong>{mcpAuditModalItem.tool_summary.destructive}</strong> destructive</span>
+                            <span><strong>{mcpAuditModalItem.tool_summary.financial}</strong> financial</span>
+                        </div>
+
+                        {mcpAuditModalItem.tools.length === 0 && (
+                            <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-4)" }}>
+                                {mcpAuditModalItem.last_error
+                                    ? mcpAuditModalItem.last_error
+                                    : "This server did not advertise any tools."}
+                            </p>
+                        )}
+
+                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s-2)", marginBottom: "var(--s-4)", maxHeight: 420, overflowY: "auto" }}>
+                            {mcpAuditModalItem.tools.map((tool) => {
+                                const readOnly = !tool.is_write;
+                                const label = tool.is_destructive
+                                    ? "Destructive"
+                                    : tool.is_financial
+                                        ? "Financial"
+                                        : tool.is_write
+                                            ? "Write"
+                                            : "Read-only";
+                                return (
+                                    <div key={tool.name} style={{
+                                        padding: "var(--s-3)",
+                                        borderRadius: "var(--r-sm)",
+                                        background: readOnly ? "rgba(16, 185, 129, 0.04)" : "rgba(239, 68, 68, 0.06)",
+                                        border: `1px solid ${readOnly ? "rgba(16, 185, 129, 0.2)" : "rgba(239, 68, 68, 0.3)"}`,
+                                        display: "flex",
+                                        justifyContent: "space-between",
+                                        alignItems: "center",
+                                        gap: "var(--s-3)",
+                                    }}>
+                                        <div style={{ minWidth: 0 }}>
+                                            <div style={{ fontSize: "var(--fs-13)", fontWeight: "var(--fw-bold)", fontFamily: "monospace", color: "var(--c-text-primary)" }}>
+                                                {tool.name}
+                                            </div>
+                                            <div style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)" }}>
+                                                {tool.description || "No description provided"}
+                                            </div>
+                                        </div>
+                                        <span style={{
+                                            fontSize: "var(--fs-11)",
+                                            fontWeight: "var(--fw-bold)",
+                                            color: readOnly ? "#10b981" : "#ef4444",
+                                            background: readOnly ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)",
+                                            padding: "3px 8px",
+                                            borderRadius: "10px",
+                                            flexShrink: 0,
+                                            whiteSpace: "nowrap",
+                                        }}>
+                                            {label}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        <p style={{ fontSize: "var(--fs-12)", color: "var(--c-text-muted)", marginBottom: "var(--s-3)" }}>
+                            Classification uses the server&apos;s own <code style={{ fontFamily: "monospace" }}>readOnlyHint</code> and
+                            <code style={{ fontFamily: "monospace" }}> destructiveHint</code> annotations where provided, falling back to
+                            naming heuristics. It records what a server <em>exposes</em>; it does not itself block calls made by your agents.
+                        </p>
+
+                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                            <button type="button" className="btn btn--primary" onClick={() => setMcpAuditModalItem(null)}>
+                                Close Audit Report
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
         </main>
     );
 }
